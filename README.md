@@ -1,6 +1,6 @@
-# Sui Gas Pool
+# Iota Gas Pool
 
-Sui Gas Pool is a service that powers sponsored transactions on Sui at scale. It manages a database of gas coins owned
+Iota Gas Pool is a service that powers sponsored transactions on Iota at scale. It manages a database of gas coins owned
 by a sponsor address and provides APIs to reserve gas coins and use them to pay for transactions. It achieves
 scalability and high throughput by managing a large number of gas coin objects in the pool, so that it can sponsor a
 large number of transactions concurrently.
@@ -82,9 +82,9 @@ pub struct ReserveGasResponse {
 }
 
 pub struct ReserveGasResult {
-    pub sponsor_address: SuiAddress,
+    pub sponsor_address: IotaAddress,
     pub reservation_id: ReservationID,
-    pub gas_coins: Vec<SuiObjectRef>,
+    pub gas_coins: Vec<IotaObjectRef>,
 }
 
 pub struct ExecuteTxRequest {
@@ -97,7 +97,7 @@ pub struct ExecuteTxRequest {
 }
 
 pub struct ExecuteTxResponse {
-    pub effects: Option<SuiTransactionBlockEffects>,
+    pub effects: Option<IotaTransactionBlockEffects>,
     pub error: Option<String>,
 }
 
@@ -108,7 +108,7 @@ pub struct ExecuteTxResponse {
 The Gas Pool Initializer is able to initialize the global gas pool, as well as processing new funds and adding new coins
 to the gas pool.
 When we are starting up the gas pool for a given sponsor address for the first time, it will trigger the initialization
-process. It looks at all the SUI coins currently owned by the sponsor address, and split them into gas coins with a
+process. It looks at all the IOTA coins currently owned by the sponsor address, and split them into gas coins with a
 specified target balance. Once a day, it also looks at whether there is any coin owned by the sponsor address with a
 very large balance (NEW_COIN_BALANCE_FACTOR_THRESHOLD * target_init_balance), and if so it triggers initialization
 process again on the newly detected coin. This allows us add funding to the gas pool.
@@ -125,11 +125,11 @@ implementations:
 1. KMS Sidecar: This allows us to manage private keys in a secure key management service such as AWS KMS. You will need
    to run a KMS sidecar that accepts signing requests through a JSON-RPC endpoint, that talks to AWS and signs
    transactions. We provided a [sample implementation](sample_kms_sidecar/) of such sidecar in the repo.
-2. In-memory: This allows the gas pool server to load a SuiKeyPair directly from file and use it to sign transactions.
+2. In-memory: This allows the gas pool server to load a IotaKeyPair directly from file and use it to sign transactions.
 
 ## Binaries
 
-### `sui-gas-station` Binary
+### `iota-gas-station` Binary
 
 The binary takes a an argument:
 
@@ -154,7 +154,7 @@ Below describes the steps to deploy a gas pool service:
    and
    this address cannot be used for any other purpose. Otherwise transactions sent outside of the gas pool could mess up
    the gas coin setup.
-2. Send a sufficiently funded SUI coin into that address. This will be the initial funding of the gas pool.
+2. Send a sufficiently funded IOTA coin into that address. This will be the initial funding of the gas pool.
 3. Deploy a Redis instance.
 4. Create a YAML config file (see details below).
 5. Pick a secure secret token for the RPC server, this will be passed through the `GAS_STATION_AUTH` environment
@@ -195,7 +195,7 @@ A description of these fields:
 - fullnode-url: The fullnode that the gas pool will be talking to.
 - coin-init-config
     - target-init-balance: The targeting initial balance of each coin (in MIST). For instance if you specify 100000000
-      which is 0.1 SUI, the gas pool will attempt to split its gas coin into smaller gas coins each with 0.1 SUI balance
+      which is 0.1 IOTA, the gas pool will attempt to split its gas coin into smaller gas coins each with 0.1 IOTA balance
       during initialization.
     - refresh-interval-sec: The interval to look at all gas coins owned by the sponsor again and see if some new funding
       has been added.

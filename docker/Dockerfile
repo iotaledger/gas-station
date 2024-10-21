@@ -1,5 +1,5 @@
 FROM rust:1.81-bullseye AS chef
-WORKDIR sui
+WORKDIR iota
 ARG GIT_REVISION
 ENV GIT_REVISION=$GIT_REVISION
 RUN apt-get update && apt-get install -y cmake clang
@@ -14,7 +14,7 @@ RUN cargo build --release
 # Production Image
 FROM debian:bullseye-slim AS runtime
 RUN apt-get update && apt-get install -y libjemalloc-dev ca-certificates
-COPY --from=builder /target/release/sui-gas-station /usr/local/bin
+COPY --from=builder /target/release/iota-gas-station /usr/local/bin
 
 ARG BUILD_DATE
 ARG GIT_REVISION

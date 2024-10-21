@@ -5,8 +5,8 @@ use anyhow::bail;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
-use sui_json_rpc_types::SuiObjectRef;
-use sui_types::base_types::{ObjectID, ObjectRef};
+use iota_json_rpc_types::IotaObjectRef;
+use iota_types::base_types::{ObjectID, ObjectRef};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct GasCoin {
@@ -15,12 +15,12 @@ pub struct GasCoin {
 }
 
 #[derive(Debug, JsonSchema, Serialize, Deserialize)]
-pub struct SuiGasCoin {
-    pub object_ref: SuiObjectRef,
+pub struct IotaGasCoin {
+    pub object_ref: IotaObjectRef,
     pub balance: u64,
 }
 
-impl From<GasCoin> for SuiGasCoin {
+impl From<GasCoin> for IotaGasCoin {
     fn from(gas_coin: GasCoin) -> Self {
         Self {
             object_ref: gas_coin.object_ref.into(),
@@ -29,8 +29,8 @@ impl From<GasCoin> for SuiGasCoin {
     }
 }
 
-impl From<SuiGasCoin> for GasCoin {
-    fn from(gas_coin: SuiGasCoin) -> Self {
+impl From<IotaGasCoin> for GasCoin {
+    fn from(gas_coin: IotaGasCoin) -> Self {
         Self {
             object_ref: gas_coin.object_ref.to_object_ref(),
             balance: gas_coin.balance,

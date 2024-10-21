@@ -4,24 +4,24 @@
 use crate::config::{CoinInitConfig, DEFAULT_DAILY_GAS_USAGE_CAP};
 use crate::gas_pool::gas_pool_core::GasPoolContainer;
 use crate::gas_pool_initializer::GasPoolInitializer;
+use crate::iota_client::IotaClient;
 use crate::metrics::{GasPoolCoreMetrics, GasPoolRpcMetrics};
 use crate::rpc::GasPoolServer;
 use crate::storage::connect_storage_for_testing;
-use crate::sui_client::SuiClient;
 use crate::tx_signer::{TestTxSigner, TxSigner};
 use crate::AUTH_ENV_NAME;
+use iota_config::local_ip_utils::{get_available_port, localhost_for_testing};
+use iota_swarm_config::genesis_config::AccountConfig;
+use iota_types::base_types::{IotaAddress, ObjectRef};
+use iota_types::crypto::get_account_key_pair;
+use iota_types::gas_coin::NANOS_PER_IOTA;
+use iota_types::signature::GenericSignature;
+use iota_types::transaction::{TransactionData, TransactionDataAPI};
 use std::sync::Arc;
-use sui_config::local_ip_utils::{get_available_port, localhost_for_testing};
-use sui_swarm_config::genesis_config::AccountConfig;
-use sui_types::base_types::{ObjectRef, SuiAddress};
-use sui_types::crypto::get_account_key_pair;
-use sui_types::gas_coin::MIST_PER_SUI;
-use sui_types::signature::GenericSignature;
-use sui_types::transaction::{TransactionData, TransactionDataAPI};
 use test_cluster::{TestCluster, TestClusterBuilder};
 use tracing::debug;
 
-pub async fn start_sui_cluster(init_gas_amounts: Vec<u64>) -> (TestCluster, Arc<dyn TxSigner>) {
+pub async fn start_iota_cluster(init_gas_amounts: Vec<u64>) -> (TestCluster, Arc<dyn TxSigner>) {
     let (sponsor, keypair) = get_account_key_pair();
     let cluster = TestClusterBuilder::new()
         .with_accounts(vec![
@@ -29,10 +29,10 @@ pub async fn start_sui_cluster(init_gas_amounts: Vec<u64>) -> (TestCluster, Arc<
                 address: Some(sponsor),
                 gas_amounts: init_gas_amounts,
             },
-            // Besides sponsor, also initialize another account with 1000 SUI.
+            // Besides sponsor, also initialize another account with 1000 IOTA.
             AccountConfig {
                 address: None,
-                gas_amounts: vec![1000 * MIST_PER_SUI],
+                gas_amounts: vec![1000 * NANOS_PER_IOTA],
             },
         ])
         .build()
@@ -44,15 +44,15 @@ pub async fn start_gas_station(
     init_gas_amounts: Vec<u64>,
     target_init_coin_balance: u64,
 ) -> (TestCluster, GasPoolContainer) {
-    debug!("Starting Sui cluster..");
-    let (test_cluster, signer) = start_sui_cluster(init_gas_amounts).await;
+    debug!("Starting Iota cluster..");
+    let (test_cluster, signer) = start_iota_cluster(init_gas_amounts).await;
     let fullnode_url = test_cluster.fullnode_handle.rpc_url.clone();
     let sponsor_address = signer.get_address();
     debug!("Starting storage. Sponsor address: {:?}", sponsor_address);
     let storage = connect_storage_for_testing(sponsor_address).await;
-    let sui_client = SuiClient::new(&fullnode_url, None).await;
+    let iota_client = IotaClient::new(&fullnode_url, None).await;
     GasPoolInitializer::start(
-        sui_client.clone(),
+        iota_client.clone(),
         storage.clone(),
         CoinInitConfig {
             target_init_balance: target_init_coin_balance,
@@ -64,7 +64,7 @@ pub async fn start_gas_station(
     let station = GasPoolContainer::new(
         signer,
         storage,
-        sui_client,
+        iota_client,
         DEFAULT_DAILY_GAS_USAGE_CAP,
         GasPoolCoreMetrics::new_for_testing(),
     )
@@ -91,7 +91,7 @@ pub async fn start_rpc_server_for_testing(
 
 pub async fn create_test_transaction(
     test_cluster: &TestCluster,
-    sponsor: SuiAddress,
+    sponsor: IotaAddress,
     gas_coins: Vec<ObjectRef>,
 ) -> (TransactionData, GenericSignature) {
     let user = test_cluster

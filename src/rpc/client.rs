@@ -10,10 +10,10 @@ use anyhow::bail;
 use fastcrypto::encoding::Base64;
 use reqwest::header::{HeaderMap, AUTHORIZATION};
 use reqwest::Client;
-use sui_json_rpc_types::SuiTransactionBlockEffects;
-use sui_types::base_types::{ObjectRef, SuiAddress};
-use sui_types::signature::GenericSignature;
-use sui_types::transaction::TransactionData;
+use iota_json_rpc_types::IotaTransactionBlockEffects;
+use iota_types::base_types::{ObjectRef, IotaAddress};
+use iota_types::signature::GenericSignature;
+use iota_types::transaction::TransactionData;
 
 #[derive(Clone)]
 pub struct GasPoolRpcClient {
@@ -83,7 +83,7 @@ impl GasPoolRpcClient {
         &self,
         gas_budget: u64,
         reserve_duration_secs: u64,
-    ) -> anyhow::Result<(SuiAddress, ReservationID, Vec<ObjectRef>)> {
+    ) -> anyhow::Result<(IotaAddress, ReservationID, Vec<ObjectRef>)> {
         let request = ReserveGasRequest {
             gas_budget,
             reserve_duration_secs,
@@ -127,7 +127,7 @@ impl GasPoolRpcClient {
         reservation_id: ReservationID,
         tx_data: &TransactionData,
         user_sig: &GenericSignature,
-    ) -> anyhow::Result<SuiTransactionBlockEffects> {
+    ) -> anyhow::Result<IotaTransactionBlockEffects> {
         let mut headers = HeaderMap::new();
         headers.insert(
             AUTHORIZATION,

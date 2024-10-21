@@ -5,10 +5,10 @@ use crate::types::ReservationID;
 use fastcrypto::encoding::Base64;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use sui_json_rpc_types::{SuiObjectRef, SuiTransactionBlockEffects};
-use sui_types::base_types::{ObjectRef, SuiAddress};
+use iota_json_rpc_types::{IotaObjectRef, IotaTransactionBlockEffects};
+use iota_types::base_types::{ObjectRef, IotaAddress};
 
-// 2 SUI.
+// 2 IOTA.
 pub const MAX_BUDGET: u64 = 2_000_000_000;
 
 // 10 mins.
@@ -49,14 +49,14 @@ pub struct ReserveGasResponse {
 
 #[derive(Debug, JsonSchema, Serialize, Deserialize)]
 pub struct ReserveGasResult {
-    pub sponsor_address: SuiAddress,
+    pub sponsor_address: IotaAddress,
     pub reservation_id: ReservationID,
-    pub gas_coins: Vec<SuiObjectRef>,
+    pub gas_coins: Vec<IotaObjectRef>,
 }
 
 impl ReserveGasResponse {
     pub fn new_ok(
-        sponsor_address: SuiAddress,
+        sponsor_address: IotaAddress,
         reservation_id: ReservationID,
         gas_coins: Vec<ObjectRef>,
     ) -> Self {
@@ -87,12 +87,12 @@ pub struct ExecuteTxRequest {
 
 #[derive(Debug, JsonSchema, Serialize, Deserialize)]
 pub struct ExecuteTxResponse {
-    pub effects: Option<SuiTransactionBlockEffects>,
+    pub effects: Option<IotaTransactionBlockEffects>,
     pub error: Option<String>,
 }
 
 impl ExecuteTxResponse {
-    pub fn new_ok(effects: SuiTransactionBlockEffects) -> Self {
+    pub fn new_ok(effects: IotaTransactionBlockEffects) -> Self {
         Self {
             effects: Some(effects),
             error: None,

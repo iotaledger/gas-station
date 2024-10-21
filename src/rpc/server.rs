@@ -18,10 +18,10 @@ use fastcrypto::encoding::Base64;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
-use sui_json_rpc_types::SuiTransactionBlockEffectsAPI;
-use sui_types::crypto::ToFromBytes;
-use sui_types::signature::GenericSignature;
-use sui_types::transaction::TransactionData;
+use iota_json_rpc_types::IotaTransactionBlockEffectsAPI;
+use iota_types::crypto::ToFromBytes;
+use iota_types::signature::GenericSignature;
+use iota_types::transaction::TransactionData;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info};
 

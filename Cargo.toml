@@ -1,10 +1,10 @@
 [package]
-name = "sui-gas-station"
+name = "iota-gas-station"
 version = "0.4.0"
 edition = "2021"
 authors = ["Mysten Labs <build@mystenlabs.com>"]
 license = "Apache-2.0"
-repository = "https://github.com/MystenLabs/sui-gas-station"
+repository = "https://github.com/MystenLabs/iota-gas-station"
 
 [dependencies]
 #sui-config = { path = "../sui-upstream/crates/sui-config" }
@@ -18,14 +18,23 @@ repository = "https://github.com/MystenLabs/sui-gas-station"
 #typed-store = { path = "../sui-upstream/crates/typed-store" }
 #typed-store-derive = { path = "../sui-upstream/crates/typed-store-derive" }
 
+# fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", branch = "main" }
+# mysten-metrics = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "mysten-metrics" }
+# sui-config = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "sui-config" }
+# sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "sui-json-rpc-types" }
+# sui-sdk = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "sui-sdk" }
+# sui-types = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "sui-types" }
+# shared-crypto = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "shared-crypto" }
+# telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "telemetry-subscribers" }
+
 fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", branch = "main" }
-mysten-metrics = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "mysten-metrics" }
-sui-config = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "sui-config" }
-sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "sui-json-rpc-types" }
-sui-sdk = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "sui-sdk" }
-sui-types = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "sui-types" }
-shared-crypto = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "shared-crypto" }
-telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "telemetry-subscribers" }
+iota-metrics = { path = "../../iota/iota/crates/iota-metrics" }
+iota-config = { path = "../../iota/iota/crates/iota-config" }
+iota-json-rpc-types = { path = "../../iota/iota/crates/iota-json-rpc-types" }
+iota-sdk = { path = "../../iota/iota/crates/iota-sdk" }
+iota-types = { path = "../../iota/iota/crates/iota-types" }
+shared-crypto = { path = "../../iota/iota/crates/shared-crypto" }
+telemetry-subscribers = { path = "../../iota/iota/crates/telemetry-subscribers" }
 
 anyhow = "1.0.75"
 async-trait = "0.1.51"
@@ -57,8 +66,8 @@ serde_json = "1.0.108"
 [dev-dependencies]
 rand = "0.8.5"
 
-sui-swarm-config = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "sui-swarm-config" }
-test-cluster = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "test-cluster" }
+iota-swarm-config = { path = "../../iota/iota/crates/iota-swarm-config" }
+test-cluster = { path = "../../iota/iota/crates/test-cluster" }
 
 [profile.release]
 panic = "abort"

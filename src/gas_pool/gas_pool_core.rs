@@ -1,23 +1,23 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::iota_client::IotaClient;
 use crate::metrics::GasPoolCoreMetrics;
 use crate::storage::Storage;
-use crate::sui_client::SuiClient;
 use crate::tx_signer::TxSigner;
 use crate::types::{GasCoin, ReservationID};
 use crate::{retry_forever, retry_with_max_attempts};
 use anyhow::bail;
-use std::sync::Arc;
-use std::time::Duration;
-use sui_json_rpc_types::{SuiTransactionBlockEffects, SuiTransactionBlockEffectsAPI};
-use sui_types::base_types::{ObjectID, ObjectRef, SuiAddress};
-use sui_types::gas_coin::MIST_PER_SUI;
-use sui_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
-use sui_types::signature::GenericSignature;
-use sui_types::transaction::{
+use iota_json_rpc_types::{IotaTransactionBlockEffects, IotaTransactionBlockEffectsAPI};
+use iota_types::base_types::{IotaAddress, ObjectID, ObjectRef};
+use iota_types::gas_coin::NANOS_PER_IOTA;
+use iota_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
+use iota_types::signature::GenericSignature;
+use iota_types::transaction::{
     Argument, Command, Transaction, TransactionData, TransactionDataAPI, TransactionKind,
 };
+use std::sync::Arc;
+use std::time::Duration;
 use tap::TapFallible;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info};
@@ -36,7 +36,7 @@ pub struct GasPoolContainer {
 pub struct GasPool {
     signer: Arc<dyn TxSigner>,
     gas_pool_store: Arc<dyn Storage>,
-    sui_client: SuiClient,
+    iota_client: IotaClient,
     metrics: Arc<GasPoolCoreMetrics>,
     gas_usage_cap: Arc<GasUsageCap>,
 }
@@ -45,14 +45,14 @@ impl GasPool {
     pub async fn new(
         signer: Arc<dyn TxSigner>,
         gas_pool_store: Arc<dyn Storage>,
-        sui_client: SuiClient,
+        iota_client: IotaClient,
         metrics: Arc<GasPoolCoreMetrics>,
         gas_usage_cap: Arc<GasUsageCap>,
     ) -> Arc<Self> {
         let pool = Self {
             signer,
             gas_pool_store,
-            sui_client,
+            iota_client,
             metrics,
             gas_usage_cap,
         };
@@ -63,7 +63,7 @@ impl GasPool {
         &self,
         gas_budget: u64,
         duration: Duration,
-    ) -> anyhow::Result<(SuiAddress, ReservationID, Vec<ObjectRef>)> {
+    ) -> anyhow::Result<(IotaAddress, ReservationID, Vec<ObjectRef>)> {
         let cur_time = std::time::Instant::now();
         self.gas_usage_cap.check_usage().await?;
         let sponsor = self.signer.get_address();
@@ -88,7 +88,7 @@ impl GasPool {
         reservation_id: ReservationID,
         tx_data: TransactionData,
         user_sig: GenericSignature,
-    ) -> anyhow::Result<SuiTransactionBlockEffects> {
+    ) -> anyhow::Result<IotaTransactionBlockEffects> {
         let sponsor = tx_data.gas_data().owner;
         if !self.signer.is_valid_address(&sponsor) {
             bail!("Sponsor {:?} is not registered", sponsor);
@@ -133,7 +133,7 @@ impl GasPool {
                 );
                 #[cfg(test)]
                 {
-                    self.sui_client.wait_for_object(new_gas_coin).await;
+                    self.iota_client.wait_for_object(new_gas_coin).await;
                     assert_eq!(
                         self.get_total_gas_coin_balance(payment).await,
                         new_balance as u64
@@ -149,7 +149,7 @@ impl GasPool {
                     ?reservation_id,
                     "Querying latest gas state since transaction failed"
                 );
-                self.sui_client
+                self.iota_client
                     .get_latest_gas_objects(payment)
                     .await
                     .into_values()
@@ -182,7 +182,7 @@ impl GasPool {
         reservation_id: ReservationID,
         tx_data: TransactionData,
         user_sig: GenericSignature,
-    ) -> anyhow::Result<SuiTransactionBlockEffects> {
+    ) -> anyhow::Result<IotaTransactionBlockEffects> {
         let sponsor = tx_data.gas_data().owner;
         let cur_time = std::time::Instant::now();
         let sponsor_sig = retry_with_max_attempts!(
@@ -202,7 +202,7 @@ impl GasPool {
 
         let tx = Transaction::from_generic_sig_data(tx_data, vec![sponsor_sig, user_sig]);
         let cur_time = std::time::Instant::now();
-        let effects = self.sui_client.execute_transaction(tx, 3).await?;
+        let effects = self.iota_client.execute_transaction(tx, 3).await?;
         debug!(?reservation_id, "Transaction executed");
         let elapsed = cur_time.elapsed().as_millis();
         self.metrics
@@ -218,7 +218,7 @@ impl GasPool {
     }
 
     async fn get_total_gas_coin_balance(&self, gas_coins: Vec<ObjectID>) -> u64 {
-        let latest = self.sui_client.get_latest_gas_objects(gas_coins).await;
+        let latest = self.iota_client.get_latest_gas_objects(gas_coins).await;
         latest
             .into_values()
             .flatten()
@@ -273,7 +273,7 @@ impl GasPool {
 
     /// Performs an end-to-end flow of reserving gas, signing a transaction, and releasing the gas coins.
     pub async fn debug_check_health(&self) -> anyhow::Result<()> {
-        let gas_budget = MIST_PER_SUI / 10;
+        let gas_budget = NANOS_PER_IOTA / 10;
         let (_address, _reservation_id, gas_coins) =
             self.reserve_gas(gas_budget, Duration::from_secs(3)).await?;
         let tx_kind = TransactionKind::ProgrammableTransaction(
@@ -282,7 +282,7 @@ impl GasPool {
         // Since we just want to check the health of the signer, we don't need to actually execute the transaction.
         let tx_data = TransactionData::new_with_gas_coins(
             tx_kind,
-            SuiAddress::default(),
+            IotaAddress::default(),
             gas_coins,
             gas_budget,
             0,
@@ -305,7 +305,7 @@ impl GasPool {
                 if !unlocked_coins.is_empty() {
                     debug!("Coins that are expired: {:?}", unlocked_coins);
                     let latest_coins: Vec<_> = self
-                        .sui_client
+                        .iota_client
                         .get_latest_gas_objects(unlocked_coins.clone())
                         .await
                         .into_values()
@@ -338,14 +338,14 @@ impl GasPoolContainer {
     pub async fn new(
         signer: Arc<dyn TxSigner>,
         gas_pool_store: Arc<dyn Storage>,
-        sui_client: SuiClient,
+        iota_client: IotaClient,
         gas_usage_daily_cap: u64,
         metrics: Arc<GasPoolCoreMetrics>,
     ) -> Self {
         let inner = GasPool::new(
             signer,
             gas_pool_store,
-            sui_client,
+            iota_client,
             metrics,
             Arc::new(GasUsageCap::new(gas_usage_daily_cap)),
         )

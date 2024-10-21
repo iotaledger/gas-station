@@ -10,7 +10,7 @@ pub mod gas_pool_initializer;
 pub mod metrics;
 pub mod rpc;
 pub mod storage;
-pub mod sui_client;
+pub mod iota_client;
 #[cfg(test)]
 pub mod test_env;
 pub mod tx_signer;

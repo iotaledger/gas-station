@@ -9,17 +9,17 @@ use serde_json::json;
 use shared_crypto::intent::{Intent, IntentMessage};
 use std::str::FromStr;
 use std::sync::Arc;
-use sui_types::base_types::SuiAddress;
-use sui_types::crypto::{Signature, SuiKeyPair};
-use sui_types::signature::GenericSignature;
-use sui_types::transaction::TransactionData;
+use iota_types::base_types::IotaAddress;
+use iota_types::crypto::{Signature, IotaKeyPair};
+use iota_types::signature::GenericSignature;
+use iota_types::transaction::TransactionData;
 
 #[async_trait::async_trait]
 pub trait TxSigner: Send + Sync {
     async fn sign_transaction(&self, tx_data: &TransactionData)
         -> anyhow::Result<GenericSignature>;
-    fn get_address(&self) -> SuiAddress;
-    fn is_valid_address(&self, address: &SuiAddress) -> bool {
+    fn get_address(&self) -> IotaAddress;
+    fn is_valid_address(&self, address: &IotaAddress) -> bool {
         self.get_address() == *address
     }
 }
@@ -32,14 +32,14 @@ struct SignatureResponse {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct SuiAddressResponse {
-    sui_pubkey_address: SuiAddress,
+struct IotaAddressResponse {
+    iota_pubkey_address: IotaAddress,
 }
 
 pub struct SidecarTxSigner {
     sidecar_url: String,
     client: Client,
-    sui_address: SuiAddress,
+    iota_address: IotaAddress,
 }
 
 impl SidecarTxSigner {
@@ -50,15 +50,15 @@ impl SidecarTxSigner {
             .send()
             .await
             .unwrap_or_else(|err| panic!("Failed to get pubkey address: {}", err));
-        let sui_address = resp
-            .json::<SuiAddressResponse>()
+        let iota_address = resp
+            .json::<IotaAddressResponse>()
             .await
             .unwrap_or_else(|err| panic!("Failed to parse address response: {}", err))
-            .sui_pubkey_address;
+            .iota_pubkey_address;
         Arc::new(Self {
             sidecar_url,
             client,
-            sui_address,
+            iota_address,
         })
     }
 }
@@ -83,17 +83,17 @@ impl TxSigner for SidecarTxSigner {
         Ok(sig)
     }
 
-    fn get_address(&self) -> SuiAddress {
-        self.sui_address
+    fn get_address(&self) -> IotaAddress {
+        self.iota_address
     }
 }
 
 pub struct TestTxSigner {
-    keypair: SuiKeyPair,
+    keypair: IotaKeyPair,
 }
 
 impl TestTxSigner {
-    pub fn new(keypair: SuiKeyPair) -> Arc<Self> {
+    pub fn new(keypair: IotaKeyPair) -> Arc<Self> {
         Arc::new(Self { keypair })
     }
 }
@@ -104,12 +104,12 @@ impl TxSigner for TestTxSigner {
         &self,
         tx_data: &TransactionData,
     ) -> anyhow::Result<GenericSignature> {
-        let intent_msg = IntentMessage::new(Intent::sui_transaction(), tx_data);
+        let intent_msg = IntentMessage::new(Intent::iota_transaction(), tx_data);
         let sponsor_sig = Signature::new_secure(&intent_msg, &self.keypair).into();
         Ok(sponsor_sig)
     }
 
-    fn get_address(&self) -> SuiAddress {
+    fn get_address(&self) -> IotaAddress {
         (&self.keypair.public()).into()
     }
 }

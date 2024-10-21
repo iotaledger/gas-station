@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use mysten_metrics::histogram::Histogram;
+use iota_metrics::histogram::Histogram;
 use prometheus::{
     register_int_counter_vec_with_registry, register_int_counter_with_registry,
     register_int_gauge_vec_with_registry, IntCounter, IntCounterVec, IntGaugeVec, Registry,

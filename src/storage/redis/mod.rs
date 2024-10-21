@@ -13,7 +13,7 @@ use std::ops::Add;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use sui_types::base_types::{ObjectDigest, ObjectID, SequenceNumber, SuiAddress};
+use iota_types::base_types::{ObjectDigest, ObjectID, SequenceNumber, IotaAddress};
 use tracing::{debug, info};
 
 pub struct RedisStorage {
@@ -26,7 +26,7 @@ pub struct RedisStorage {
 impl RedisStorage {
     pub async fn new(
         redis_url: &str,
-        sponsor_address: SuiAddress,
+        sponsor_address: IotaAddress,
         metrics: Arc<StorageMetrics>,
     ) -> Self {
         let client = redis::Client::open(redis_url).unwrap();
@@ -284,7 +284,7 @@ impl Storage for RedisStorage {
 
 #[cfg(test)]
 mod tests {
-    use sui_types::base_types::{random_object_ref, SuiAddress};
+    use iota_types::base_types::{random_object_ref, IotaAddress};
 
     use crate::{
         metrics::StorageMetrics,
@@ -355,7 +355,7 @@ mod tests {
     async fn setup_storage() -> RedisStorage {
         let storage = RedisStorage::new(
             "redis://127.0.0.1:6379",
-            SuiAddress::ZERO,
+            IotaAddress::ZERO,
             StorageMetrics::new_for_testing(),
         )
         .await;
