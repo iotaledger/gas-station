@@ -5,16 +5,13 @@ use crate::types::GasCoin;
 use crate::{retry_forever, retry_with_max_attempts};
 use futures_util::stream::FuturesUnordered;
 use futures_util::StreamExt;
-use itertools::Itertools;
-use std::collections::HashMap;
-use std::time::Duration;
 use iota_json_rpc_types::IotaTransactionBlockEffectsAPI;
 use iota_json_rpc_types::{
     IotaData, IotaObjectDataOptions, IotaObjectResponse, IotaTransactionBlockEffects,
     IotaTransactionBlockResponseOptions,
 };
 use iota_sdk::IotaClientBuilder;
-use iota_types::base_types::{ObjectID, ObjectRef, IotaAddress};
+use iota_types::base_types::{IotaAddress, ObjectID, ObjectRef};
 use iota_types::coin::{PAY_MODULE_NAME, PAY_SPLIT_N_FUNC_NAME};
 use iota_types::gas_coin::GAS;
 use iota_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
@@ -23,6 +20,9 @@ use iota_types::transaction::{
     Argument, ObjectArg, ProgrammableTransaction, Transaction, TransactionKind,
 };
 use iota_types::IOTA_FRAMEWORK_PACKAGE_ID;
+use itertools::Itertools;
+use std::collections::HashMap;
+use std::time::Duration;
 use tap::TapFallible;
 use tracing::{debug, info};
 
@@ -233,22 +233,12 @@ impl IotaClient {
                 .read_api()
                 .get_object_with_options(obj_ref.0, IotaObjectDataOptions::default())
                 .await;
-<<<<<<< HEAD:src/sui_client.rs
-            if let Ok(SuiObjectResponse {
+            if let Ok(IotaObjectResponse {
                 data: Some(data), ..
             }) = response
             {
                 if data.version == obj_ref.1 {
                     break;
-=======
-            match response {
-                Ok(IotaObjectResponse {
-                    data: Some(data), ..
-                }) => {
-                    if data.version == obj_ref.1 {
-                        break;
-                    }
->>>>>>> update dependencies:src/iota_client.rs
                 }
             }
             tokio::time::sleep(Duration::from_millis(200)).await;
