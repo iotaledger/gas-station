@@ -4,41 +4,24 @@ version = "0.4.0"
 edition = "2021"
 authors = ["Mysten Labs <build@mystenlabs.com>"]
 license = "Apache-2.0"
-repository = "https://github.com/MystenLabs/iota-gas-station"
+repository = "https://github.com/iotaledger/iota-gas-station"
 
+# we use the commit from develop branch. The tag v1.0.0-alpha.1 doesn't work with the `iota-metrics`
 [dependencies]
-#sui-config = { path = "../sui-upstream/crates/sui-config" }
-#sui-json-rpc-types = { path = "../sui-upstream/crates/sui-json-rpc-types" }
-#sui-sdk = { path = "../sui-upstream/crates/sui-sdk" }
-#sui-swarm-config = { path = "../sui-upstream/crates/sui-swarm-config" }
-#sui-types = { path = "../sui-upstream/crates/sui-types" }
-#shared-crypto = { path = "../sui-upstream/crates/shared-crypto" }
-#telemetry-subscribers = { path = "../sui-upstream/crates/telemetry-subscribers" }
-#test-cluster = { path = "../sui-upstream/crates/test-cluster" }
-#typed-store = { path = "../sui-upstream/crates/typed-store" }
-#typed-store-derive = { path = "../sui-upstream/crates/typed-store-derive" }
-
-# fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", branch = "main" }
-# mysten-metrics = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "mysten-metrics" }
-# sui-config = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "sui-config" }
-# sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "sui-json-rpc-types" }
-# sui-sdk = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "sui-sdk" }
-# sui-types = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "sui-types" }
-# shared-crypto = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "shared-crypto" }
-# telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "telemetry-subscribers" }
 
 fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", branch = "main" }
-iota-metrics = { path = "../../iota/iota/crates/iota-metrics" }
-iota-config = { path = "../../iota/iota/crates/iota-config" }
-iota-json-rpc-types = { path = "../../iota/iota/crates/iota-json-rpc-types" }
-iota-sdk = { path = "../../iota/iota/crates/iota-sdk" }
-iota-types = { path = "../../iota/iota/crates/iota-types" }
-shared-crypto = { path = "../../iota/iota/crates/shared-crypto" }
-telemetry-subscribers = { path = "../../iota/iota/crates/telemetry-subscribers" }
+
+iota-metrics = { git = "https://github.com/iotaledger/iota", rev = "cc46ba5", package = "iota-metrics" }
+iota-config = { git = "https://github.com/iotaledger/iota", rev = "cc46ba5", package = "iota-config" }
+iota-json-rpc-types = { git = "https://github.com/iotaledger/iota", rev = "cc46ba5", package = "iota-json-rpc-types" }
+iota-sdk = { git = "https://github.com/iotaledger/iota", rev = "cc46ba5", package = "iota-sdk" }
+iota-types = { git = "https://github.com/iotaledger/iota", rev = "cc46ba5", package = "iota-types" }
+shared-crypto = { git = "https://github.com/iotaledger/iota", rev = "cc46ba5", package = "shared-crypto" }
+telemetry-subscribers = { git = "https://github.com/iotaledger/iota", rev = "cc46ba5", package = "telemetry-subscribers" }
 
 anyhow = "1.0.75"
 async-trait = "0.1.51"
-axum = {version = "0.6.6", features = ["headers"]}
+axum = { version = "0.6.6", features = ["headers"] }
 bcs = "0.1.6"
 clap = "4.4.10"
 chrono = "0.4.19"
@@ -51,7 +34,11 @@ once_cell = "1.19.0"
 parking_lot = "0.12.1"
 prometheus = "0.13.3"
 rand = "0.8.5"
-redis = { version = "0.24.0", features = ["default", "async-std-comp", "connection-manager"] }
+redis = { version = "0.24.0", features = [
+  "default",
+  "async-std-comp",
+  "connection-manager",
+] }
 reqwest = { version = "0.11.22", features = ["json"] }
 serde = { version = "1.0.193", features = ["derive", "rc"] }
 serde_with = "3.4.0"
@@ -59,16 +46,15 @@ schemars = "0.8.16"
 tap = "1.0.1"
 tempfile = "3.2.0"
 tracing = "0.1.40"
-tokio = { version = "1.36.0", features = ["full"] }
+tokio = { version = "1.39.2", features = ["full"] }
 tokio-retry = "0.3.0"
 serde_json = "1.0.108"
 
 [dev-dependencies]
 rand = "0.8.5"
 
-iota-swarm-config = { path = "../../iota/iota/crates/iota-swarm-config" }
-test-cluster = { path = "../../iota/iota/crates/test-cluster" }
+iota-swarm-config = { git = "https://github.com/iotaledger/iota", rev = "cc46ba5", package = "iota-swarm-config" }
+test-cluster = { git = "https://github.com/iotaledger/iota", rev = "cc46ba5", package = "test-cluster" }
 
 [profile.release]
 panic = "abort"
-
