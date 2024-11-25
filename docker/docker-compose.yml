@@ -1,0 +1,34 @@
+# Docker Compose configuration file for running the IOTA Gas Station in a container together with a Redis instance.
+# The intention of this docker-compose setup is to get up and running quickly in a development environment. This should not be used in production.
+version: "3.8"
+
+services:
+  redis:
+    image: redis:latest
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+  iota-gas-station:
+    build:
+      context: ..
+      args:
+        - BUILD_DATE=${BUILD_DATE:-latest}
+        - GIT_REVISION=${GIT_REVISION:-latest}
+      dockerfile: docker/Dockerfile
+    container_name: iota-gas-station
+    command: ["iota-gas-station", "--config-path", "/app/config.yaml"]
+    depends_on:
+      - redis
+    ports:
+      - "9527:9527" # RPC port
+      - "9184:9184" # Metrics port
+    environment:
+      - CONFIG_PATH=/app/config.yaml
+      - RUST_BACKTRACE=1
+    volumes:
+      - ./docker/config.yaml:/app/config.yaml
+
+volumes:
+  redis_data:
