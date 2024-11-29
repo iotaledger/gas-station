@@ -127,6 +127,91 @@ implementations:
    transactions. We provided a [sample implementation](sample_kms_sidecar/) of such sidecar in the repo.
 2. In-memory: This allows the gas pool server to load a IotaKeyPair directly from file and use it to sign transactions.
 
+### Gas Pool Server Access Controller
+
+The **Gas Pool Server** includes an **Access Controller** mechanism to manage access to the `execute_tx` endpoint. This feature allows you to implement filtering logic based on properties derived from transactions. Currently, the Access Controller supports filtering based on the sender's address, enabling you to block or allow specific addresses.
+
+We plan to extend the filtering functionality to include additional transaction parameters in future updates.
+
+To use the Access Controller, you must enable it in the `config.yaml` file.
+
+#### Access Controller Examples
+
+- Disable All Requests and Allow Only a Specific Address
+
+   The following configuration denies all incoming transactions except those from the specified sender address (`0x00000000`):
+
+   ```yaml
+   access-controller:
+   access-policy: deny-all
+   rules:
+      - sender-address: "0x00000000"
+        action: 'allow' # allowed actions: 'allow', 'deny'
+   ```
+
+---
+
+- Enables All Requests and Deny Only a Specific Address
+
+   The following configuration allows all incoming transactions except those from the specified sender address (`0x00000000`):
+
+   ```yaml
+   access-controller:
+   access-policy: deny-all
+   rules:
+      - sender-address: "0x00000000"
+        action: 'deny'
+   ```
+
+---
+
+- Gas Budget Constraints
+
+   The following configuration denies all incoming transactions except those from the specified sender address (`0x00000000`) and the transaction gas budget below the limit `1000000`
+
+   ```yaml
+   access-controller:
+   access-policy: deny-all
+   rules:
+      - sender-address: "0x00000000"
+        gas-budget: '<1000000' # allowed operators: =, !=, <, >, <=, >=
+        action: 'allow'
+   ```
+
+---
+
+- Advanced budgeting management
+
+   The following configuration accept all incoming transactions with gas budget below `500000`. For address sender address (`0x00000000`) the allowed gas budget is increased to `1000000`
+
+   ```yaml
+   access-controller:
+   access-policy: deny-all
+   rules:
+      - sender-address: "0x00000000"
+        gas-budget: '<=10000000'
+        action: 'allow'
+
+      - sender-address: '*'
+        gas-budget: '<500000'
+        action: 'allow'
+
+   ```
+
+---
+
+- Enable Access for All Requests but Block a Specific Address
+
+   This configuration allows all incoming requests but blocks those from the specified sender address (`0x00000000`):
+
+   ```yaml
+   access-controller:
+   access-policy: allow-all
+   rules:
+      - sender-address: "0x00000000"
+        action: 'deny'
+   ```
+
 ## Binaries
 
 ### `iota-gas-station` Binary
@@ -181,6 +266,8 @@ coin-init-config:
   target-init-balance: 100000000
   refresh-interval-sec: 86400
 daily-gas-usage-cap: 1500000000000
+access-controller:
+   access-policy: disabled
 ```
 
 If you want to use in-memory signer, you can remove `--with-sidecar-signer` from the command.
@@ -194,6 +281,7 @@ A description of these fields:
 - redis_url: The full URL of the Redis instance.
 - fullnode-url: The fullnode that the gas pool will be talking to.
 - coin-init-config
+
     - target-init-balance: The targeting initial balance of each coin (in MIST). For instance if you specify 100000000
       which is 0.1 IOTA, the gas pool will attempt to split its gas coin into smaller gas coins each with 0.1 IOTA balance
       during initialization.

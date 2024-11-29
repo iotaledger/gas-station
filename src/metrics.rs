@@ -26,6 +26,10 @@ pub struct GasPoolRpcMetrics {
     pub num_authorized_execute_tx_requests: IntCounter,
     pub num_successful_execute_tx_requests: IntCounter,
     pub num_failed_execute_tx_requests: IntCounter,
+
+    /// Access controller metrics
+    pub num_allowed_execute_tx_requests: IntCounter,
+    pub num_blocked_execute_tx_requests: IntCounter,
 }
 
 impl GasPoolRpcMetrics {
@@ -86,6 +90,18 @@ impl GasPoolRpcMetrics {
             num_failed_execute_tx_requests: register_int_counter_with_registry!(
                 "num_failed_execute_tx_requests",
                 "Total number of execute_tx RPC requests that failed",
+                registry,
+            )
+            .unwrap(),
+            num_allowed_execute_tx_requests: register_int_counter_with_registry!(
+                "num_allowed_execute_tx_requests",
+                "Total number execute_tx RPC requests allowed by the Access Controller",
+                registry,
+            )
+            .unwrap(),
+            num_blocked_execute_tx_requests: register_int_counter_with_registry!(
+                "num_blocked_execute_tx_requests",
+                "Total number execute_tx RPC requests blocked by the Access Controller",
                 registry,
             )
             .unwrap(),

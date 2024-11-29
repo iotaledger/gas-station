@@ -1,6 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::access_controller::AccessController;
 use crate::tx_signer::{SidecarTxSigner, TestTxSigner, TxSigner};
 use iota_config::Config;
 use iota_types::crypto::{get_account_key_pair, IotaKeyPair};
@@ -41,6 +42,8 @@ pub struct GasStationConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub coin_init_config: Option<CoinInitConfig>,
     pub daily_gas_usage_cap: u64,
+    #[serde(default)]
+    pub access_controller: AccessController,
 }
 
 impl Config for GasStationConfig {}
@@ -57,6 +60,7 @@ impl Default for GasStationConfig {
             fullnode_basic_auth: None,
             coin_init_config: Some(CoinInitConfig::default()),
             daily_gas_usage_cap: DEFAULT_DAILY_GAS_USAGE_CAP,
+            access_controller: AccessController::default(),
         }
     }
 }

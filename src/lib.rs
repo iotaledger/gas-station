@@ -1,16 +1,17 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+pub mod access_controller;
 pub mod benchmarks;
 pub mod command;
 pub mod config;
 pub mod errors;
 pub mod gas_pool;
 pub mod gas_pool_initializer;
+pub mod iota_client;
 pub mod metrics;
 pub mod rpc;
 pub mod storage;
-pub mod iota_client;
 #[cfg(test)]
 pub mod test_env;
 pub mod tx_signer;
