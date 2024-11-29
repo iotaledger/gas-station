@@ -12,6 +12,7 @@ use clap::*;
 use iota_config::Config;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tracing::info;
 
 #[derive(Parser)]
@@ -39,6 +40,7 @@ impl Command {
             metrics_port,
             coin_init_config,
             daily_gas_usage_cap,
+            access_controller,
         } = config;
 
         let metric_address = SocketAddr::new(IpAddr::V4(rpc_host_ip), metrics_port);
@@ -81,11 +83,15 @@ impl Command {
         .await;
 
         let rpc_metrics = GasPoolRpcMetrics::new(&prometheus_registry);
+
+        let access_controller = Arc::new(access_controller);
+
         let server = GasPoolServer::new(
             container.get_gas_pool_arc(),
             rpc_host_ip,
             rpc_port,
             rpc_metrics,
+            access_controller,
         )
         .await;
         server.handle.await.unwrap();
