@@ -1,0 +1,19 @@
+{
+  "name": "iota-gas-pool-ts-example",
+  "version": "1.0.0",
+  "description": "",
+  "main": "gasStationTest.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@iota/iota-sdk": "0.4.0",
+    "axios": "^1.7.9",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.4"
+  }
+}
