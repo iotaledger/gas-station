@@ -133,7 +133,18 @@ The **Gas Pool Server** includes an **Access Controller** mechanism to manage ac
 
 We plan to extend the filtering functionality to include additional transaction parameters in future updates.
 
+
 To use the Access Controller, you must enable it in the `config.yaml` file.
+
+### Monitoring
+
+### Prometheus Metrics
+
+The service exposes Prometheus metrics endpoints with a variety of metrics. The port can be configured in `config.yaml` using the `metrics-port` setting.
+
+### Transactions Logging
+
+For more detailed and granular monitoring, you can log transaction effects for every signed transaction. This can be enabled by setting the environment variable `TRANSACTIONS_LOGGING` to `true`.
 
 #### Access Controller Examples
 

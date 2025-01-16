@@ -9,6 +9,7 @@ pub mod errors;
 pub mod gas_pool;
 pub mod gas_pool_initializer;
 pub mod iota_client;
+pub mod logging;
 pub mod metrics;
 pub mod rpc;
 pub mod storage;
@@ -18,6 +19,8 @@ pub mod tx_signer;
 pub mod types;
 
 pub const AUTH_ENV_NAME: &str = "GAS_STATION_AUTH";
+pub const TRANSACTION_LOGGING_ENV_NAME: &str = "TRANSACTIONS_LOGGING";
+pub const TRANSACTION_LOGGING_TARGET_NAME: &str = "transactions";
 
 pub fn read_auth_env() -> String {
     std::env::var(AUTH_ENV_NAME)
