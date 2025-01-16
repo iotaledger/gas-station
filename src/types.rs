@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::bail;
+use iota_json_rpc_types::IotaObjectRef;
+use iota_types::base_types::{ObjectID, ObjectRef};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
-use iota_json_rpc_types::IotaObjectRef;
-use iota_types::base_types::{ObjectID, ObjectRef};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct GasCoin {

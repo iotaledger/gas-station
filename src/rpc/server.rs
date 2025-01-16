@@ -4,6 +4,7 @@
 use crate::access_controller::rule::TransactionDescription;
 use crate::access_controller::AccessController;
 use crate::gas_pool::gas_pool_core::GasPool;
+use crate::logging::TxLogMessage;
 use crate::metrics::GasPoolRpcMetrics;
 use crate::read_auth_env;
 use crate::rpc::client::GasPoolRpcClient;
@@ -25,7 +26,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinHandle;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, trace};
 
 const GIT_REVISION: &str = {
     if let Some(revision) = option_env!("GIT_REVISION") {
@@ -296,6 +297,8 @@ async fn execute_tx_impl(
                 effects.transaction_digest(),
                 effects.status()
             );
+            trace!(target: "transactions", "{}", TxLogMessage::new(&effects));
+
             metrics.num_successful_execute_tx_requests.inc();
             (StatusCode::OK, Json(ExecuteTxResponse::new_ok(effects)))
         }
