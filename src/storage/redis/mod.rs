@@ -8,12 +8,12 @@ use crate::storage::redis::script_manager::ScriptManager;
 use crate::storage::Storage;
 use crate::types::{GasCoin, ReservationID};
 use chrono::Utc;
+use iota_types::base_types::{IotaAddress, ObjectDigest, ObjectID, SequenceNumber};
 use redis::aio::ConnectionManager;
 use std::ops::Add;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use iota_types::base_types::{ObjectDigest, ObjectID, SequenceNumber, IotaAddress};
 use tracing::{debug, info};
 
 pub struct RedisStorage {

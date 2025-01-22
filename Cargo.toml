@@ -6,18 +6,18 @@ authors = ["Mysten Labs <build@mystenlabs.com>"]
 license = "Apache-2.0"
 repository = "https://github.com/iotaledger/iota-gas-station"
 
-# we use the commit from develop branch. The tag v1.0.0-alpha.1 doesn't work with the `iota-metrics`
 [dependencies]
 
-fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", branch = "main" }
+fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto" }
 
-iota-metrics = { git = "https://github.com/iotaledger/iota", rev = "cc46ba5", package = "iota-metrics" }
-iota-config = { git = "https://github.com/iotaledger/iota", rev = "cc46ba5", package = "iota-config" }
-iota-json-rpc-types = { git = "https://github.com/iotaledger/iota", rev = "cc46ba5", package = "iota-json-rpc-types" }
-iota-sdk = { git = "https://github.com/iotaledger/iota", rev = "cc46ba5", package = "iota-sdk" }
-iota-types = { git = "https://github.com/iotaledger/iota", rev = "cc46ba5", package = "iota-types" }
-shared-crypto = { git = "https://github.com/iotaledger/iota", rev = "cc46ba5", package = "shared-crypto" }
-telemetry-subscribers = { git = "https://github.com/iotaledger/iota", rev = "cc46ba5", package = "telemetry-subscribers" }
+iota-metrics = { git = "https://github.com/iotaledger/iota", version = "0.9.0-alpha", package = "iota-metrics" }
+iota-config = { git = "https://github.com/iotaledger/iota", version = "0.9.0-alpha", package = "iota-config" }
+iota-json-rpc-types = { git = "https://github.com/iotaledger/iota", version = "0.9.0-alpha", package = "iota-json-rpc-types" }
+iota-sdk = { git = "https://github.com/iotaledger/iota", version = "0.9.0-alpha", package = "iota-sdk" }
+iota-types = { git = "https://github.com/iotaledger/iota", version = "0.9.0-alpha", package = "iota-types" }
+shared-crypto = { git = "https://github.com/iotaledger/iota", version = "0.9.0-alpha", package = "shared-crypto" }
+telemetry-subscribers = { git = "https://github.com/iotaledger/iota", version = "0.9.0-alpha", package = "telemetry-subscribers" }
+
 
 anyhow = "1.0.75"
 async-trait = "0.1.51"
@@ -53,8 +53,8 @@ serde_json = "1.0.108"
 [dev-dependencies]
 rand = "0.8.5"
 
-iota-swarm-config = { git = "https://github.com/iotaledger/iota", rev = "cc46ba5", package = "iota-swarm-config" }
-test-cluster = { git = "https://github.com/iotaledger/iota", rev = "cc46ba5", package = "test-cluster" }
+iota-swarm-config = { git = "https://github.com/iotaledger/iota", version = "0.9.0-alpha", package = "iota-swarm-config" }
+test-cluster = { git = "https://github.com/iotaledger/iota", version = "0.9.0-alpha", package = "test-cluster" }
 
 [profile.release]
 panic = "abort"
