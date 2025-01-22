@@ -1,7 +1,7 @@
 // Copyright (c) 2024 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
-//! This module implements the access controller for the gas station.
+//! This module implements the access controller for the Gas Station.
 //! It provides a way to control the constraints for executing transactions, ensuring that only authorized addresses can perform specific actions.
 
 pub mod decision;

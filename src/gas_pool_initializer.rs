@@ -29,7 +29,7 @@ use tracing::{debug, error, info};
 /// is considered a new coin, and we will try to split it into smaller coins with balance close to target_init_coin_balance.
 const NEW_COIN_BALANCE_FACTOR_THRESHOLD: u64 = 200;
 
-/// Assume that initializing the gas pool (i.e. splitting coins) will take at most 12 hours.
+/// Assume that initializing the Gas Station (i.e. splitting coins) will take at most 12 hours.
 const MAX_INIT_DURATION_SEC: u64 = 60 * 60 * 12;
 
 #[derive(Clone)]

@@ -113,7 +113,7 @@ pub struct CoinInitConfig {
     /// When we split a new gas coin, what is the target balance for the new coins, in MIST.
     pub target_init_balance: u64,
     /// How often do we look at whether there are new coins added to the sponsor account that
-    /// requires initialization, i.e. splitting into smaller coins and add them to the gas pool.
+    /// requires initialization, i.e. splitting into smaller coins and add them to the Gas Station.
     /// This is in seconds.
     pub refresh_interval_sec: u64,
 }

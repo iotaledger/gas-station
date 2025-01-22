@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The AccessPolicy enum represents the access policy of the gas station.
+/// The AccessPolicy enum represents the access policy of the Gas Station.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, PartialOrd, Eq, Ord, Default)]
 #[serde(untagged, rename_all = "kebab-case")]
 pub enum AccessPolicy {

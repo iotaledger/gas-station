@@ -5,8 +5,8 @@ use crate::config::GasPoolStorageConfig;
 use crate::metrics::StorageMetrics;
 use crate::storage::redis::RedisStorage;
 use crate::types::{GasCoin, ReservationID};
+use iota_types::base_types::{IotaAddress, ObjectID};
 use std::sync::Arc;
-use iota_types::base_types::{ObjectID, IotaAddress};
 
 mod redis;
 
@@ -36,7 +36,7 @@ pub trait Storage: Sync + Send {
 
     async fn expire_coins(&self) -> anyhow::Result<Vec<ObjectID>>;
 
-    /// Initialize some of the gas pool statistics at the startup.
+    /// Initialize some of the Gas Station statistics at the startup.
     /// Such as the total number of gas coins and the total balance.
     /// This is needed for several reasons:
     /// 1. To make sure that these fields are not empty when the first query comes in.
@@ -45,10 +45,10 @@ pub trait Storage: Sync + Send {
     /// Returns the total number of gas coins and the total balance.
     async fn init_coin_stats_at_startup(&self) -> anyhow::Result<(u64, u64)>;
 
-    /// Whether the gas pool for the given sponsor address is initialized.
+    /// Whether the Gas Station for the given sponsor address is initialized.
     async fn is_initialized(&self) -> anyhow::Result<bool>;
 
-    /// Acquire a lock to initialize the gas pool for the given sponsor address for a certain duration.
+    /// Acquire a lock to initialize the Gas Station for the given sponsor address for a certain duration.
     /// Returns true if the lock is acquired, false otherwise.
     /// Once the lock is acquired, until it expires, no other caller can acquire the lock.
     /// The reason we use a lock duration is such that in case the server crashed while holding the lock,
@@ -117,12 +117,12 @@ pub async fn connect_storage_for_testing(sponsor_address: IotaAddress) -> Arc<dy
 mod tests {
     use crate::storage::{connect_storage_for_testing, Storage, MAX_GAS_PER_QUERY};
     use crate::types::GasCoin;
+    use iota_types::base_types::{random_object_ref, IotaAddress, ObjectID, SequenceNumber};
+    use iota_types::digests::ObjectDigest;
     use rand::random;
     use std::collections::BTreeSet;
     use std::sync::Arc;
     use std::time::Duration;
-    use iota_types::base_types::{random_object_ref, ObjectID, SequenceNumber, IotaAddress};
-    use iota_types::digests::ObjectDigest;
 
     async fn assert_coin_count(storage: &Arc<dyn Storage>, available: usize, reserved: usize) {
         assert_eq!(storage.get_available_coin_count().await.unwrap(), available);
@@ -168,7 +168,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_successful_reservation() {
-        // Create a gas pool of 100000 coins, each with balance of 1.
+        // Create a Gas Station of 100000 coins, each with balance of 1.
         let sponsor = IotaAddress::random_for_testing_only();
         let storage = setup(sponsor, vec![1; 100000]).await;
         assert_coin_count(&storage, 100000, 0).await;

@@ -12,7 +12,7 @@ target/
 # Local env file
 .env
 
-# Ignore gas station config file
+# Ignore Gas Station config file
 config.yaml
 
 # Ignore IOTA key files

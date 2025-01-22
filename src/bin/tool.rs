@@ -13,15 +13,15 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(
     name = "iota-gas-pool-tool",
-    about = "Iota Gas Pool Command Line Tools",
+    about = "Iota Gas Station Command Line Tools",
     rename_all = "kebab-case"
 )]
 pub enum ToolCommand {
-    /// Running benchmark. This will continue reserving gas coins on the gas station for some
+    /// Running benchmark. This will continue reserving gas coins on the Gas Station for some
     /// seconds, which would automatically expire latter.
     #[clap(name = "benchmark")]
     Benchmark {
-        #[arg(long, help = "Full URL to the gas station RPC server")]
+        #[arg(long, help = "Full URL to the Gas Station RPC server")]
         gas_station_url: String,
         #[arg(
             long,

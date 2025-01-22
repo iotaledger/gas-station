@@ -163,7 +163,7 @@ impl GasPoolCoreMetrics {
             ),
             num_gas_pool_invariant_violations: register_int_counter_with_registry!(
                 "num_gas_pool_invariant_violations",
-                "Total number of invariant violations in the gas pool core",
+                "Total number of invariant violations in the Gas Station core",
                 registry,
             )
                 .unwrap(),

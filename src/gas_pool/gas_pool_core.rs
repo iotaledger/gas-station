@@ -259,7 +259,7 @@ impl GasPool {
         Ok(())
     }
 
-    /// Release gas coins back to the gas pool, by adding them to the storage.
+    /// Release gas coins back to the Gas Station, by adding them to the storage.
     async fn release_gas_coins(&self, gas_coins: Vec<GasCoin>) {
         debug!("Trying to release gas coins: {:?}", gas_coins);
         retry_forever!(async {

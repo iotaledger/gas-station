@@ -3,7 +3,7 @@
 
 -- Acquires a lock for initializing a sponsor's account.
 -- We need a lock because during initialization we need to split the gas coins.
--- This cannot be done concurrently on multiple gas stations.
+-- This cannot be done concurrently on multiple Gas Stations.
 -- The lock is acquired for a certain duration, after which it is released.
 -- The duration should be long enough such that the initialization can be completed.
 -- If the lock is already acquired, the function returns 0.
