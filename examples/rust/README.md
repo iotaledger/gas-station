@@ -9,15 +9,20 @@ Before you start, ensure you have:
 
 1. Installed the `iota` CLI binaries.
 2. Configured them for the IOTA test network.
+    Your configuration file `.iota/iota_config/client.yaml` should include a section for the testnet:
 
-Your configuration file `.iota/iota_config/client.yaml` should include a section for the testnet:
+    ```yaml
+    - alias: testnet
+      rpc: "https://api.testnet.iota.cafe"
+      ws: ~
+      basic_auth: ~
+    ```
 
-```yaml
-- alias: testnet
-  rpc: "https://api.testnet.iota.cafe"
-  ws: ~
-  basic_auth: ~
-```
+    Active network should be set to `testnet:
+
+    ```yaml
+    active_env: testnet
+    ```
 
 ## Setting Up the Gas Station
 
@@ -26,8 +31,8 @@ Your configuration file `.iota/iota_config/client.yaml` should include a section
 The gas station requires Redis to sync state across multiple instances.
 To set up Redis, run the following command:
 
-```bash
-docker run -d --name redis -p 6379:6379 redis
+```shell
+make redis-run
 ```
 
 ### Step 2: Configuration
@@ -70,7 +75,7 @@ iota client faucet --address 0x22bf13eb9ab01e1b3d6ae605a7e94af6552fa8ccab81c2ef9
 To build the gas station binary, run:
 
 ```bash
-cargo run
+cargo build
 ```
 
 This will generate the binary at: `./target/debug/iota-gas-station`.
