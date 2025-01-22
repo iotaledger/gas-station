@@ -38,11 +38,7 @@ env:
 jobs:
   test:
     name: CI tests
-<<<<<<< HEAD
-    runs-on: [ubuntu-latest]
-=======
     runs-on: ubuntu-latest
->>>>>>> docs: rename gas pool to gas station
     steps:
       - name: Checkout repo
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # Pin v4.1.1
