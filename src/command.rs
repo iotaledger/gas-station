@@ -55,8 +55,8 @@ impl Command {
             telemetry_config = telemetry_config.with_trace_target(TRANSACTION_LOGGING_TARGET_NAME);
         }
         let _guard = telemetry_config.init();
-
         info!("Metrics server started at {:?}", metric_address);
+
         let signer = signer_config.new_signer().await;
         let storage_metrics = StorageMetrics::new(&prometheus_registry);
         let sponsor_address = signer.get_address();

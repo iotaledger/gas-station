@@ -3,7 +3,6 @@
 
 use std::fmt::{self, Display, Formatter};
 
-use anyhow::Context;
 use serde::Serialize;
 
 #[derive(Debug, Serialize, Clone)]
@@ -37,8 +36,7 @@ where
     D: Serialize + Clone,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let serialized =
-            serde_json::to_string(&self).map_err(|e| format!("Serialization error: {}", e))?;
+        let serialized = serde_json::to_string(&self).map_err(|_| fmt::Error)?;
         write!(f, "{}", serialized)
     }
 }
