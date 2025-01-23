@@ -42,7 +42,6 @@ impl AccessController {
             for (i, rule) in self.rules.iter().enumerate() {
                 if rule.check_access(self.access_policy, &transaction_description) == Decision::Deny
                 {
-                    // TODO for security reasons we shouldn't reveal information about the rule that denied the access
                     return Err(anyhow!("Access denied by rule {}", i));
                 }
             }
