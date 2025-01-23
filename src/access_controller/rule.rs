@@ -59,7 +59,7 @@ impl AccessRuleBuilder {
     }
 
     pub fn gas_budget(mut self, gas_size: ValueNumber) -> Self {
-        self.rule.gas_budget = Some(gas_size);
+        self.rule.transaction_gas_budget = Some(gas_size);
         self
     }
 }
@@ -69,7 +69,7 @@ impl AccessRuleBuilder {
 #[skip_serializing_none]
 pub struct AccessRule {
     pub sender_address: ValueIotaAddress,
-    pub gas_budget: Option<ValueNumber>,
+    pub transaction_gas_budget: Option<ValueNumber>,
 
     pub action: Action,
 }
@@ -92,7 +92,7 @@ impl AccessRule {
     pub fn rule_matches(&self, data: &TransactionDescription) -> bool {
         self.sender_address.includes(&data.sender_address)
             && self
-                .gas_budget
+                .transaction_gas_budget
                 .map(|size| size.matches(data.transaction_budget))
                 // If the gas size is not defined then the rule matches
                 .unwrap_or(true)

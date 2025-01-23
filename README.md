@@ -129,22 +129,9 @@ implementations:
 
 ### Gas Pool Server Access Controller
 
-The **Gas Pool Server** includes an **Access Controller** mechanism to manage access to the `execute_tx` endpoint. This feature allows you to implement filtering logic based on properties derived from transactions. Currently, the Access Controller supports filtering based on the sender's address, enabling you to block or allow specific addresses.
+The **Gas Pool Server** includes an **Access Controller** mechanism to manage access to the `/execute_tx` endpoint. This feature allows you to implement filtering logic based on properties derived from transactions. Currently, the Access Controller supports filtering based on the sender's address, enabling you to block or allow specific addresses.
 
 We plan to extend the filtering functionality to include additional transaction parameters in future updates.
-
-
-To use the Access Controller, you must enable it in the `config.yaml` file.
-
-### Monitoring
-
-### Prometheus Metrics
-
-The service exposes Prometheus metrics endpoints with a variety of metrics. The port can be configured in `config.yaml` using the `metrics-port` setting.
-
-### Transactions Logging
-
-For more detailed and granular monitoring, you can log transaction effects for every signed transaction. This can be enabled by setting the environment variable `TRANSACTIONS_LOGGING` to `true`.
 
 #### Access Controller Examples
 
@@ -185,7 +172,7 @@ For more detailed and granular monitoring, you can log transaction effects for e
    access-policy: deny-all
    rules:
       - sender-address: "0x00000000"
-        gas-budget: '<1000000' # allowed operators: =, !=, <, >, <=, >=
+        transaction-gas-budget: '<1000000' # allowed operators: =, !=, <, >, <=, >=
         action: 'allow'
    ```
 
@@ -200,11 +187,11 @@ For more detailed and granular monitoring, you can log transaction effects for e
    access-policy: deny-all
    rules:
       - sender-address: "0x00000000"
-        gas-budget: '<=10000000'
+        transaction-gas-budget: '<=10000000'
         action: 'allow'
 
       - sender-address: '*'
-        gas-budget: '<500000'
+        transaction-gas-budget: '<500000'
         action: 'allow'
 
    ```
@@ -222,6 +209,29 @@ For more detailed and granular monitoring, you can log transaction effects for e
       - sender-address: "0x00000000"
         action: 'deny'
    ```
+
+#### Access Controller Rule syntax
+
+|  parameter              | mandatory  | possible values                                                |
+|------------------------ | -----------|-----------------------------------------------------------------|
+| `sender-address`        |  yes       | `'0x0000000'`, `[0x00000000, 0x11111111]`, `'*'`               |
+| `gas-budget`            |  no        | `'=100'`, `'<100'`,  `'<=100'`, `'>100'`, `'>=100'`, `'!=100'` |
+| `action`                |  yes       | `'allow'`,  `'deny'`                                           |
+
+
+
+To use the Access Controller, you must enable it in the `config.yaml` file.
+
+### Monitoring
+
+### Prometheus Metrics
+
+The service exposes Prometheus metrics endpoints with a variety of metrics. The port can be configured in `config.yaml` using the `metrics-port` setting.
+
+### Transactions Logging
+
+For more detailed and granular monitoring, you can log transaction effects for every signed transaction. This can be enabled by setting the environment variable `TRANSACTIONS_LOGGING` to `true`.
+
 
 ## Binaries
 
