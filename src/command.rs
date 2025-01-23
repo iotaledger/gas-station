@@ -21,7 +21,7 @@ use tracing::info;
     rename_all = "kebab-case"
 )]
 pub struct Command {
-    #[arg(long, help = "Path to config file")]
+    #[arg(env, long, help = "Path to config file")]
     config_path: PathBuf,
 }
 

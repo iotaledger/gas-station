@@ -7,6 +7,7 @@ use iota_gas_station::benchmarks::kms_stress::run_kms_stress_test;
 use iota_gas_station::benchmarks::BenchmarkMode;
 use iota_gas_station::config::{GasPoolStorageConfig, GasStationConfig, TxSignerConfig};
 use iota_gas_station::rpc::client::GasPoolRpcClient;
+use iota_types::base_types::IotaAddress;
 use iota_types::crypto::get_account_key_pair;
 use std::path::PathBuf;
 
@@ -56,6 +57,10 @@ pub enum ToolCommand {
         config_path: PathBuf,
         #[arg(long, help = "Whether to use a sidecar service to sign transactions")]
         with_sidecar_signer: bool,
+        #[arg(long, help = "Configuration for docker compose")]
+        docker_compose: bool,
+        #[arg(long, short, help = "Overwrite the existing config file")]
+        force: bool,
     },
     #[clap(name = "cli")]
     CLI {
@@ -106,23 +111,49 @@ impl ToolCommand {
             ToolCommand::GenerateSampleConfig {
                 config_path,
                 with_sidecar_signer,
+                docker_compose,
+                force,
             } => {
+                let mut new_iota_address: Option<IotaAddress> = None;
                 let signer_config = if with_sidecar_signer {
                     TxSignerConfig::Sidecar {
                         sidecar_url: "http://localhost:3000".to_string(),
                     }
                 } else {
+                    let (iota_address, keypair) = get_account_key_pair();
+                    new_iota_address = Some(iota_address);
                     TxSignerConfig::Local {
-                        keypair: get_account_key_pair().1.into(),
+                        keypair: keypair.into(),
                     }
                 };
+                let redis_url = if docker_compose {
+                    "redis://redis:6379".to_string()
+                } else {
+                    "redis://127.0.0.1".to_string()
+                };
+
+                let fullnode_url = if docker_compose {
+                    "http://host.docker.internal:9000".to_string()
+                } else {
+                    "http://localhost:9000".to_string()
+                };
+
                 let config = GasStationConfig {
                     signer_config,
-                    gas_pool_config: GasPoolStorageConfig::Redis {
-                        redis_url: "redis://127.0.0.1".to_string(),
-                    },
+                    gas_pool_config: GasPoolStorageConfig::Redis { redis_url },
+                    fullnode_url,
                     ..Default::default()
                 };
+                if config_path.exists() && !force {
+                    eprintln!("Config file already exists. Use --force (-f) to overwrite.");
+                    std::process::exit(1);
+                }
+                if let Some(iota_address) = new_iota_address {
+                    println!(
+                        "Generated a new IOTA address. If you plan to use it, please make sure it has enough funds: '{}'",
+                        iota_address
+                    );
+                }
                 config.save(config_path).unwrap();
             }
             ToolCommand::CLI { cli_command } => match cli_command {
