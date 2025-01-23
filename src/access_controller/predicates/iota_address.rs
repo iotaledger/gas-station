@@ -1,17 +1,14 @@
 // Copyright (c) 2024 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
-use iota_types::base_types::IotaAddress;
-use serde::{de::IntoDeserializer, Deserialize, Serialize};
+use std::fmt;
 
-/// The ValueIotaAddress enum represents a single IotaAddress, a list of IotaAddress or all IotaAddresses.
-#[derive(Debug, Clone, Default)]
-pub enum ValueIotaAddress {
-    #[default]
-    All,
-    Single(IotaAddress),
-    List(Vec<IotaAddress>),
-}
+use fastcrypto::encoding::decode_bytes_hex;
+use iota_types::base_types::IotaAddress;
+use serde::{
+    de::{self, Visitor},
+    Deserialize, Serialize,
+};
 
 impl ValueIotaAddress {
     pub fn new(addresses: impl IntoIterator<Item = IotaAddress>) -> Self {
@@ -34,6 +31,15 @@ impl ValueIotaAddress {
     }
 }
 
+/// The ValueIotaAddress enum represents a single IotaAddress, a list of IotaAddress or all IotaAddresses.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum ValueIotaAddress {
+    #[default]
+    All,
+    Single(IotaAddress),
+    List(Vec<IotaAddress>),
+}
+
 impl Serialize for ValueIotaAddress {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -52,12 +58,37 @@ impl<'de> Deserialize<'de> for ValueIotaAddress {
     where
         D: serde::de::Deserializer<'de>,
     {
-        let value = String::deserialize(deserializer)?;
-        if value == "*" {
-            Ok(ValueIotaAddress::All)
-        } else {
-            IotaAddress::deserialize(value.into_deserializer()).map(ValueIotaAddress::Single)
+        struct ValueIotaAddressVisitor;
+
+        impl<'de> Visitor<'de> for ValueIotaAddressVisitor {
+            type Value = ValueIotaAddress;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a string, a single IotaAddress, or a list of IotaAddresses")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                if value == "*" {
+                    Ok(ValueIotaAddress::All)
+                } else {
+                    let from_hex: IotaAddress = decode_bytes_hex(value).map_err(E::custom)?;
+                    Ok(ValueIotaAddress::Single(from_hex))
+                }
+            }
+
+            fn visit_seq<A>(self, seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: de::SeqAccess<'de>,
+            {
+                let addresses = Vec::deserialize(de::value::SeqAccessDeserializer::new(seq))?;
+                Ok(ValueIotaAddress::List(addresses))
+            }
         }
+
+        deserializer.deserialize_any(ValueIotaAddressVisitor)
     }
 }
 
@@ -109,6 +140,10 @@ mod test {
             "0x0101010101010101010101010101010101010101010101010101010101010101\n",
             data
         );
+
+        let deserialized_value_iota_address: ValueIotaAddress =
+            serde_yaml::from_str(&data).unwrap();
+        assert_eq!(value_iota_address, deserialized_value_iota_address);
     }
 
     #[test]
@@ -121,6 +156,10 @@ mod test {
 - 0x0101010101010101010101010101010101010101010101010101010101010101\n",
             data
         );
+
+        let deserialized_value_iota_address: ValueIotaAddress =
+            serde_yaml::from_str(&data).unwrap();
+        assert_eq!(value_iota_address, deserialized_value_iota_address);
     }
 
     #[test]
@@ -128,5 +167,9 @@ mod test {
         let value_iota_address = ValueIotaAddress::All;
         let data = serde_yaml::to_string(&value_iota_address).unwrap();
         assert_eq!("'*'\n", data);
+
+        let deserialized_value_iota_address: ValueIotaAddress =
+            serde_yaml::from_str(&data).unwrap();
+        assert_eq!(value_iota_address, deserialized_value_iota_address);
     }
 }

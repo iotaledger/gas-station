@@ -196,18 +196,6 @@ The **Gas Pool Server** includes an **Access Controller** mechanism to manage ac
 
 ---
 
-- Enable Access for All Requests but Block a Specific Address
-
-   This configuration allows all incoming requests but blocks those from the specified sender address (`0x00000000`):
-
-   ```yaml
-   access-controller:
-   access-policy: allow-all
-   rules:
-      - sender-address: "0x00000000"
-        action: 'deny'
-   ```
-
 #### Access Controller Rule syntax
 
 |  parameter              | mandatory  | possible values                                                |
