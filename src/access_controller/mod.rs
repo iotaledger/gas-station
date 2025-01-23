@@ -82,7 +82,10 @@ impl AccessController {
 mod test {
     use iota_types::base_types::IotaAddress;
 
-    use crate::access_controller::AccessController;
+    use crate::access_controller::{
+        predicates::{Action, ValueIotaAddress},
+        AccessController,
+    };
 
     use super::{
         policy::AccessPolicy,
@@ -188,5 +191,52 @@ mod test {
         let ac = AccessController::new(AccessPolicy::AllowAll, [deny_rule]);
         assert!(ac.check_access(&allowed_tx).is_ok());
         assert!(ac.check_access(&blocked_tx).is_err());
+    }
+
+    #[test]
+    fn deserialize_access_controller() {
+        let yaml = r#"
+access-policy: "deny-all"
+rules:
+      - sender-address: ['0x0101010101010101010101010101010101010101010101010101010101010101']
+        transaction-gas-budget: <=10000
+        action: allow
+"#;
+        let ac: AccessController = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(ac.access_policy, AccessPolicy::DenyAll);
+        assert_eq!(ac.rules.len(), 1);
+        assert_eq!(
+            ac.rules[0].sender_address,
+            ValueIotaAddress::List(vec![IotaAddress::new([1; 32])])
+        );
+        assert_eq!(
+            ac.rules[0].transaction_gas_budget,
+            Some(ValueNumber::LessThanOrEqual(10000))
+        );
+        assert_eq!(ac.rules[0].action, Action::Allow);
+    }
+
+    #[test]
+    fn serialize_access_controller() {
+        let ac = AccessController::new(
+            AccessPolicy::DenyAll,
+            [AccessRuleBuilder::new()
+                .sender_address(IotaAddress::new([1; 32]))
+                .gas_budget(ValueNumber::LessThanOrEqual(10000))
+                .allow()
+                .build()],
+        );
+        let yaml = serde_yaml::to_string(&ac).unwrap();
+        println!("{}", yaml);
+
+        assert_eq!(
+            yaml,
+            r#"access-policy: deny-all
+rules:
+- sender-address: 0x0101010101010101010101010101010101010101010101010101010101010101
+  transaction-gas-budget: <=10000
+  action: allow
+"#
+        );
     }
 }

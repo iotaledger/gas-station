@@ -17,3 +17,6 @@ config.yaml
 
 # Ignore IOTA key files
 *.key
+
+# Ignore at the moment. In case developers want to use a different linker
+.cargo/config.toml

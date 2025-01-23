@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Action enum represents the action of the access controller. It can be either Allow or Deny.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum Action {
     #[default]
