@@ -4,7 +4,7 @@
 use iota_types::base_types::IotaAddress;
 use serde::{de::IntoDeserializer, Deserialize, Serialize};
 
-/// The ValueIotaAddress enum represents a single IotaAddress, a list of IotaAddress or all IotaAddress.
+/// The ValueIotaAddress enum represents a single IotaAddress, a list of IotaAddress or all IotaAddresses.
 #[derive(Debug, Clone, Default)]
 pub enum ValueIotaAddress {
     #[default]
