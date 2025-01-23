@@ -59,6 +59,8 @@ pub enum ToolCommand {
         with_sidecar_signer: bool,
         #[arg(long, help = "Configuration for docker compose")]
         docker_compose: bool,
+        #[arg(long, short, help = "Overwrite the existing config file")]
+        force: bool,
     },
     #[clap(name = "cli")]
     CLI {
@@ -110,6 +112,7 @@ impl ToolCommand {
                 config_path,
                 with_sidecar_signer,
                 docker_compose,
+                force,
             } => {
                 let mut new_iota_address: Option<IotaAddress> = None;
                 let signer_config = if with_sidecar_signer {
@@ -141,13 +144,16 @@ impl ToolCommand {
                     fullnode_url,
                     ..Default::default()
                 };
+                if config_path.exists() && !force {
+                    eprintln!("Config file already exists. Use --force (-f) to overwrite.");
+                    std::process::exit(1);
+                }
                 if let Some(iota_address) = new_iota_address {
                     println!(
                         "Generated a new IOTA address. If you plan to use it, please make sure it has enough funds: '{}'",
                         iota_address
                     );
                 }
-
                 config.save(config_path).unwrap();
             }
             ToolCommand::CLI { cli_command } => match cli_command {
