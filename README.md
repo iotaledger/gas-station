@@ -131,8 +131,6 @@ implementations:
 
 The **Gas Pool Server** includes an **Access Controller** mechanism to manage access to the `/execute_tx` endpoint. This feature allows you to implement filtering logic based on properties derived from transactions. Currently, the Access Controller supports filtering based on the sender's address, enabling you to block or allow specific addresses.
 
-We plan to extend the filtering functionality to include additional transaction parameters in future updates.
-
 #### Access Controller Examples
 
 - Disable All Requests and Allow Only a Specific Address
@@ -219,16 +217,13 @@ We plan to extend the filtering functionality to include additional transaction 
 | `action`                |  yes       | `'allow'`,  `'deny'`                                           |
 
 
-
-To use the Access Controller, you must enable it in the `config.yaml` file.
-
 ### Monitoring
 
-### Prometheus Metrics
+#### Prometheus Metrics
 
 The service exposes Prometheus metrics endpoints with a variety of metrics. The port can be configured in `config.yaml` using the `metrics-port` setting.
 
-### Transactions Logging
+#### Transactions Logging
 
 For more detailed and granular monitoring, you can log transaction effects for every signed transaction. This can be enabled by setting the environment variable `TRANSACTIONS_LOGGING` to `true`.
 
