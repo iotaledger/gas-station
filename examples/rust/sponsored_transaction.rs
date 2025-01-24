@@ -2,6 +2,7 @@ use std::path::Path;
 
 use iota_config::IOTA_CLIENT_CONFIG;
 use iota_gas_station::rpc::client::GasPoolRpcClient;
+use iota_json_rpc_types::{IotaExecutionStatus, IotaTransactionBlockEffectsAPI};
 use iota_sdk::{wallet_context::WalletContext, IotaClientBuilder};
 use iota_types::{
     gas_coin::NANOS_PER_IOTA,
