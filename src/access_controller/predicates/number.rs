@@ -77,7 +77,7 @@ impl<'de> Deserialize<'de> for ValueNumber {
         // first to avoid mix-ups during parsing, e.g. '<=' before '<'.".
         static OPERATORS: [&str; 6] = [OP_GE, OP_LE, OP_EQ, OP_NE, OP_GT, OP_LT];
 
-        let s: &str = Deserialize::deserialize(deserializer)?;
+        let s: String = Deserialize::deserialize(deserializer)?;
         for operator in OPERATORS.iter() {
             if s.starts_with(operator) {
                 let number = s
