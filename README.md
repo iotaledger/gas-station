@@ -11,7 +11,8 @@ To setup up the Gas Station on Testnet, please follow this [link](GETTING_STARTE
 
 ## Examples
 
-- Rust
+- [Rust Examples](examples/rust/README.md)
+- [TypeScript Examples](examples/ts/README.md)
 
 ## User Flow
 
