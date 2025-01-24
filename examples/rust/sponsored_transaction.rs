@@ -8,11 +8,17 @@ use iota_types::{
     transaction::{TransactionData, TransactionDataAPI},
 };
 
+// This example demonstrates using the gas station to create a transaction
+//  - Reserve gas from the gas station
+//  - Create a transaction with the gas object reserved from the gas station
+//  - Sign the transaction with the wallet
+//  - Execute the transaction with the gas station
+
+// Before you run this example make sure:
+//  - GAS_STATION_AUTH env is set to the correct value
+//  - the IOTA gas station is running, an its configured for the TESTNET
 #[tokio::main]
 async fn main() {
-    // Before you run this example make sure the IOTA gas station is running, and
-    // its configured for the TESTNET
-
     // Create a new gas station client
     let gas_station_url = "http://localhost:9527".to_string();
     let gas_station_client = GasPoolRpcClient::new(gas_station_url);
@@ -49,28 +55,33 @@ async fn main() {
         .await
         .unwrap();
 
-    // Build a transaction. Its a TransactionKind as an output, because we build a TransactionData manually in the next step
+    // Create the TransactionKind.
+    // TransactionKind is an type that doesn't have information about gas and sender.
     let tx_kind = iota_client
         .transaction_builder()
         .transfer_object_tx_kind(object.0, user)
         .await
         .unwrap();
 
-    // Build the TransactionDat that uses the gas coin objects fetched from the gas station
+    // Build the TransactionData.
+    // TransactionData is unsigned version of Transaction. The maximum gas budget is 0.001 IOTA.
     let mut tx_data = TransactionData::new(tx_kind, user, gas_coins[0], 1000000, ref_gas_price);
-    // Set the gas data + sponsor account
-    tx_data.gas_data_mut().owner = sponsor_account;
+    // Set the gas object and gas-station sponsor account fetched from the gas station
     tx_data.gas_data_mut().payment = gas_coins;
+    tx_data.gas_data_mut().owner = sponsor_account;
 
-    // Sign the transaction with the wallet the get the signature
+    // Sign the TransactionData with the wallet.
     let transaction = wallet_context.sign_transaction(&tx_data);
     let signature = transaction.tx_signatures()[0].to_owned();
 
-    // Send the TransactionData together with the signature to the gas station. The gas station will execute the transaction
+    // Send the TransactionData together with the signature to the Gas Station.
+    // The Gas Station will execute the Transaction and returns the effects.
     let effects = gas_station_client
         .execute_tx(reservation_id, &tx_data, &signature)
         .await
         .expect("transaction should be sent");
 
     println!("Transaction effects: {:?}", effects);
+
+    assert_eq!(effects.into_status(), IotaExecutionStatus::Success);
 }
