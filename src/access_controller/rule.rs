@@ -182,21 +182,21 @@ mod test {
             action: Action::Deny,
             ..Default::default()
         };
-        let data_with_valid_sender =
+        let data_with_allowed_sender =
             TransactionDescription::default().with_sender_address(sender_address);
-        let data_with_invalid_sender = TransactionDescription::default();
+        let data_with_denied_sender = TransactionDescription::default();
 
         assert!(
-            rule.check_access(AccessPolicy::AllowAll, &data_with_valid_sender) == Decision::Deny
+            rule.check_access(AccessPolicy::AllowAll, &data_with_allowed_sender) == Decision::Deny
         );
         assert!(
-            rule.check_access(AccessPolicy::DenyAll, &data_with_valid_sender) == Decision::Deny
+            rule.check_access(AccessPolicy::DenyAll, &data_with_allowed_sender) == Decision::Deny
         );
         assert!(
-            rule.check_access(AccessPolicy::DenyAll, &data_with_invalid_sender) == Decision::Deny
+            rule.check_access(AccessPolicy::DenyAll, &data_with_denied_sender) == Decision::Deny
         );
         assert!(
-            rule.check_access(AccessPolicy::DenyAll, &data_with_invalid_sender) == Decision::Deny
+            rule.check_access(AccessPolicy::DenyAll, &data_with_denied_sender) == Decision::Deny
         );
     }
 
