@@ -10,10 +10,6 @@ pub const OP_NE: &str = "!=";
 pub const OP_GT: &str = ">";
 pub const OP_LT: &str = "<";
 
-// list all supported operators. The order is important, because it is used in the serialization and deserialization.
-// Operators with more characters should be first.
-pub const OPERATORS: [&str; 6] = [OP_GE, OP_LE, OP_EQ, OP_NE, OP_GT, OP_LT];
-
 // The ValueNumber represents the number value in the rule. It can represent a single number or a range of number
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValueNumber {
@@ -76,6 +72,11 @@ impl<'de> Deserialize<'de> for ValueNumber {
     where
         D: serde::Deserializer<'de>,
     {
+        // The order is important.
+        // Operators with overlapping characters should have the longer operators
+        // first to avoid mix-ups during parsing, e.g. '<=' before '<'.".
+        static OPERATORS: [&str; 6] = [OP_GE, OP_LE, OP_EQ, OP_NE, OP_GT, OP_LT];
+
         let s: &str = Deserialize::deserialize(deserializer)?;
         for operator in OPERATORS.iter() {
             if s.starts_with(operator) {
