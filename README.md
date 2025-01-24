@@ -5,6 +5,14 @@ by a sponsor address and provides APIs to reserve gas coins and use them to pay 
 scalability and high throughput by managing a large number of gas coin objects in the pool, so that it can sponsor a
 large number of transactions concurrently.
 
+## Getting Started
+
+To setup up the Gas Station on Testnet, please follow this [link](GETTING_STARTED.md).
+
+## Examples
+
+- Rust
+
 ## User Flow
 
 A typical flow that interacts with the gas pool service looks like the following:
