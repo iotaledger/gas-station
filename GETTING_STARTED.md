@@ -4,7 +4,7 @@ This guide is for setting up and using the IOTA Gas Station on the IOTA test net
 
 ## Prerequisites
 
-Before you start. Make sure you have installed:
+Before you start. Ensure you have installed:
 
 - Docker: [Installation guide](https://docs.docker.com/engine/install/)
 - Rust `1.83`: [Installation guide](https://www.rust-lang.org/tools/install)
