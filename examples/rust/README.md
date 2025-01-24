@@ -2,11 +2,10 @@
 
 ## Prerequisites
 
-1. Make sure the IOTA Gas Station is up and running. To learn how to set up the Gas Station please follow this [link](../../GETTING_STARTED.md)
-2. The expected address of Gas Station is `http://localhost:9527`. Please modify if required.
+1. Ensure the IOTA Gas Station is up and running. To learn how to set up the Gas Station, please follow this [link](../../GETTING_STARTED.md).
+2. The expected address of the Gas Station is `http://localhost:9527`. Modify this if necessary.
 
 ## How to run
 
 ```bash
-GAS_STATION_AUTH='yours-bearer-token' cargo example sponsored_transaction
-```
+GAS_STATION_AUTH='your-bearer-token' cargo run --example sponsored_transaction
