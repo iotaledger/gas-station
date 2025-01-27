@@ -35,7 +35,7 @@ The Gas Station requires Redis to sync state across multiple servers.
 To set up Redis, run the following command:
 
 ```shell
-make redis-run
+make redis-start
 ```
 
 ### Step 2: Building the Gas Station
