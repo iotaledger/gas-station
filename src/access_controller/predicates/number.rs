@@ -74,7 +74,7 @@ impl<'de> Deserialize<'de> for ValueNumber {
     {
         // The order is important.
         // Operators with overlapping characters should have the longer operators
-        // first to avoid mix-ups during parsing, e.g. '<=' before '<'.".
+        // first to avoid mix-ups during parsing, e.g. '<=' before '<'.
         static OPERATORS: [&str; 6] = [OP_GE, OP_LE, OP_EQ, OP_NE, OP_GT, OP_LT];
 
         let s: String = Deserialize::deserialize(deserializer)?;
