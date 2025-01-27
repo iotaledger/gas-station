@@ -1,6 +1,6 @@
-# Iota Gas Station
+# IOTA Gas Station
 
-Iota Gas Station is a service that powers sponsored transactions on Iota at scale. It manages a database of gas coins owned
+IOTA Gas Station is a component that powers sponsored transactions on IOTA at scale. It manages a database of gas coins owned
 by a sponsor address and provides APIs to reserve gas coins and use them to pay for transactions. It achieves
 scalability and high throughput by managing a large number of gas coin objects in the pool, so that it can sponsor a
 large number of transactions concurrently.
@@ -19,13 +19,13 @@ To setup up the Gas Station on Testnet, please follow this [link](GETTING_STARTE
 A typical flow that interacts with the Gas Station service looks like the following:
 
 1. App or client prepares a transaction without gas payment, sends it to an internal server.
-2. The internal server talks to the Gas Station service to reserve gas coins for the given budget specified by the
+2. The internal server talks to the Gas Station to reserve gas coins for the given budget specified by the
    transaction.
 3. The Gas Station reserves gas coins and returns them to the internal server.
 4. The internal server sends the complete transaction back to the app/client.
 5. The app/client asks the user to sign the complete transaction, and sends back the sender signed transaction to the
    internal server.
-6. The internal server then sends the sender signed transaction to the Gas Station service to execute the transaction.
+6. The internal server then sends the sender signed transaction to the Gas Station to execute the transaction.
 7. The Gas Station service executes the transaction though a fullnode and returns the effects to the internal server, which
    then forwards it back to the app/client. The used gas coins are also freed up and ready for reservation again.
 
@@ -218,7 +218,7 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
 
 #### Prometheus Metrics
 
-The service exposes Prometheus metrics endpoints with a variety of metrics. The port can be configured in `config.yaml` using the `metrics-port` setting.
+The component exposes Prometheus metrics endpoints with a variety of metrics. The port can be configured in `config.yaml` using the `metrics-port` setting.
 
 #### Transactions Logging
 
@@ -245,7 +245,7 @@ The `tool` binary currently supports a few helper commands:
 
 ## Deployment
 
-Below describes the steps to deploy a Gas Station service:
+Below describes the steps to deploy a Gas Station:
 
 1. Get a sponsor address keypair, either by generating it manually if you want to use in-memory signer, or get a KMS
    instance from some cloud providers (or implement your own). Note that the **Gas Station must use a dedicated address**,
