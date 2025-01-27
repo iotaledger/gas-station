@@ -16,7 +16,7 @@ To setup up the Gas Station on Testnet, please follow this [link](GETTING_STARTE
 
 ## User Flow
 
-A typical flow that interacts with the Gas Station service looks like the following:
+A typical flow that interacts with the Gas Station looks like the following:
 
 1. App or client prepares a transaction without gas payment, sends it to an internal server.
 2. The internal server talks to the Gas Station to reserve gas coins for the given budget specified by the
@@ -26,20 +26,20 @@ A typical flow that interacts with the Gas Station service looks like the follow
 5. The app/client asks the user to sign the complete transaction, and sends back the sender signed transaction to the
    internal server.
 6. The internal server then sends the sender signed transaction to the Gas Station to execute the transaction.
-7. The Gas Station service executes the transaction though a fullnode and returns the effects to the internal server, which
+7. The Gas Station executes the transaction though a fullnode and returns the effects to the internal server, which
    then forwards it back to the app/client. The used gas coins are also freed up and ready for reservation again.
 
 ## Architecture
 
-A Gas Station service instance corresponds to one sponsor address. A Gas Station service instance will contain the following
+A Gas Station instance corresponds to one sponsor address. A Gas Station instance will contain the following
 components:
 
-1. Redis Storage. There should be a single Redis instance per Gas Station service. This stores all the data that need to be
+1. Redis Storage. There should be a single Redis instance per Gas Station. This stores all the data that need to be
    persisted, including the gas coin objects in the pool, reservation information and etc.
 2. One or more Gas Station servers. This is the binary built from this repository, and it is ok to deploy multiple
    instances of them, as long as they all connect to the same Redis server. Each of these servers provide RPC interfaces
    to serve requests.
-3. (Optional) KMS Sidecar. There should be a single KMS sidecar instance per Gas Station service. The KMS defines the
+3. (Optional) KMS Sidecar. There should be a single KMS sidecar instance per Gas Station. The KMS defines the
    sponsor address and can sign transactions securely. Optionally we can also store the private key in memory without
    using a KMS sidecar.
 
@@ -64,7 +64,7 @@ initialize and fund gas coins to the pool:
 
 ### RPC Server
 
-The Gas Station service starts a RPC Server that listens on a specified port. It supports permission control through barer
+The Gas Station starts a RPC Server that listens on a specified port. It supports permission control through barer
 secret token. An internal server that communicates with the Gas Station service must specify the token in the request. This
 is also why an internal server is needed such that the barer token is not exposed to the public.
 An HTTP server is implemented to take the following 3 requests:
