@@ -50,6 +50,11 @@ This system package is available on every IOTA network instance (devnet, testnet
 
 ## Run the Example
 Once the setup is complete, you can run the example with:
+
   ```bash
   ts-node gasStationTest.ts
-  ````
+  ```
+
+## Common Issues
+
+If you encounter any problems please check [Common Issues](../../README.md#common-issues) section.
