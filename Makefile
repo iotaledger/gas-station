@@ -3,6 +3,6 @@ redis-start:
 
 redis-restart:
 	docker stop redis
-	docker rm redis
+	docker rm redis -v
 	docker run -d --name redis -p 6379:6379 redis:7.2.5
 
