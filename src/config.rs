@@ -33,7 +33,7 @@ pub struct GasStationConfig {
     pub rpc_host_ip: Ipv4Addr,
     pub rpc_port: u16,
     pub metrics_port: u16,
-    pub gas_pool_config: GasPoolStorageConfig,
+    pub storage_config: GasStationStorageConfig,
     pub fullnode_url: String,
     /// An optional basic auth when connecting to the fullnode. If specified, the format is
     /// (username, password).
@@ -55,7 +55,7 @@ impl Default for GasStationConfig {
             rpc_host_ip: LOCALHOST,
             rpc_port: DEFAULT_RPC_PORT,
             metrics_port: DEFAULT_METRICS_PORT,
-            gas_pool_config: GasPoolStorageConfig::default(),
+            storage_config: GasStationStorageConfig::default(),
             fullnode_url: "http://localhost:9000".to_string(),
             fullnode_basic_auth: None,
             coin_init_config: Some(CoinInitConfig::default()),
@@ -68,11 +68,11 @@ impl Default for GasStationConfig {
 #[serde_as]
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum GasPoolStorageConfig {
+pub enum GasStationStorageConfig {
     Redis { redis_url: String },
 }
 
-impl Default for GasPoolStorageConfig {
+impl Default for GasStationStorageConfig {
     fn default() -> Self {
         Self::Redis {
             redis_url: "redis://127.0.0.1:6379".to_string(),
@@ -113,7 +113,7 @@ pub struct CoinInitConfig {
     /// When we split a new gas coin, what is the target balance for the new coins, in MIST.
     pub target_init_balance: u64,
     /// How often do we look at whether there are new coins added to the sponsor account that
-    /// requires initialization, i.e. splitting into smaller coins and add them to the gas pool.
+    /// requires initialization, i.e. splitting into smaller coins and add them to the Gas Station.
     /// This is in seconds.
     pub refresh_interval_sec: u64,
 }

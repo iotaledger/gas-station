@@ -88,11 +88,11 @@ impl Storage for RedisStorage {
             .collect();
 
         self.metrics
-            .gas_pool_available_gas_coin_count
+            .gas_station_available_gas_coin_count
             .with_label_values(&[&self.sponsor_str])
             .set(new_coin_count);
         self.metrics
-            .gas_pool_available_gas_total_balance
+            .gas_station_available_gas_total_balance
             .with_label_values(&[&self.sponsor_str])
             .set(new_total_balance);
         self.metrics.num_successful_reserve_gas_coins_requests.inc();
@@ -145,11 +145,11 @@ impl Storage for RedisStorage {
             new_total_balance, new_coin_count
         );
         self.metrics
-            .gas_pool_available_gas_coin_count
+            .gas_station_available_gas_coin_count
             .with_label_values(&[&self.sponsor_str])
             .set(new_coin_count);
         self.metrics
-            .gas_pool_available_gas_total_balance
+            .gas_station_available_gas_total_balance
             .with_label_values(&[&self.sponsor_str])
             .set(new_total_balance);
         self.metrics.num_successful_add_new_coins_requests.inc();
@@ -190,11 +190,11 @@ impl Storage for RedisStorage {
             available_coin_total_balance
         );
         self.metrics
-            .gas_pool_available_gas_coin_count
+            .gas_station_available_gas_coin_count
             .with_label_values(&[&self.sponsor_str])
             .set(available_coin_count);
         self.metrics
-            .gas_pool_available_gas_total_balance
+            .gas_station_available_gas_total_balance
             .with_label_values(&[&self.sponsor_str])
             .set(available_coin_total_balance);
         Ok((

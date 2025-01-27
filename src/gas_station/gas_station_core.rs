@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::iota_client::IotaClient;
-use crate::metrics::GasPoolCoreMetrics;
+use crate::metrics::GasStationCoreMetrics;
 use crate::storage::Storage;
 use crate::tx_signer::TxSigner;
 use crate::types::{GasCoin, ReservationID};
@@ -26,32 +26,32 @@ use super::gas_usage_cap::GasUsageCap;
 
 const EXPIRATION_JOB_INTERVAL: Duration = Duration::from_secs(1);
 
-pub struct GasPoolContainer {
-    inner: Arc<GasPool>,
+pub struct GasStationContainer {
+    inner: Arc<GasStation>,
     _coin_unlocker_task: JoinHandle<()>,
     // This is always Some. It is None only after the drop method is called.
     cancel_sender: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
-pub struct GasPool {
+pub struct GasStation {
     signer: Arc<dyn TxSigner>,
-    gas_pool_store: Arc<dyn Storage>,
+    gas_station_store: Arc<dyn Storage>,
     iota_client: IotaClient,
-    metrics: Arc<GasPoolCoreMetrics>,
+    metrics: Arc<GasStationCoreMetrics>,
     gas_usage_cap: Arc<GasUsageCap>,
 }
 
-impl GasPool {
+impl GasStation {
     pub async fn new(
         signer: Arc<dyn TxSigner>,
-        gas_pool_store: Arc<dyn Storage>,
+        gas_station_store: Arc<dyn Storage>,
         iota_client: IotaClient,
-        metrics: Arc<GasPoolCoreMetrics>,
+        metrics: Arc<GasStationCoreMetrics>,
         gas_usage_cap: Arc<GasUsageCap>,
     ) -> Arc<Self> {
         let pool = Self {
             signer,
-            gas_pool_store,
+            gas_station_store,
             iota_client,
             metrics,
             gas_usage_cap,
@@ -68,7 +68,7 @@ impl GasPool {
         self.gas_usage_cap.check_usage().await?;
         let sponsor = self.signer.get_address();
         let (reservation_id, gas_coins) = self
-            .gas_pool_store
+            .gas_station_store
             .reserve_gas_coins(gas_budget, duration.as_millis() as u64)
             .await?;
         let elapsed = cur_time.elapsed().as_millis();
@@ -105,7 +105,7 @@ impl GasPool {
             ?reservation_id,
             "Payment coins in transaction: {:?}", payment
         );
-        self.gas_pool_store
+        self.gas_station_store
             .ready_for_execution(reservation_id)
             .await?;
         debug!(?reservation_id, "Reservation is ready for execution");
@@ -259,11 +259,11 @@ impl GasPool {
         Ok(())
     }
 
-    /// Release gas coins back to the gas pool, by adding them to the storage.
+    /// Release gas coins back to the Gas Station, by adding them to the storage.
     async fn release_gas_coins(&self, gas_coins: Vec<GasCoin>) {
         debug!("Trying to release gas coins: {:?}", gas_coins);
         retry_forever!(async {
-            self.gas_pool_store
+            self.gas_station_store
                 .add_new_coins(gas_coins.clone())
                 .await
                 .tap_err(|err| error!("Failed to call update_gas_coins on storage: {:?}", err))
@@ -297,7 +297,7 @@ impl GasPool {
     ) -> JoinHandle<()> {
         tokio::task::spawn(async move {
             loop {
-                let expire_results = self.gas_pool_store.expire_coins().await;
+                let expire_results = self.gas_station_store.expire_coins().await;
                 let unlocked_coins = expire_results.unwrap_or_else(|err| {
                     error!("Failed to call expire_coins to the storage: {:?}", err);
                     vec![]
@@ -327,24 +327,24 @@ impl GasPool {
     }
 
     pub async fn query_pool_available_coin_count(&self) -> usize {
-        self.gas_pool_store
+        self.gas_station_store
             .get_available_coin_count()
             .await
             .unwrap()
     }
 }
 
-impl GasPoolContainer {
+impl GasStationContainer {
     pub async fn new(
         signer: Arc<dyn TxSigner>,
-        gas_pool_store: Arc<dyn Storage>,
+        gas_station_store: Arc<dyn Storage>,
         iota_client: IotaClient,
         gas_usage_daily_cap: u64,
-        metrics: Arc<GasPoolCoreMetrics>,
+        metrics: Arc<GasStationCoreMetrics>,
     ) -> Self {
-        let inner = GasPool::new(
+        let inner = GasStation::new(
             signer,
-            gas_pool_store,
+            gas_station_store,
             iota_client,
             metrics,
             Arc::new(GasUsageCap::new(gas_usage_daily_cap)),
@@ -360,12 +360,12 @@ impl GasPoolContainer {
         }
     }
 
-    pub fn get_gas_pool_arc(&self) -> Arc<GasPool> {
+    pub fn get_gas_station_arc(&self) -> Arc<GasStation> {
         self.inner.clone()
     }
 }
 
-impl Drop for GasPoolContainer {
+impl Drop for GasStationContainer {
     fn drop(&mut self) {
         self.cancel_sender.take().unwrap().send(()).unwrap();
     }

@@ -9,7 +9,7 @@ use prometheus::{
 use std::sync::Arc;
 use tracing::error;
 
-pub struct GasPoolRpcMetrics {
+pub struct GasStationRpcMetrics {
     // === RPC Server Metrics ===
     // RPC metrics for the reserve_gas endpoint
     pub num_reserve_gas_requests: IntCounter,
@@ -32,7 +32,7 @@ pub struct GasPoolRpcMetrics {
     pub num_blocked_execute_tx_requests: IntCounter,
 }
 
-impl GasPoolRpcMetrics {
+impl GasStationRpcMetrics {
     pub fn new(registry: &Registry) -> Arc<Self> {
         Arc::new(Self {
             num_reserve_gas_requests: register_int_counter_with_registry!(
@@ -113,18 +113,18 @@ impl GasPoolRpcMetrics {
     }
 }
 
-pub struct GasPoolCoreMetrics {
+pub struct GasStationCoreMetrics {
     pub num_expired_gas_coins: IntCounterVec,
     pub num_smashed_gas_coins: IntCounterVec,
     pub reserved_gas_coin_count_per_request: Histogram,
     pub reserve_gas_latency_ms: Histogram,
     pub transaction_signing_latency_ms: Histogram,
     pub transaction_execution_latency_ms: Histogram,
-    pub num_gas_pool_invariant_violations: IntCounter,
+    pub num_gas_station_invariant_violations: IntCounter,
     pub daily_gas_usage: IntGaugeVec,
 }
 
-impl GasPoolCoreMetrics {
+impl GasStationCoreMetrics {
     pub fn new(registry: &Registry) -> Arc<Self> {
         Arc::new(Self {
             reserved_gas_coin_count_per_request: Histogram::new_in_registry(
@@ -161,9 +161,9 @@ impl GasPoolCoreMetrics {
                 "Latency of transaction execution, in milliseconds",
                 registry,
             ),
-            num_gas_pool_invariant_violations: register_int_counter_with_registry!(
-                "num_gas_pool_invariant_violations",
-                "Total number of invariant violations in the gas pool core",
+            num_gas_station_invariant_violations: register_int_counter_with_registry!(
+                "num_gas_station_invariant_violations",
+                "Total number of invariant violations in the Gas Station core",
                 registry,
             )
                 .unwrap(),
@@ -187,13 +187,13 @@ impl GasPoolCoreMetrics {
         } else {
             error!("Invariant violation: {}", msg.into());
         }
-        self.num_gas_pool_invariant_violations.inc();
+        self.num_gas_station_invariant_violations.inc();
     }
 }
 
 pub struct StorageMetrics {
-    pub gas_pool_available_gas_coin_count: IntGaugeVec,
-    pub gas_pool_available_gas_total_balance: IntGaugeVec,
+    pub gas_station_available_gas_coin_count: IntGaugeVec,
+    pub gas_station_available_gas_total_balance: IntGaugeVec,
 
     pub num_reserve_gas_coins_requests: IntCounter,
     pub num_successful_reserve_gas_coins_requests: IntCounter,
@@ -208,15 +208,15 @@ pub struct StorageMetrics {
 impl StorageMetrics {
     pub fn new(registry: &Registry) -> Arc<Self> {
         Arc::new(Self {
-            gas_pool_available_gas_coin_count: register_int_gauge_vec_with_registry!(
-                "gas_pool_available_gas_coin_count",
+            gas_station_available_gas_coin_count: register_int_gauge_vec_with_registry!(
+                "gas_station_available_gas_coin_count",
                 "Current number of available gas coins for reservation",
                 &["sponsor"],
                 registry,
             )
             .unwrap(),
-            gas_pool_available_gas_total_balance: register_int_gauge_vec_with_registry!(
-                "gas_pool_available_gas_total_balance",
+            gas_station_available_gas_total_balance: register_int_gauge_vec_with_registry!(
+                "gas_station_available_gas_total_balance",
                 "Current total balance of available gas coins for reservation",
                 &["sponsor"],
                 registry,

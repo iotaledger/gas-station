@@ -29,7 +29,7 @@ use tracing::{debug, error, info};
 /// is considered a new coin, and we will try to split it into smaller coins with balance close to target_init_coin_balance.
 const NEW_COIN_BALANCE_FACTOR_THRESHOLD: u64 = 200;
 
-/// Assume that initializing the gas pool (i.e. splitting coins) will take at most 12 hours.
+/// Assume that initializing the Gas Station (i.e. splitting coins) will take at most 12 hours.
 const MAX_INIT_DURATION_SEC: u64 = 60 * 60 * 12;
 
 #[derive(Clone)]
@@ -160,19 +160,19 @@ enum RunMode {
     Refresh,
 }
 
-pub struct GasPoolInitializer {
+pub struct GasStationInitializer {
     _task_handle: JoinHandle<()>,
     // This is always Some. It is None only after the drop method is called.
     cancel_sender: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
-impl Drop for GasPoolInitializer {
+impl Drop for GasStationInitializer {
     fn drop(&mut self) {
         self.cancel_sender.take().unwrap().send(()).unwrap();
     }
 }
 
-impl GasPoolInitializer {
+impl GasStationInitializer {
     pub async fn start(
         iota_client: IotaClient,
         storage: Arc<dyn Storage>,
@@ -330,7 +330,9 @@ impl GasPoolInitializer {
 #[cfg(test)]
 mod tests {
     use crate::config::CoinInitConfig;
-    use crate::gas_pool_initializer::{GasPoolInitializer, NEW_COIN_BALANCE_FACTOR_THRESHOLD};
+    use crate::gas_station_initializer::{
+        GasStationInitializer, NEW_COIN_BALANCE_FACTOR_THRESHOLD,
+    };
     use crate::iota_client::IotaClient;
     use crate::storage::connect_storage_for_testing;
     use crate::test_env::start_iota_cluster;
@@ -345,7 +347,7 @@ mod tests {
         let fullnode_url = cluster.fullnode_handle.rpc_url;
         let storage = connect_storage_for_testing(signer.get_address()).await;
         let iota_client = IotaClient::new(&fullnode_url, None).await;
-        let _ = GasPoolInitializer::start(
+        let _ = GasStationInitializer::start(
             iota_client,
             storage.clone(),
             CoinInitConfig {
@@ -366,7 +368,7 @@ mod tests {
         let storage = connect_storage_for_testing(signer.get_address()).await;
         let target_init_balance = 12345 * NANOS_PER_IOTA;
         let iota_client = IotaClient::new(&fullnode_url, None).await;
-        let _ = GasPoolInitializer::start(
+        let _ = GasStationInitializer::start(
             iota_client,
             storage.clone(),
             CoinInitConfig {
@@ -387,7 +389,7 @@ mod tests {
         let fullnode_url = cluster.fullnode_handle.rpc_url.clone();
         let storage = connect_storage_for_testing(signer.get_address()).await;
         let iota_client = IotaClient::new(&fullnode_url, None).await;
-        let _init_task = GasPoolInitializer::start(
+        let _init_task = GasStationInitializer::start(
             iota_client,
             storage.clone(),
             CoinInitConfig {

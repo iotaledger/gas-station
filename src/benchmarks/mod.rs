@@ -3,7 +3,7 @@
 
 pub mod kms_stress;
 
-use crate::rpc::client::GasPoolRpcClient;
+use crate::rpc::client::GasStationRpcClient;
 use clap::ValueEnum;
 use parking_lot::RwLock;
 use rand::rngs::OsRng;
@@ -50,7 +50,7 @@ impl BenchmarkMode {
     ) {
         let mut handles = vec![];
         let stats = Arc::new(RwLock::new(BenchmarkStatsPerSecond::default()));
-        let client = GasPoolRpcClient::new(gas_station_url);
+        let client = GasStationRpcClient::new(gas_station_url);
         let should_execute = matches!(self, Self::ReserveAndExecute);
         for _ in 0..num_clients {
             let client = client.clone();
