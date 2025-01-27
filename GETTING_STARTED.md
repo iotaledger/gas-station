@@ -9,7 +9,7 @@ Before you start. Ensure you have installed:
 - Docker: [Installation guide](https://docs.docker.com/engine/install/)
 - Rust `1.83`: [Installation guide](https://www.rust-lang.org/tools/install)
 
->Note: Its recommended, but **NOT** necessary to have installed `iota` CLI binary. We use this CLI to fund the sponsor account. If you have already funded account you can skip this step.
+>Note: It's recommended, but **NOT** necessary to have installed `iota` CLI binary. We use this CLI to fund the sponsor account. If you have already funded account you can skip this step.
 
 If you have `iota` binary, please make sure you have configured test network:
 Your configuration file `.iota/iota_config/client.yaml` should include a section for the testnet:
