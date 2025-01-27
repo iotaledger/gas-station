@@ -218,7 +218,7 @@ A description of these fields:
 
 When you make a transaction with returned gas coins, the following error is returned:
 
-```json
+```log
 ErrorObject { code: ServerError(-32002), message: "Transaction execution failed due to issues with transaction inputs, please review the errors and try again: Could not find the referenced object 0x0494e5cf17473a41b8f51bb0f2871fbf28f27e1d890d165342edea0033f8d35e at version None.", data: None }
 ```
 
