@@ -1,6 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::access_controller::policy::AccessPolicy;
+use crate::access_controller::AccessController;
 use crate::config::{CoinInitConfig, DEFAULT_DAILY_GAS_USAGE_CAP};
 use crate::gas_pool::gas_pool_core::GasPoolContainer;
 use crate::gas_pool_initializer::GasPoolInitializer;
@@ -84,6 +86,25 @@ pub async fn start_rpc_server_for_testing(
         localhost.parse().unwrap(),
         get_available_port(&localhost),
         GasPoolRpcMetrics::new_for_testing(),
+        Arc::new(AccessController::default()),
+    )
+    .await;
+    (test_cluster, container, server)
+}
+
+pub async fn start_rpc_server_for_testing_with_access_ctrl_deny_all(
+    init_gas_amounts: Vec<u64>,
+    target_init_balance: u64,
+) -> (TestCluster, GasPoolContainer, GasPoolServer) {
+    let (test_cluster, container) = start_gas_station(init_gas_amounts, target_init_balance).await;
+    let localhost = localhost_for_testing();
+    std::env::set_var(AUTH_ENV_NAME, "some secret");
+    let server = GasPoolServer::new(
+        container.get_gas_pool_arc(),
+        localhost.parse().unwrap(),
+        get_available_port(&localhost),
+        GasPoolRpcMetrics::new_for_testing(),
+        Arc::new(AccessController::new(AccessPolicy::DenyAll, [])),
     )
     .await;
     (test_cluster, container, server)

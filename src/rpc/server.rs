@@ -1,7 +1,10 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::access_controller::rule::TransactionDescription;
+use crate::access_controller::AccessController;
 use crate::gas_pool::gas_pool_core::GasPool;
+use crate::logging::TxLogMessage;
 use crate::metrics::GasPoolRpcMetrics;
 use crate::read_auth_env;
 use crate::rpc::client::GasPoolRpcClient;
@@ -15,15 +18,15 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router, TypedHeader};
 use fastcrypto::encoding::Base64;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::Arc;
-use std::time::Duration;
 use iota_json_rpc_types::IotaTransactionBlockEffectsAPI;
 use iota_types::crypto::ToFromBytes;
 use iota_types::signature::GenericSignature;
 use iota_types::transaction::TransactionData;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::Arc;
+use std::time::Duration;
 use tokio::task::JoinHandle;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, trace};
 
 const GIT_REVISION: &str = {
     if let Some(revision) = option_env!("GIT_REVISION") {
@@ -53,8 +56,9 @@ impl GasPoolServer {
         host_ip: Ipv4Addr,
         rpc_port: u16,
         metrics: Arc<GasPoolRpcMetrics>,
+        access_controller: Arc<AccessController>,
     ) -> Self {
-        let state = ServerState::new(station, metrics);
+        let state = ServerState::new(station, metrics, access_controller);
         let app = Router::new()
             .route("/", get(health))
             .route("/version", get(version))
@@ -83,15 +87,21 @@ struct ServerState {
     gas_station: Arc<GasPool>,
     secret: Arc<String>,
     metrics: Arc<GasPoolRpcMetrics>,
+    access_controller: Arc<AccessController>,
 }
 
 impl ServerState {
-    fn new(gas_station: Arc<GasPool>, metrics: Arc<GasPoolRpcMetrics>) -> Self {
+    fn new(
+        gas_station: Arc<GasPool>,
+        metrics: Arc<GasPoolRpcMetrics>,
+        access_controller: Arc<AccessController>,
+    ) -> Self {
         let secret = Arc::new(read_auth_env());
         Self {
             gas_station,
             secret,
             metrics,
+            access_controller,
         }
     }
 }
@@ -223,6 +233,7 @@ async fn execute_tx(
         );
     }
     server.metrics.num_authorized_execute_tx_requests.inc();
+
     debug!("Received v1 execute_tx request: {:?}", payload);
     let ExecuteTxRequest {
         reservation_id,
@@ -237,6 +248,17 @@ async fn execute_tx(
             ))),
         );
     };
+
+    // Check the access control policy.
+    if let Err(err) = server
+        .access_controller
+        .check_access(&TransactionDescription::new(&user_sig, &tx_data))
+    {
+        server.metrics.num_blocked_execute_tx_requests.inc();
+        return (StatusCode::FORBIDDEN, Json(ExecuteTxResponse::new_err(err)));
+    }
+    server.metrics.num_allowed_execute_tx_requests.inc();
+
     // Spawn a thread to process the request so that it will finish even when client drops the connection.
     tokio::task::spawn(execute_tx_impl(
         server.gas_station.clone(),
@@ -275,6 +297,8 @@ async fn execute_tx_impl(
                 effects.transaction_digest(),
                 effects.status()
             );
+            trace!(target: "transactions", "{}", TxLogMessage::new(&effects));
+
             metrics.num_successful_execute_tx_requests.inc();
             (StatusCode::OK, Json(ExecuteTxResponse::new_ok(effects)))
         }
