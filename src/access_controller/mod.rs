@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "kebab-case")]
 pub struct AccessController {
     access_policy: AccessPolicy,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     rules: Vec<AccessRule>,
 }
 
