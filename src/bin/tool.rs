@@ -13,7 +13,7 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(
-    name = "iota-gas-pool-tool",
+    name = "iota-gas-station-tool",
     about = "Iota Gas Station Command Line Tools",
     rename_all = "kebab-case"
 )]
