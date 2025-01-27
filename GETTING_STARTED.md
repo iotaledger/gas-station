@@ -94,7 +94,7 @@ access-controller:
 Gas Station requires the `GAS_STATION_AUTH` to be set. This is an Bearer authentication token, that you will use to connect to the Gas Station HTTP endpoint.
 
 ```bash
-GAS_STATION_AUTH="yours-bearer-token" ./target/debug/iota-gas-station --config-path config.yaml
+GAS_STATION_AUTH="your-bearer-token" ./target/debug/iota-gas-station --config-path config.yaml
 ```
 
 ### Expected Output
