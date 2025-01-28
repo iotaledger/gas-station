@@ -19,7 +19,7 @@ dotenv.config();
 const nodeUrl = process.env.NODE as string;
 const explorerUrl = process.env.EXPLORER as string;
 const gasStationUrl = process.env.GAS_STATION as string;
-const gasStationToken = process.env.GAS_POOL_BEARER_TOKEN as string;
+const gasStationToken = process.env.GAS_STATION_AUTH as string;
 
 /**
  * Main entry point for the script.
@@ -49,7 +49,7 @@ async function main() {
 
     // Create a new transaction builder
     const tx = new Transaction();
-  
+
     // Add the Move function call to the transaction
     tx.moveCall({
       target: `${packageId}::${moduleName}::${functionName}`,
@@ -95,7 +95,7 @@ async function main() {
 
 /**
  * Requests gas from the gas station, reserving a certain gas budget for a set duration.
- * 
+ *
  * @param gasBudget - The maximum gas units we want to allocate for this transaction
  * @returns An object containing sponsor address, reservation ID, and sponsor coin references
  */
@@ -119,15 +119,15 @@ async function getSponsorGas(gasBudget: number): Promise<ReserveGasResult> {
 /**
  * Sends the user-signed transaction bytes plus the signature to the gas station for co-signing
  * and submission to the network.
- * 
+ *
  * @param reservationId - ID from the previously reserved gas
  * @param transaction - The unsigned transaction bytes that the sponsor will co-sign
  * @param senderSignature - The signature from the user (sender)
  * @returns The on-chain TransactionEffects, reflecting success/failure and final state changes
  */
 async function sponsorSignAndSubmit(
-  reservationId: number, 
-  transaction: Uint8Array, 
+  reservationId: number,
+  transaction: Uint8Array,
   senderSignature: string
 ): Promise<TransactionEffects> {
   // Encode the transaction bytes to Base64, to pass along with the sender's signature
