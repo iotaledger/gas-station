@@ -8,20 +8,20 @@ use crate::rpc::rpc_types::{
 use crate::types::ReservationID;
 use anyhow::bail;
 use fastcrypto::encoding::Base64;
-use reqwest::header::{HeaderMap, AUTHORIZATION};
-use reqwest::Client;
 use iota_json_rpc_types::IotaTransactionBlockEffects;
-use iota_types::base_types::{ObjectRef, IotaAddress};
+use iota_types::base_types::{IotaAddress, ObjectRef};
 use iota_types::signature::GenericSignature;
 use iota_types::transaction::TransactionData;
+use reqwest::header::{HeaderMap, AUTHORIZATION};
+use reqwest::Client;
 
 #[derive(Clone)]
-pub struct GasPoolRpcClient {
+pub struct GasStationRpcClient {
     client: Client,
     server_address: String,
 }
 
-impl GasPoolRpcClient {
+impl GasStationRpcClient {
     pub fn new(server_address: String) -> Self {
         let client = Client::new();
         Self {

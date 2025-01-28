@@ -5,16 +5,16 @@ use clap::*;
 use iota_config::Config;
 use iota_gas_station::benchmarks::kms_stress::run_kms_stress_test;
 use iota_gas_station::benchmarks::BenchmarkMode;
-use iota_gas_station::config::{GasPoolStorageConfig, GasStationConfig, TxSignerConfig};
-use iota_gas_station::rpc::client::GasPoolRpcClient;
+use iota_gas_station::config::{GasStationConfig, GasStationStorageConfig, TxSignerConfig};
+use iota_gas_station::rpc::client::GasStationRpcClient;
 use iota_types::base_types::IotaAddress;
 use iota_types::crypto::get_account_key_pair;
 use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(
-    name = "iota-gas-pool-tool",
-    about = "Iota Gas Pool Command Line Tools",
+    name = "iota-gas-station-tool",
+    about = "Iota Gas Station Command Line Tools",
     rename_all = "kebab-case"
 )]
 pub enum ToolCommand {
@@ -140,7 +140,7 @@ impl ToolCommand {
 
                 let config = GasStationConfig {
                     signer_config,
-                    gas_pool_config: GasPoolStorageConfig::Redis { redis_url },
+                    storage_config: GasStationStorageConfig::Redis { redis_url },
                     fullnode_url,
                     ..Default::default()
                 };
@@ -158,12 +158,12 @@ impl ToolCommand {
             }
             ToolCommand::CLI { cli_command } => match cli_command {
                 CliCommand::CheckStationHealth { station_rpc_url } => {
-                    let station_client = GasPoolRpcClient::new(station_rpc_url);
+                    let station_client = GasStationRpcClient::new(station_rpc_url);
                     station_client.health().await.unwrap();
                     println!("Station server is healthy");
                 }
                 CliCommand::CheckStationEndToEndHealth { station_rpc_url } => {
-                    let station_client = GasPoolRpcClient::new(station_rpc_url);
+                    let station_client = GasStationRpcClient::new(station_rpc_url);
                     match station_client.debug_health_check().await {
                         Err(e) => {
                             eprintln!("Station server is not healthy: {}", e);
@@ -175,7 +175,7 @@ impl ToolCommand {
                     }
                 }
                 CliCommand::GetStationVersion { station_rpc_url } => {
-                    let station_client = GasPoolRpcClient::new(station_rpc_url);
+                    let station_client = GasStationRpcClient::new(station_rpc_url);
                     let version = station_client.version().await.unwrap();
                     println!("Station server version: {}", version);
                 }

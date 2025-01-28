@@ -4,11 +4,11 @@
 use crate::access_controller::policy::AccessPolicy;
 use crate::access_controller::AccessController;
 use crate::config::{CoinInitConfig, DEFAULT_DAILY_GAS_USAGE_CAP};
-use crate::gas_pool::gas_pool_core::GasPoolContainer;
-use crate::gas_pool_initializer::GasPoolInitializer;
+use crate::gas_station::gas_station_core::GasStationContainer;
+use crate::gas_station_initializer::GasStationInitializer;
 use crate::iota_client::IotaClient;
-use crate::metrics::{GasPoolCoreMetrics, GasPoolRpcMetrics};
-use crate::rpc::GasPoolServer;
+use crate::metrics::{GasStationCoreMetrics, GasStationRpcMetrics};
+use crate::rpc::GasStationServer;
 use crate::storage::connect_storage_for_testing;
 use crate::tx_signer::{TestTxSigner, TxSigner};
 use crate::AUTH_ENV_NAME;
@@ -45,7 +45,7 @@ pub async fn start_iota_cluster(init_gas_amounts: Vec<u64>) -> (TestCluster, Arc
 pub async fn start_gas_station(
     init_gas_amounts: Vec<u64>,
     target_init_coin_balance: u64,
-) -> (TestCluster, GasPoolContainer) {
+) -> (TestCluster, GasStationContainer) {
     debug!("Starting Iota cluster..");
     let (test_cluster, signer) = start_iota_cluster(init_gas_amounts).await;
     let fullnode_url = test_cluster.fullnode_handle.rpc_url.clone();
@@ -53,7 +53,7 @@ pub async fn start_gas_station(
     debug!("Starting storage. Sponsor address: {:?}", sponsor_address);
     let storage = connect_storage_for_testing(sponsor_address).await;
     let iota_client = IotaClient::new(&fullnode_url, None).await;
-    GasPoolInitializer::start(
+    GasStationInitializer::start(
         iota_client.clone(),
         storage.clone(),
         CoinInitConfig {
@@ -63,12 +63,12 @@ pub async fn start_gas_station(
         signer.clone(),
     )
     .await;
-    let station = GasPoolContainer::new(
+    let station = GasStationContainer::new(
         signer,
         storage,
         iota_client,
         DEFAULT_DAILY_GAS_USAGE_CAP,
-        GasPoolCoreMetrics::new_for_testing(),
+        GasStationCoreMetrics::new_for_testing(),
     )
     .await;
     (test_cluster, station)
@@ -77,15 +77,15 @@ pub async fn start_gas_station(
 pub async fn start_rpc_server_for_testing(
     init_gas_amounts: Vec<u64>,
     target_init_balance: u64,
-) -> (TestCluster, GasPoolContainer, GasPoolServer) {
+) -> (TestCluster, GasStationContainer, GasStationServer) {
     let (test_cluster, container) = start_gas_station(init_gas_amounts, target_init_balance).await;
     let localhost = localhost_for_testing();
     std::env::set_var(AUTH_ENV_NAME, "some secret");
-    let server = GasPoolServer::new(
-        container.get_gas_pool_arc(),
+    let server = GasStationServer::new(
+        container.get_gas_station_arc(),
         localhost.parse().unwrap(),
         get_available_port(&localhost),
-        GasPoolRpcMetrics::new_for_testing(),
+        GasStationRpcMetrics::new_for_testing(),
         Arc::new(AccessController::default()),
     )
     .await;
@@ -95,15 +95,15 @@ pub async fn start_rpc_server_for_testing(
 pub async fn start_rpc_server_for_testing_with_access_ctrl_deny_all(
     init_gas_amounts: Vec<u64>,
     target_init_balance: u64,
-) -> (TestCluster, GasPoolContainer, GasPoolServer) {
+) -> (TestCluster, GasStationContainer, GasStationServer) {
     let (test_cluster, container) = start_gas_station(init_gas_amounts, target_init_balance).await;
     let localhost = localhost_for_testing();
     std::env::set_var(AUTH_ENV_NAME, "some secret");
-    let server = GasPoolServer::new(
-        container.get_gas_pool_arc(),
+    let server = GasStationServer::new(
+        container.get_gas_station_arc(),
         localhost.parse().unwrap(),
         get_available_port(&localhost),
-        GasPoolRpcMetrics::new_for_testing(),
+        GasStationRpcMetrics::new_for_testing(),
         Arc::new(AccessController::new(AccessPolicy::DenyAll, [])),
     )
     .await;

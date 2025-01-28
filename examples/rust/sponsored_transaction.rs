@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use iota_config::IOTA_CLIENT_CONFIG;
-use iota_gas_station::rpc::client::GasPoolRpcClient;
+use iota_gas_station::rpc::client::GasStationRpcClient;
 use iota_json_rpc_types::{IotaExecutionStatus, IotaTransactionBlockEffectsAPI};
 use iota_sdk::{wallet_context::WalletContext, IotaClientBuilder};
 use iota_types::{
@@ -22,7 +22,7 @@ use iota_types::{
 async fn main() {
     // Create a new gas station client
     let gas_station_url = "http://localhost:9527".to_string();
-    let gas_station_client = GasPoolRpcClient::new(gas_station_url);
+    let gas_station_client = GasStationRpcClient::new(gas_station_url);
 
     // Reserve the 1 IOTA for 10 seconds
     let (sponsor_account, reservation_id, gas_coins) = gas_station_client

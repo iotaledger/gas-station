@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-pub mod gas_pool_core;
+pub mod gas_station_core;
 mod gas_usage_cap;
 
 #[cfg(test)]
@@ -21,7 +21,7 @@ mod tests {
     async fn test_station_reserve_gas() {
         let (_test_cluster, container) =
             start_gas_station(vec![NANOS_PER_IOTA; 10], NANOS_PER_IOTA).await;
-        let station = container.get_gas_pool_arc();
+        let station = container.get_gas_station_arc();
         let (sponsor1, _res_id1, gas_coins) = station
             .reserve_gas(NANOS_PER_IOTA * 3, Duration::from_secs(10))
             .await
@@ -45,7 +45,7 @@ mod tests {
     async fn test_e2e_gas_station_flow() {
         let (test_cluster, container) =
             start_gas_station(vec![NANOS_PER_IOTA], NANOS_PER_IOTA).await;
-        let station = container.get_gas_pool_arc();
+        let station = container.get_gas_station_arc();
         assert!(station
             .reserve_gas(NANOS_PER_IOTA + 1, Duration::from_secs(10))
             .await
@@ -76,7 +76,7 @@ mod tests {
         telemetry_subscribers::init_for_testing();
         let (_test_cluster, container) =
             start_gas_station(vec![NANOS_PER_IOTA], NANOS_PER_IOTA).await;
-        let station = container.get_gas_pool_arc();
+        let station = container.get_gas_station_arc();
         let (sponsor, reservation_id, gas_coins) = station
             .reserve_gas(NANOS_PER_IOTA, Duration::from_secs(10))
             .await
@@ -103,7 +103,7 @@ mod tests {
         telemetry_subscribers::init_for_testing();
         let (test_cluster, container) =
             start_gas_station(vec![NANOS_PER_IOTA], NANOS_PER_IOTA).await;
-        let station = container.get_gas_pool_arc();
+        let station = container.get_gas_station_arc();
         let (sponsor, reservation_id, gas_coins) = station
             .reserve_gas(NANOS_PER_IOTA, Duration::from_secs(1))
             .await
@@ -133,7 +133,7 @@ mod tests {
     async fn test_incomplete_gas_usage() {
         let (test_cluster, container) =
             start_gas_station(vec![NANOS_PER_IOTA; 10], NANOS_PER_IOTA).await;
-        let station = container.get_gas_pool_arc();
+        let station = container.get_gas_station_arc();
         let (sponsor, reservation_id, gas_coins) = station
             .reserve_gas(NANOS_PER_IOTA * 3, Duration::from_secs(10))
             .await
@@ -164,7 +164,7 @@ mod tests {
     async fn test_mixed_up_gas_coins() {
         let (test_cluster, container) =
             start_gas_station(vec![NANOS_PER_IOTA; 10], NANOS_PER_IOTA).await;
-        let station = container.get_gas_pool_arc();
+        let station = container.get_gas_station_arc();
         let (sponsor, reservation_id1, gas_coins1) = station
             .reserve_gas(NANOS_PER_IOTA * 3, Duration::from_secs(10))
             .await

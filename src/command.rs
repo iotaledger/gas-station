@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::config::GasStationConfig;
-use crate::gas_pool::gas_pool_core::GasPoolContainer;
-use crate::gas_pool_initializer::GasPoolInitializer;
+use crate::gas_station::gas_station_core::GasStationContainer;
+use crate::gas_station_initializer::GasStationInitializer;
 use crate::iota_client::IotaClient;
-use crate::metrics::{GasPoolCoreMetrics, GasPoolRpcMetrics, StorageMetrics};
-use crate::rpc::GasPoolServer;
+use crate::metrics::{GasStationCoreMetrics, GasStationRpcMetrics, StorageMetrics};
+use crate::rpc::GasStationServer;
 use crate::storage::connect_storage;
 use crate::{TRANSACTION_LOGGING_ENV_NAME, TRANSACTION_LOGGING_TARGET_NAME};
 use clap::*;
@@ -32,7 +32,7 @@ impl Command {
         let config: GasStationConfig = GasStationConfig::load(self.config_path).unwrap();
         let GasStationConfig {
             signer_config,
-            gas_pool_config,
+            storage_config: gas_station_config,
             fullnode_url,
             fullnode_basic_auth,
             rpc_host_ip,
@@ -62,10 +62,10 @@ impl Command {
         let sponsor_address = signer.get_address();
         info!("Sponsor address: {:?}", sponsor_address);
 
-        let storage = connect_storage(&gas_pool_config, sponsor_address, storage_metrics).await;
+        let storage = connect_storage(&gas_station_config, sponsor_address, storage_metrics).await;
         let iota_client = IotaClient::new(&fullnode_url, fullnode_basic_auth).await;
         let _coin_init_task = if let Some(coin_init_config) = coin_init_config {
-            let task = GasPoolInitializer::start(
+            let task = GasStationInitializer::start(
                 iota_client.clone(),
                 storage.clone(),
                 coin_init_config,
@@ -77,8 +77,8 @@ impl Command {
             None
         };
 
-        let core_metrics = GasPoolCoreMetrics::new(&prometheus_registry);
-        let container = GasPoolContainer::new(
+        let core_metrics = GasStationCoreMetrics::new(&prometheus_registry);
+        let container = GasStationContainer::new(
             signer,
             storage,
             iota_client,
@@ -87,12 +87,12 @@ impl Command {
         )
         .await;
 
-        let rpc_metrics = GasPoolRpcMetrics::new(&prometheus_registry);
+        let rpc_metrics = GasStationRpcMetrics::new(&prometheus_registry);
 
         let access_controller = Arc::new(access_controller);
 
-        let server = GasPoolServer::new(
-            container.get_gas_pool_arc(),
+        let server = GasStationServer::new(
+            container.get_gas_station_arc(),
             rpc_host_ip,
             rpc_port,
             rpc_metrics,

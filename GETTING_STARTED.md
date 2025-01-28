@@ -69,7 +69,7 @@ signer-config:
 rpc-host-ip: 0.0.0.0
 rpc-port: 9527
 metrics-port: 9184
-gas-pool-config:
+storage-config:
   redis:
     redis_url: "redis://127.0.0.1"
 fullnode-url: "https://api.testnet.iota.cafe"
@@ -102,11 +102,11 @@ GAS_STATION_AUTH="your-bearer-token" ./target/debug/iota-gas-station --config-pa
 When the gas station starts, it will perform the initial coin-splitting procedure. You should see logs similar to the following:
 
 ```log
-2024-12-16T17:12:49.369620Z  INFO iota_gas_station::gas_pool_initializer: Number of coins got so far: 392
-2024-12-16T17:12:49.369690Z  INFO iota_gas_station::gas_pool_initializer: Splitting finished. Got 392 coins. New total balance: 39615604800. Spent 384395200 gas in total
+2024-12-16T17:12:49.369620Z  INFO iota_gas_station::gas_station_initializer: Number of coins got so far: 392
+2024-12-16T17:12:49.369690Z  INFO iota_gas_station::gas_station_initializer: Splitting finished. Got 392 coins. New total balance: 39615604800. Spent 384395200 gas in total
 2024-12-16T17:12:49.381289Z DEBUG iota_gas_station::storage::redis: After add_new_coins. New total balance: 39615604800, new coin count: 392
 2024-12-16T17:12:49.381378Z DEBUG iota_gas_station::storage::redis: Releasing the init lock.
-2024-12-16T17:12:49.382094Z  INFO iota_gas_station::gas_pool_initializer: New coin initialization took 0s
+2024-12-16T17:12:49.382094Z  INFO iota_gas_station::gas_station_initializer: New coin initialization took 0s
 2024-12-16T17:12:49.383373Z  INFO iota_gas_station::rpc::server: listening on 0.0.0.0:9527
 ```
 

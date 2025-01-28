@@ -3,11 +3,11 @@
 
 use crate::access_controller::rule::TransactionDescription;
 use crate::access_controller::AccessController;
-use crate::gas_pool::gas_pool_core::GasPool;
+use crate::gas_station::gas_station_core::GasStation;
 use crate::logging::TxLogMessage;
-use crate::metrics::GasPoolRpcMetrics;
+use crate::metrics::GasStationRpcMetrics;
 use crate::read_auth_env;
-use crate::rpc::client::GasPoolRpcClient;
+use crate::rpc::client::GasStationRpcClient;
 use crate::rpc::rpc_types::{
     ExecuteTxRequest, ExecuteTxResponse, ReserveGasRequest, ReserveGasResponse,
 };
@@ -45,17 +45,17 @@ const GIT_REVISION: &str = {
 };
 const VERSION: &str = const_str::concat!(env!("CARGO_PKG_VERSION"), "-", GIT_REVISION);
 
-pub struct GasPoolServer {
+pub struct GasStationServer {
     pub handle: JoinHandle<()>,
     pub rpc_port: u16,
 }
 
-impl GasPoolServer {
+impl GasStationServer {
     pub async fn new(
-        station: Arc<GasPool>,
+        station: Arc<GasStation>,
         host_ip: Ipv4Addr,
         rpc_port: u16,
-        metrics: Arc<GasPoolRpcMetrics>,
+        metrics: Arc<GasStationRpcMetrics>,
         access_controller: Arc<AccessController>,
     ) -> Self {
         let state = ServerState::new(station, metrics, access_controller);
@@ -77,23 +77,23 @@ impl GasPoolServer {
         Self { handle, rpc_port }
     }
 
-    pub fn get_local_client(&self) -> GasPoolRpcClient {
-        GasPoolRpcClient::new(format!("http://localhost:{}", self.rpc_port))
+    pub fn get_local_client(&self) -> GasStationRpcClient {
+        GasStationRpcClient::new(format!("http://localhost:{}", self.rpc_port))
     }
 }
 
 #[derive(Clone)]
 struct ServerState {
-    gas_station: Arc<GasPool>,
+    gas_station: Arc<GasStation>,
     secret: Arc<String>,
-    metrics: Arc<GasPoolRpcMetrics>,
+    metrics: Arc<GasStationRpcMetrics>,
     access_controller: Arc<AccessController>,
 }
 
 impl ServerState {
     fn new(
-        gas_station: Arc<GasPool>,
-        metrics: Arc<GasPoolRpcMetrics>,
+        gas_station: Arc<GasStation>,
+        metrics: Arc<GasStationRpcMetrics>,
         access_controller: Arc<AccessController>,
     ) -> Self {
         let secret = Arc::new(read_auth_env());
@@ -185,8 +185,8 @@ async fn reserve_gas(
 }
 
 async fn reserve_gas_impl(
-    gas_station: Arc<GasPool>,
-    metrics: Arc<GasPoolRpcMetrics>,
+    gas_station: Arc<GasStation>,
+    metrics: Arc<GasStationRpcMetrics>,
     gas_budget: u64,
     reserve_duration_secs: u64,
 ) -> (StatusCode, Json<ReserveGasResponse>) {
@@ -280,8 +280,8 @@ async fn execute_tx(
 }
 
 async fn execute_tx_impl(
-    gas_station: Arc<GasPool>,
-    metrics: Arc<GasPoolRpcMetrics>,
+    gas_station: Arc<GasStation>,
+    metrics: Arc<GasStationRpcMetrics>,
     reservation_id: u64,
     tx_data: TransactionData,
     user_sig: GenericSignature,
