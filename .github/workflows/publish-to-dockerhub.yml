@@ -39,7 +39,7 @@ jobs:
     #     context: .
     #     file: ./Dockerfile
     #     push: ${{ !inputs.dry-run }}
-    #     tags: iotaledger/uni-resolver-driver-iota:${{ inputs.tag }}
+    #     tags: iotaledger/gas-station:${{ inputs.tag }}
 
     # - name: Docker Hub Description
     #   uses: peter-evans/dockerhub-description@e98e4d1628a5f3be2be7c231e50981aee98723ae
@@ -47,6 +47,6 @@ jobs:
     #   with:
     #     username: ${{ secrets.DOCKER_REGISTRY_USERNAME }}
     #     password: ${{ secrets.DOCKER_REGISTRY_PASSWORD }}
-    #     repository: iotaledger/uni-resolver-driver-iota
+    #     repository: iotaledger/gas-station
     #     readme-filepath: ./README.md
     #     short-description: ${{ github.event.repository.description }}
