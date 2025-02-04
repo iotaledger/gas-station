@@ -23,42 +23,35 @@ This system package is available on every IOTA network instance (devnet, testnet
     - A valid authentication bearer token for its API.
     - Node.js v16+ installed on your machine.
 
-  2. The `ts-node` runtime to execute TypeScript files directly:
-    - Install it globally if not already available:
+  2. Install dependencies for the project:
+
     ```bash
-      npm install -g ts-node
-    ```
-    - Ensure `ts-node` is available by running:
-    ```bash
-      ts-node --version
+      npm install
     ```
 
-  3. Install dependencies for the project using `npm` (see the setup section).
+  3. Ensure `ts-node` is available by running:
+    ```bash
+      npx ts-node --version
+    ```
 
-## Setup
+## Configuration
 
   1. Copy `.env.example` to `.env`:
     ```bash
     cp .env.example .env
-    ````
+    ```
 
   2. Edit the `.env` file:
     - The private key that will interact with the IOTA Gas Station instance.
     - URLs for Node, Explorer, IOTA Gas Station instance.
     - The autentication bearer token for the Gas Station API authentication, if set.
 
-  3. Install project dependencies:
-    ```bash
-    npm install
-
-    ````
-
 ## Run the Example
 
 Once the setup is complete, you can run the example with:
 
 ```bash
-  ts-node gasStationTest.ts
+npx ts-node gasStationTest.ts
 ```
 
 ## Common Issues
