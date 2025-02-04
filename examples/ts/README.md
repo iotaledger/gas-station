@@ -17,34 +17,32 @@ This system package is available on every IOTA network instance (devnet, testnet
 
 ## Prerequisites
 
-  1. A running instance of the `IOTA Gas Station` is required. To learn how to set up the Gas Station, please follow this [link](../../GETTING_STARTED.md).
-    You should have:
-    - The URL of the gas station instance.
-    - A valid authentication bearer token for its API.
-    - Node.js v16+ installed on your machine.
+1. A running instance of the `IOTA Gas Station` is required. To learn how to set up the Gas Station, please follow this [link](../../GETTING_STARTED.md).
 
-  2. Install dependencies for the project:
+   You should have:
+   - The URL of the gas station instance.
+   - A valid authentication bearer token for its API.
+   - Node.js v16+ installed on your machine.
 
-    ```bash
-      npm install
-    ```
+2. Install dependencies for the project:
 
-  3. Ensure `ts-node` is available by running:
-    ```bash
-      npx ts-node --version
-    ```
+```bash
+npm install
+```
 
 ## Configuration
 
-  1. Copy `.env.example` to `.env`:
-    ```bash
-    cp .env.example .env
-    ```
+1. Copy `.env.example` to `.env`:
 
-  2. Edit the `.env` file:
-    - The private key that will interact with the IOTA Gas Station instance.
-    - URLs for Node, Explorer, IOTA Gas Station instance.
-    - The autentication bearer token for the Gas Station API authentication, if set.
+  ```bash
+  cp .env.example .env
+  ```
+
+2. Edit the `.env` file:
+
+  - The private key that will interact with the IOTA Gas Station instance.
+  - URLs for Node, Explorer, IOTA Gas Station instance.
+  - The authentication bearer token for the Gas Station API authentication.
 
 ## Run the Example
 
