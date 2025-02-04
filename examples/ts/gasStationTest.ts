@@ -1,6 +1,6 @@
 import * as dotenv from 'dotenv';
 import { IotaClient, TransactionEffects } from '@iota/iota-sdk/client';
-import { ObjectRef, Transaction } from '@iota/iota-sdk/transactions';
+import { ObjectRef, Transaction, TransactionData } from '@iota/iota-sdk/transactions';
 import { toB64 } from '@iota/bcs';
 import axios from 'axios';
 import { loadAccountFromKey } from './loadAccount';
@@ -16,9 +16,9 @@ interface ReserveGasResult {
 dotenv.config();
 
 // Read environment variables for the node and gas station endpoints
-const nodeUrl = process.env.NODE as string;
-const explorerUrl = process.env.EXPLORER as string;
-const gasStationUrl = process.env.GAS_STATION as string;
+const nodeUrl = process.env.NODE_URL as string;
+const explorerUrl = process.env.EXPLORER_URL as string;
+const gasStationUrl = process.env.GAS_STATION_URL as string;
 const gasStationToken = process.env.GAS_STATION_AUTH as string;
 
 /**
@@ -36,7 +36,7 @@ async function main() {
 
     // Load an account (keypair + address) from an environment variable
     // 'sender' must be a label recognized by loadAccountFromKey
-    const sender = await loadAccountFromKey('user', process.env.KEY1 as string);
+    const sender = await loadAccountFromKey('user', process.env.SENDER_PRIVATE_KEY as string);
     if (!sender) {
       throw new Error('Sender account or address is undefined.');
     }
@@ -86,7 +86,7 @@ async function main() {
     // which will add its own signature and broadcast the transaction to the network
     const transactionEffects = await sponsorSignAndSubmit(reservedSponsorGasData.reservation_id, unsignedTxBytes, senderSignature);
     console.log("Issue Transaction:");
-    console.log(`${explorerUrl}/tx/${transactionEffects.transactionDigest}\n`);
+    console.log(`${explorerUrl}/txblock/${transactionEffects.transactionDigest}\n`);
 
   } catch (error) {
     console.error('Error preparing unsigned transaction:', error);
