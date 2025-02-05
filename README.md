@@ -1,3 +1,5 @@
+![banner](.github/imgs/banner_gas_station.svg)
+
 # IOTA Gas Station
 
 IOTA Gas Station is a component that powers sponsored transactions on IOTA at scale. It manages a database of gas coins owned
