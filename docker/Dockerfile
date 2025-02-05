@@ -1,4 +1,4 @@
-FROM rust:1.81-bullseye AS chef
+FROM rust:1.83-bullseye AS chef
 WORKDIR iota
 ARG GIT_REVISION
 ENV GIT_REVISION=$GIT_REVISION
