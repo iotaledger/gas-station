@@ -1,4 +1,6 @@
-![banner](.github/imgs/banner_gas_station.svg)
+<div align="center">
+  <img src=".github/imgs/banner_gas_station.svg" alt="banner" />
+</div>
 
 # IOTA Gas Station
 
