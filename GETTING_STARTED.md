@@ -57,7 +57,7 @@ The gas station requires a configuration file named `config.yaml`
 You can you use the `tool` to generate the config:
 
 ```bash
-./target/debug/tool  generate-sample-config --config-path config.yaml
+./target/debug/tool  generate-sample-config --config-path config.yaml --network testnet
 ```
 
 Below is an example configuration for the testnet:

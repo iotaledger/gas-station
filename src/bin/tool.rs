@@ -1,4 +1,5 @@
 // Copyright (c) Mysten Labs, Inc.
+// Modifications Copyright (c) 2024 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
 use clap::*;
@@ -7,6 +8,7 @@ use iota_gas_station::benchmarks::kms_stress::run_kms_stress_test;
 use iota_gas_station::benchmarks::BenchmarkMode;
 use iota_gas_station::config::{GasStationConfig, GasStationStorageConfig, TxSignerConfig};
 use iota_gas_station::rpc::client::GasStationRpcClient;
+use iota_sdk::{IOTA_DEVNET_URL, IOTA_MAINNET_URL, IOTA_TESTNET_URL};
 use iota_types::base_types::IotaAddress;
 use iota_types::crypto::get_account_key_pair;
 use std::path::PathBuf;
@@ -61,6 +63,14 @@ pub enum ToolCommand {
         docker_compose: bool,
         #[arg(long, short, help = "Overwrite the existing config file")]
         force: bool,
+        #[arg(
+            long,
+            short,
+            help = "Type of network to use",
+            value_enum,
+            default_value = "testnet"
+        )]
+        network: Network,
     },
     #[clap(name = "cli")]
     CLI {
@@ -113,6 +123,7 @@ impl ToolCommand {
                 with_sidecar_signer,
                 docker_compose,
                 force,
+                network,
             } => {
                 let mut new_iota_address: Option<IotaAddress> = None;
                 let signer_config = if with_sidecar_signer {
@@ -132,11 +143,7 @@ impl ToolCommand {
                     "redis://127.0.0.1".to_string()
                 };
 
-                let fullnode_url = if docker_compose {
-                    "http://host.docker.internal:9000".to_string()
-                } else {
-                    "http://localhost:9000".to_string()
-                };
+                let fullnode_url = get_fullnode_url(network, docker_compose).to_owned();
 
                 let config = GasStationConfig {
                     signer_config,
@@ -181,6 +188,30 @@ impl ToolCommand {
                 }
             },
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
+pub enum Network {
+    Local,
+    Devnet,
+    #[default]
+    Testnet,
+    Mainnet,
+}
+
+fn get_fullnode_url(network: Network, is_docker_compose: bool) -> &'static str {
+    match network {
+        Network::Local => {
+            if is_docker_compose {
+                "http://host.docker.internal:9000"
+            } else {
+                "http://localhost:9000"
+            }
+        }
+        Network::Devnet => IOTA_DEVNET_URL,
+        Network::Testnet => IOTA_TESTNET_URL,
+        Network::Mainnet => IOTA_MAINNET_URL,
     }
 }
 
