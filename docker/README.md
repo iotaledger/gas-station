@@ -24,10 +24,10 @@ Configuration assumes that you use the localnet IOTA network on your machine.
   cd docker
   ```
 
-- Generate the configuration file using to CLI helper tool. The configuration will be saved to the `config.yaml`:
+- Generate the configuration file using the CLI helper tool. Choose the appropriate network: `local`, `devnet`, `testnet`, `mainnet`. The resulting configuration is saved to `config.yaml`.
 
   ```shell
-    ../target/debug/tool generate-sample-config --docker-compose --config-path config.yaml
+    ../target/debug/tool generate-sample-config --docker-compose --config-path config.yaml --network testnet
   ```
 
   Output:
@@ -43,8 +43,6 @@ Configuration assumes that you use the localnet IOTA network on your machine.
   ```
 
 - Start the Docker Compose environment
-
-  **If you use non-local network, please change the `fullnode-url` setting in ghe `config.yaml`**
 
   ```shell
   docker-compose up
