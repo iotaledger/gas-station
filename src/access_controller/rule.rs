@@ -378,7 +378,7 @@ mod test {
     }
 
     #[test]
-    fn test_constraint_mix_ups_sender_budget_package_id() {
+    fn test_constraint_mix_ups_sender_budget_package_address() {
         let sender_address = IotaAddress::new([1; 32]);
         let move_call_package_address = IotaAddress::new([2; 32]);
         let gas_limit = 100;

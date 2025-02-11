@@ -306,4 +306,27 @@ rules:
 "#
         );
     }
+
+    #[test]
+    fn deserialize_access_controller_with_move_call_package_address() {
+        let yaml = r#"
+access-policy: "deny-all"
+rules:
+      - sender-address: ['0x0101010101010101010101010101010101010101010101010101010101010101']
+        move-call-package-address: ['0x0202020202020202020202020202020202020202020202020202020202020202']
+        action: allow
+"#;
+        let ac: AccessController = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(ac.access_policy, AccessPolicy::DenyAll);
+        assert_eq!(ac.rules.len(), 1);
+        assert_eq!(
+            ac.rules[0].sender_address,
+            ValueIotaAddress::List(vec![IotaAddress::new([1; 32])])
+        );
+        assert_eq!(
+            ac.rules[0].move_call_package_address,
+            Some(ValueIotaAddress::List(vec![IotaAddress::new([2; 32])]))
+        );
+        assert_eq!(ac.rules[0].action, Action::Allow);
+    }
 }
