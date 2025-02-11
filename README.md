@@ -148,13 +148,14 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
 
 - Disable All Requests and Allow Only a Specific Address
 
-   The following configuration denies all incoming transactions except those from the specified sender address (`0x00000000`):
+   The following configuration denies all incoming transactions except for move calls to package (`0x11111111`) originating from the specified sender address (`0x00000000`):
 
    ```yaml
    access-controller:
    access-policy: deny-all
    rules:
       - sender-address: "0x00000000"
+        move-call-package-address: "0x1111111"
         action: 'allow' # allowed actions: 'allow', 'deny'
    ```
 
@@ -211,11 +212,12 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
 
 #### Access Controller Rule syntax
 
-|  parameter              | mandatory  | possible values                                                |
-|------------------------ | -----------|-----------------------------------------------------------------|
-| `sender-address`        |  yes       | `'0x0000000'`, `[0x00000000, 0x11111111]`, `'*'`               |
-| `gas-budget`            |  no        | `'=100'`, `'<100'`,  `'<=100'`, `'>100'`, `'>=100'`, `'!=100'` |
-| `action`                |  yes       | `'allow'`,  `'deny'`                                           |
+|  parameter                  | mandatory  | possible values                                                |
+|-----------------------------| -----------|----------------------------------------------------------------|
+| `sender-address`            |  yes       | `'0x0000000'`, `[0x00000000, 0x11111111]`, `'*'`               |
+| `gas-budget`                |  no        | `'=100'`, `'<100'`,  `'<=100'`, `'>100'`, `'>=100'`, `'!=100'` |
+| `move-call-package-address` |  no        | `'0x0000000'`, `[0x00000000, 0x11111111]`, `'*'`               |
+| `action`                    |  yes       | `'allow'`,  `'deny'`                                           |
 
 
 ### Monitoring
