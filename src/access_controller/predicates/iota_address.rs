@@ -29,6 +29,10 @@ impl ValueIotaAddress {
             ValueIotaAddress::List(list) => list.contains(address),
         }
     }
+
+    pub fn includes_any<'a>(&self, addresses: impl IntoIterator<Item = &'a IotaAddress>) -> bool {
+        addresses.into_iter().any(|address| self.includes(&address))
+    }
 }
 
 /// The ValueIotaAddress enum represents a single IotaAddress, a list of IotaAddress or all IotaAddresses.
