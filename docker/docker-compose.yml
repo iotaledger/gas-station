@@ -9,6 +9,7 @@ services:
     volumes:
       - redis_data:/data
   iota-gas-station:
+    image: "${DOCKER_IMAGE:-atoicafe/gas-station:latest}"
     build:
       context: ..
       args:
