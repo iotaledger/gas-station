@@ -35,7 +35,7 @@ jobs:
       - name: Log in to Docker Hub
         uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567
         with:
-          username: ${{ secrets.IOTALEDGER_DOCKER_USERNAME }}
+          username: atoicafe
           password: ${{ secrets.IOTALEDGER_DOCKER_PASSWORD }}
 
       - name: Build and push Docker image for ${{ matrix.image.name }}
@@ -46,13 +46,13 @@ jobs:
           push: ${{ !github.event.inputs.dry-run }}
           build-args: |
             ENTRY_BINARY=${{ matrix.image.name }}
-          tags: ${{ matrix.image.repo }}:${{ matrix.image.name }}-${{ github.event.inputs.tag }}
+          tags: ${{ matrix.image.repo }}:${{ matrix.image.name }}_${{ github.event.inputs.tag }}
 
       - name: Docker Hub Description for ${{ matrix.image.repo }}
         if: ${{ !github.event.inputs.dry-run }}
         uses: peter-evans/dockerhub-description@e98e4d1628a5f3be2be7c231e50981aee98723ae
         with:
-          username: ${{ secrets.IOTALEDGER_DOCKER_USERNAME }}
+          username: atoicafe
           password: ${{ secrets.IOTALEDGER_DOCKER_PASSWORD }}
           repository: ${{ matrix.image.repo }}
           readme-filepath: ./README.md
