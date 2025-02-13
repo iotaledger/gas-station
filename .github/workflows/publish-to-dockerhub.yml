@@ -25,7 +25,7 @@ jobs:
       matrix:
         image:
           - { name: "iota-gas-station", repo: "atoicafe/gas-station" }
-          - { name: "tool", repo: "atoicafe/gas-station-tool" }
+          - { name: "tool", repo: "atoicafe/gas-station" }
     steps:
       - name: Check out the repo
         uses: actions/checkout@v4
@@ -46,7 +46,7 @@ jobs:
           push: ${{ !github.event.inputs.dry-run }}
           build-args: |
             ENTRY_BINARY=${{ matrix.image.name }}
-          tags: ${{ matrix.image.repo }}:${{ github.event.inputs.tag }}
+          tags: ${{ matrix.image.repo }}:${{ matrix.image.name }}-${{ github.event.inputs.tag }}
 
       - name: Docker Hub Description for ${{ matrix.image.repo }}
         if: ${{ !github.event.inputs.dry-run }}
