@@ -30,10 +30,10 @@ jobs:
         run: echo "dry_run is [${{ github.event.inputs.dry_run }}]"
 
       - name: Debug test true
-        run: echo "dry_run against string true [${{ github.event.inputs.dry_run != 'true' }}]"
+        run: echo "dry_run against string true [${{ github.event.inputs.dry_run == 'true' }}]"
 
       - name: Debug test false
-        run: echo "dry_run against string false [${{ github.event.inputs.dry_run != 'false' }}]"
+        run: echo "dry_run against string false [${{ github.event.inputs.dry_run == 'false' }}]"
 
       # - name: Check out the repo
       #   uses: actions/checkout@v4
