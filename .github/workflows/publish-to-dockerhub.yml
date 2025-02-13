@@ -26,6 +26,8 @@ jobs:
           - { name: "iota-gas-station", repo: "atoicafe/gas-station" }
           - { name: "tool", repo: "atoicafe/gas-station" }
     steps:
+      - name: Debug
+        run: echo "dry_run is [${{ github.event.inputs.dry_run }}]"
       - name: Check out the repo
         uses: actions/checkout@v4
         with:
