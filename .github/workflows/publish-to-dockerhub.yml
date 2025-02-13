@@ -10,10 +10,11 @@ on:
       branch:
         description: "Branch to run publish from"
         required: true
-      dry_run:
+      is-dry-run:
         description: "Run in dry-run mode"
         type: boolean
-        required: true
+        required: false
+        default: true
 
 jobs:
   push_to_registry:
@@ -27,41 +28,41 @@ jobs:
           - { name: "tool", repo: "atoicafe/gas-station" }
     steps:
       - name: Debug
-        run: echo "dry_run is [${{ github.event.inputs.dry_run }}]"
+        run: echo "is-dry-run is [${{ github.event.inputs.is-dry-run }}]"
 
       - name: Debug test true
-        run: echo "dry_run against string true [${{ github.event.inputs.dry_run == 'true' }}]"
+        run: echo "is-dry-run against string true [${{ github.event.inputs.is-dry-run == 'true' }}]"
 
       - name: Debug test false
-        run: echo "dry_run against string false [${{ github.event.inputs.dry_run == 'false' }}]"
+        run: echo "is-dry-run against string false [${{ github.event.inputs.is-dry-run == 'false' }}]"
 
-      # - name: Check out the repo
-      #   uses: actions/checkout@v4
-      #   with:
-      #     ref: ${{ github.event.inputs.branch }}
+      - name: Check out the repo
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
 
-      # - name: Log in to Docker Hub
-      #   uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567
-      #   with:
-      #     username: atoicafe
-      #     password: ${{ secrets.IOTALEDGER_DOCKER_PASSWORD }}
+      - name: Log in to Docker Hub
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567
+        with:
+          username: atoicafe
+          password: ${{ secrets.IOTALEDGER_DOCKER_PASSWORD }}
 
-      # - name: Build and push Docker image for ${{ matrix.image.name }}
-      #   uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671
-      #   with:
-      #     context: .
-      #     file: ./docker/Dockerfile
-      #     push: ${{ ! github.event.inputs.dry_run }}
-      #     build-args: |
-      #       ENTRY_BINARY=${{ matrix.image.name }}
-      #     tags: ${{ matrix.image.repo }}:${{ matrix.image.name }}_${{ github.event.inputs.tag }}
+      - name: Build and push Docker image for ${{ matrix.image.name }}
+        uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671
+        with:
+          context: .
+          file: ./docker/Dockerfile
+          push: ${{ github.event.inputs.is-dry-run == 'false'}}
+          build-args: |
+            ENTRY_BINARY=${{ matrix.image.name }}
+          tags: ${{ matrix.image.repo }}:${{ matrix.image.name }}_${{ github.event.inputs.tag }}
 
-      # - name: Docker Hub Description for ${{ matrix.image.repo }}
-      #   if: ${{ !github.event.inputs.dry_run }}
-      #   uses: peter-evans/dockerhub-description@e98e4d1628a5f3be2be7c231e50981aee98723ae
-      #   with:
-      #     username: atoicafe
-      #     password: ${{ secrets.IOTALEDGER_DOCKER_PASSWORD }}
-      #     repository: ${{ matrix.image.repo }}
-      #     readme-filepath: ./README.md
-      #     short-description: ${{ github.event.repository.description }}
+      - name: Docker Hub Description for ${{ matrix.image.repo }}
+        if: ${{ github.event.inputs.is-dry-run  == 'false'}}
+        uses: peter-evans/dockerhub-description@e98e4d1628a5f3be2be7c231e50981aee98723ae
+        with:
+          username: atoicafe
+          password: ${{ secrets.IOTALEDGER_DOCKER_PASSWORD }}
+          repository: ${{ matrix.image.repo }}
+          readme-filepath: ./README.md
+          short-description: ${{ github.event.repository.description }}
