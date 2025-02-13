@@ -13,8 +13,7 @@ on:
       dry_run:
         description: "Run in dry-run mode"
         type: boolean
-        required: false
-        default: true
+        required: true
 
 jobs:
   push_to_registry:
