@@ -10,7 +10,7 @@ on:
       branch:
         description: "Branch to run publish from"
         required: true
-      dry-run:
+      dry_run:
         description: "Run in dry-run mode"
         type: boolean
         required: false
@@ -43,13 +43,13 @@ jobs:
         with:
           context: .
           file: ./docker/Dockerfile
-          push: ${{ !github.event.inputs.dry-run }}
+          push: ${{ ! github.event.inputs.dry_run }}
           build-args: |
             ENTRY_BINARY=${{ matrix.image.name }}
           tags: ${{ matrix.image.repo }}:${{ matrix.image.name }}_${{ github.event.inputs.tag }}
 
       - name: Docker Hub Description for ${{ matrix.image.repo }}
-        if: ${{ !github.event.inputs.dry-run }}
+        if: ${{ !github.event.inputs.dry_run }}
         uses: peter-evans/dockerhub-description@e98e4d1628a5f3be2be7c231e50981aee98723ae
         with:
           username: atoicafe
