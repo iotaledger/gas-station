@@ -195,6 +195,48 @@ mod test {
     }
 
     #[test]
+    fn test_allow_policy_rules_move_call_package_address() {
+        let sender_address = IotaAddress::new([1; 32]);
+        let package_address = IotaAddress::new([2; 32]);
+        let deny_rule = AccessRuleBuilder::new()
+            .sender_address(sender_address)
+            .move_call_package_address(package_address)
+            .denied()
+            .build();
+        let denied_tx = TransactionDescription::default()
+            .with_sender_address(sender_address)
+            .with_move_call_package_addresses(vec![package_address]);
+        let allowed_tx = TransactionDescription::default()
+            .with_sender_address(sender_address)
+            .with_move_call_package_addresses(vec![IotaAddress::new([3; 32])]);
+
+        let ac = AccessController::new(AccessPolicy::AllowAll, [deny_rule]);
+        assert!(ac.check_access(&allowed_tx).is_ok());
+        assert!(ac.check_access(&denied_tx).is_err());
+    }
+
+    #[test]
+    fn test_deny_policy_rules_move_call_package_address() {
+        let sender_address = IotaAddress::new([1; 32]);
+        let package_address = IotaAddress::new([2; 32]);
+        let allow_rule = AccessRuleBuilder::new()
+            .sender_address(sender_address)
+            .move_call_package_address(package_address)
+            .allow()
+            .build();
+        let allowed_tx = TransactionDescription::default()
+            .with_sender_address(sender_address)
+            .with_move_call_package_addresses(vec![package_address]);
+        let blocked_tx = TransactionDescription::default()
+            .with_sender_address(sender_address)
+            .with_move_call_package_addresses(vec![IotaAddress::new([3; 32])]);
+
+        let ac = AccessController::new(AccessPolicy::DenyAll, [allow_rule]);
+        assert!(ac.check_access(&allowed_tx).is_ok());
+        assert!(ac.check_access(&blocked_tx).is_err());
+    }
+
+    #[test]
     fn deserialize_access_controller() {
         let yaml = r#"
 access-policy: "deny-all"
@@ -239,5 +281,51 @@ rules:
   action: allow
 "#
         );
+    }
+
+    #[test]
+    fn serialize_access_controller_with_move_call_package_address() {
+        let ac = AccessController::new(
+            AccessPolicy::DenyAll,
+            [AccessRuleBuilder::new()
+                .sender_address(IotaAddress::new([1; 32]))
+                .move_call_package_address(IotaAddress::new([2; 32]))
+                .allow()
+                .build()],
+        );
+        let yaml = serde_yaml::to_string(&ac).unwrap();
+
+        assert_eq!(
+            yaml,
+            r#"access-policy: deny-all
+rules:
+- sender-address: 0x0101010101010101010101010101010101010101010101010101010101010101
+  move-call-package-address: 0x0202020202020202020202020202020202020202020202020202020202020202
+  action: allow
+"#
+        );
+    }
+
+    #[test]
+    fn deserialize_access_controller_with_move_call_package_address() {
+        let yaml = r#"
+access-policy: "deny-all"
+rules:
+      - sender-address: ['0x0101010101010101010101010101010101010101010101010101010101010101']
+        move-call-package-address: ['0x0202020202020202020202020202020202020202020202020202020202020202']
+        action: allow
+"#;
+        let ac: AccessController = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(ac.access_policy, AccessPolicy::DenyAll);
+        assert_eq!(ac.rules.len(), 1);
+        assert_eq!(
+            ac.rules[0].sender_address,
+            ValueIotaAddress::List(vec![IotaAddress::new([1; 32])])
+        );
+        assert_eq!(
+            ac.rules[0].move_call_package_address,
+            Some(ValueIotaAddress::List(vec![IotaAddress::new([2; 32])]))
+        );
+        assert_eq!(ac.rules[0].action, Action::Allow);
     }
 }

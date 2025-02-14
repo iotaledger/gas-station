@@ -62,14 +62,36 @@ impl AccessRuleBuilder {
         self.rule.transaction_gas_budget = Some(gas_size);
         self
     }
+
+    pub fn move_call_package_address(mut self, address: impl Into<IotaAddress>) -> Self {
+        let iota_address = address.into();
+        if let Some(address) = &mut self.rule.move_call_package_address {
+            match address {
+                ValueIotaAddress::All => {
+                    *address = ValueIotaAddress::Single(iota_address);
+                }
+                ValueIotaAddress::Single(_) => {
+                    *address = ValueIotaAddress::List(vec![iota_address]);
+                }
+                ValueIotaAddress::List(list) => {
+                    list.push(iota_address);
+                }
+            }
+        } else {
+            self.rule.move_call_package_address = Some(ValueIotaAddress::Single(iota_address));
+        }
+
+        self
+    }
 }
 
+#[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
-#[skip_serializing_none]
 pub struct AccessRule {
     pub sender_address: ValueIotaAddress,
     pub transaction_gas_budget: Option<ValueNumber>,
+    pub move_call_package_address: Option<ValueIotaAddress>,
 
     pub action: Action,
 }
@@ -90,12 +112,17 @@ impl AccessRule {
 
     /// Checks if the rule matches the transaction data.
     pub fn rule_matches(&self, data: &TransactionDescription) -> bool {
+        // Sender Address
         self.sender_address.includes(&data.sender_address)
+            // Gas Budget
             && self
                 .transaction_gas_budget
                 .map(|size| size.matches(data.transaction_budget))
                 // If the gas size is not defined then the rule matches
                 .unwrap_or(true)
+            // Move Call Package Address
+            && self
+                .move_call_package_address.as_ref().map(|address| address.includes_any(&data.move_call_package_addresses)).unwrap_or(true)
     }
 
     /// Evaluates the access action based on the access policy.
@@ -116,6 +143,7 @@ impl AccessRule {
 pub struct TransactionDescription {
     pub sender_address: IotaAddress,
     pub transaction_budget: u64,
+    pub move_call_package_addresses: Vec<IotaAddress>,
 }
 
 impl TransactionDescription {
@@ -123,6 +151,7 @@ impl TransactionDescription {
         Self {
             sender_address: transaction_data.sender().clone(),
             transaction_budget: transaction_data.gas_budget(),
+            move_call_package_addresses: get_move_call_package_addresses(transaction_data),
         }
     }
 
@@ -135,6 +164,23 @@ impl TransactionDescription {
         self.transaction_budget = transaction_budget;
         self
     }
+
+    pub fn with_move_call_package_addresses(
+        mut self,
+        move_call_package_addresses: Vec<IotaAddress>,
+    ) -> Self {
+        self.move_call_package_addresses = move_call_package_addresses;
+        self
+    }
+}
+
+fn get_move_call_package_addresses(transaction_data: &TransactionData) -> Vec<IotaAddress> {
+    let TransactionData::V1(data_v1) = transaction_data;
+    data_v1
+        .move_calls()
+        .iter()
+        .map(|call| IotaAddress::new(call.0.into_bytes()))
+        .collect()
 }
 
 #[cfg(test)]
@@ -254,6 +300,154 @@ mod test {
     }
 
     #[test]
+    fn test_constraint_move_call_package_addr() {
+        let move_call_package_address = IotaAddress::new([1; 32]);
+        let rule_allow = AccessRuleBuilder::new()
+            .move_call_package_address(move_call_package_address)
+            .allow()
+            .build();
+
+        let rule_deny = AccessRuleBuilder::new()
+            .move_call_package_address(move_call_package_address)
+            .denied()
+            .build();
+        let transaction_description = TransactionDescription::default()
+            .with_move_call_package_addresses(vec![move_call_package_address]);
+
+        assert_eq!(
+            rule_allow.check_access(AccessPolicy::AllowAll, &transaction_description),
+            Decision::Allow
+        );
+        assert_eq!(
+            rule_allow.check_access(AccessPolicy::DenyAll, &transaction_description),
+            Decision::Allow
+        );
+        assert_eq!(
+            rule_deny.check_access(AccessPolicy::AllowAll, &transaction_description),
+            Decision::Deny
+        );
+        assert_eq!(
+            rule_deny.check_access(AccessPolicy::DenyAll, &transaction_description),
+            Decision::Deny
+        );
+    }
+
+    #[test]
+    fn test_constraint_mix_ups_sender_package_address() {
+        let sender_address = IotaAddress::new([1; 32]);
+        let move_call_package_address = IotaAddress::new([2; 32]);
+
+        let rule = AccessRuleBuilder::new()
+            .sender_address(sender_address)
+            .move_call_package_address(move_call_package_address)
+            .allow()
+            .build();
+
+        let transaction_description = TransactionDescription::default()
+            .with_sender_address(sender_address)
+            .with_move_call_package_addresses(vec![move_call_package_address]);
+
+        assert_eq!(
+            rule.check_access(AccessPolicy::AllowAll, &transaction_description),
+            Decision::Allow
+        );
+        assert_eq!(
+            rule.check_access(AccessPolicy::DenyAll, &transaction_description),
+            Decision::Allow
+        );
+
+        let transaction_description_with_not_matched_package_address =
+            TransactionDescription::default()
+                .with_sender_address(sender_address)
+                .with_move_call_package_addresses(vec![IotaAddress::new([3; 32])]);
+
+        assert_eq!(
+            rule.check_access(
+                AccessPolicy::AllowAll,
+                &transaction_description_with_not_matched_package_address
+            ),
+            Decision::Allow
+        );
+        assert_eq!(
+            rule.check_access(
+                AccessPolicy::DenyAll,
+                &transaction_description_with_not_matched_package_address
+            ),
+            Decision::Deny
+        );
+    }
+
+    #[test]
+    fn test_constraint_mix_ups_sender_budget_package_address() {
+        let sender_address = IotaAddress::new([1; 32]);
+        let move_call_package_address = IotaAddress::new([2; 32]);
+        let gas_limit = 100;
+
+        let rule = AccessRuleBuilder::new()
+            .sender_address(sender_address)
+            .move_call_package_address(move_call_package_address)
+            .gas_budget(ValueNumber::LessThanOrEqual(gas_limit))
+            .allow()
+            .build();
+
+        let transaction_description = TransactionDescription::default()
+            .with_sender_address(sender_address)
+            .with_gas_budget(gas_limit)
+            .with_move_call_package_addresses(vec![move_call_package_address]);
+
+        assert_eq!(
+            rule.check_access(AccessPolicy::AllowAll, &transaction_description),
+            Decision::Allow
+        );
+        assert_eq!(
+            rule.check_access(AccessPolicy::DenyAll, &transaction_description),
+            Decision::Allow
+        );
+
+        let transaction_description_with_not_matched_package_address =
+            TransactionDescription::default()
+                .with_sender_address(sender_address)
+                .with_gas_budget(gas_limit)
+                .with_move_call_package_addresses(vec![IotaAddress::new([3; 32])]);
+
+        assert_eq!(
+            rule.check_access(
+                AccessPolicy::AllowAll,
+                &transaction_description_with_not_matched_package_address
+            ),
+            Decision::Allow
+        );
+        assert_eq!(
+            rule.check_access(
+                AccessPolicy::DenyAll,
+                &transaction_description_with_not_matched_package_address
+            ),
+            Decision::Deny
+        );
+
+        let transaction_description_with_not_matched_gas_limit = TransactionDescription::default()
+            .with_sender_address(sender_address)
+            .with_gas_budget(gas_limit + 1)
+            .with_move_call_package_addresses(vec![move_call_package_address]);
+
+        assert_eq!(
+            rule.check_access(
+                AccessPolicy::AllowAll,
+                &transaction_description_with_not_matched_gas_limit
+            ),
+            Decision::Allow
+        );
+        assert_eq!(
+            rule.check_access(
+                AccessPolicy::DenyAll,
+                &transaction_description_with_not_matched_gas_limit
+            ),
+            Decision::Deny
+        );
+    }
+
+    #[test]
+
     fn test_allow_when_deny_all() {
         let policy = super::AccessPolicy::DenyAll;
         let sender_address = IotaAddress::new([0; 32]);

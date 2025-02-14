@@ -148,13 +148,14 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
 
 - Disable All Requests and Allow Only a Specific Address
 
-   The following configuration denies all incoming transactions except those from the specified sender address (`0x00000000`):
+   The following configuration denies all incoming transactions except for move calls to package (`0x0202....`) originating from the specified sender address (`0x0101....`):
 
    ```yaml
    access-controller:
    access-policy: deny-all
    rules:
-      - sender-address: "0x00000000"
+      - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
+        move-call-package-address: "0x0202020202020202020202020202020202020202020202020202020202020202"
         action: 'allow' # allowed actions: 'allow', 'deny'
    ```
 
@@ -162,13 +163,13 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
 
 - Enables All Requests and Deny Only a Specific Address
 
-   The following configuration allows all incoming transactions except those from the specified sender address (`0x00000000`):
+   The following configuration allows all incoming transactions except those from the specified sender address (`0x0101...`):
 
    ```yaml
    access-controller:
    access-policy: deny-all
    rules:
-      - sender-address: "0x00000000"
+      - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
         action: 'deny'
    ```
 
@@ -176,13 +177,13 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
 
 - Gas Budget Constraints
 
-   The following configuration denies all incoming transactions except those from the specified sender address (`0x00000000`) and the transaction gas budget below the limit `1000000`
+   The following configuration denies all incoming transactions except those from the specified sender address (`0x0101...`) and the transaction gas budget below the limit `1000000`
 
    ```yaml
    access-controller:
    access-policy: deny-all
    rules:
-      - sender-address: "0x00000000"
+      - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
         transaction-gas-budget: '<1000000' # allowed operators: =, !=, <, >, <=, >=
         action: 'allow'
    ```
@@ -191,13 +192,13 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
 
 - Advanced budgeting management
 
-   The following configuration accept all incoming transactions with gas budget below `500000`. For address sender address (`0x00000000`) the allowed gas budget is increased to `1000000`
+   The following configuration accept all incoming transactions with gas budget below `500000`. For address sender address (`0x0101...`) the allowed gas budget is increased to `1000000`
 
    ```yaml
    access-controller:
    access-policy: deny-all
    rules:
-      - sender-address: "0x00000000"
+      - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
         transaction-gas-budget: '<=10000000'
         action: 'allow'
 
@@ -211,11 +212,12 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
 
 #### Access Controller Rule syntax
 
-|  parameter              | mandatory  | possible values                                                |
-|------------------------ | -----------|-----------------------------------------------------------------|
-| `sender-address`        |  yes       | `'0x0000000'`, `[0x00000000, 0x11111111]`, `'*'`               |
-| `gas-budget`            |  no        | `'=100'`, `'<100'`,  `'<=100'`, `'>100'`, `'>=100'`, `'!=100'` |
-| `action`                |  yes       | `'allow'`,  `'deny'`                                           |
+|  parameter                  | mandatory  | possible values                                                |
+|-----------------------------| -----------|----------------------------------------------------------------|
+| `sender-address`            |  yes       | `'0x0000...'`, `[0x0000.., 0x1111...]`, `'*'`                  |
+| `gas-budget`                |  no        | `'=100'`, `'<100'`,  `'<=100'`, `'>100'`, `'>=100'`, `'!=100'` |
+| `move-call-package-address` |  no        | `'0x0000...'`, `[0x0000..., 0x1111...]`, `'*'`                 |
+| `action`                    |  yes       | `'allow'`,  `'deny'`                                           |
 
 
 ### Monitoring

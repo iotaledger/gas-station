@@ -29,7 +29,8 @@ pub struct Command {
 
 impl Command {
     pub async fn execute(self) {
-        let config: GasStationConfig = GasStationConfig::load(self.config_path).unwrap();
+        let config = GasStationConfig::load(self.config_path).expect("Failed to load config file");
+
         let GasStationConfig {
             signer_config,
             storage_config: gas_station_config,
