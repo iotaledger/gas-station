@@ -294,7 +294,6 @@ rules:
                 .build()],
         );
         let yaml = serde_yaml::to_string(&ac).unwrap();
-        println!("{}", yaml);
 
         assert_eq!(
             yaml,
