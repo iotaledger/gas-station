@@ -61,7 +61,7 @@ jobs:
       - name: Build image with build.sh
         run: |
           chmod +x docker/build.sh
-          ENTRY_BINARY=${{ matrix.image.name }}docker/build.sh -t ${{ matrix.image.repo }}:${{ matrix.image.name }}_${{ github.event.inputs.tag }}
+          ENTRY_BINARY=${{ matrix.image.name }} docker/build.sh -t ${{ matrix.image.repo }}:${{ matrix.image.name }}_${{ github.event.inputs.tag }}
 
       - name: Push docker image
         if: ${{ github.event.inputs.is-dry-run != 'true' }}
