@@ -1,4 +1,5 @@
 // Copyright (c) Mysten Labs, Inc.
+// Modifications Copyright (c) 2025 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::config::GasStationConfig;
@@ -8,7 +9,7 @@ use crate::iota_client::IotaClient;
 use crate::metrics::{GasStationCoreMetrics, GasStationRpcMetrics, StorageMetrics};
 use crate::rpc::GasStationServer;
 use crate::storage::connect_storage;
-use crate::{TRANSACTION_LOGGING_ENV_NAME, TRANSACTION_LOGGING_TARGET_NAME};
+use crate::{TRANSACTION_LOGGING_ENV_NAME, TRANSACTION_LOGGING_TARGET_NAME, VERSION};
 use clap::*;
 use iota_config::Config;
 use std::net::{IpAddr, SocketAddr};
@@ -19,7 +20,8 @@ use tracing::info;
 #[derive(Parser)]
 #[command(
     name = "iota-gas-station",
-    about = "Iota Gas Station",
+    about = "Iota Gas Station ",
+    version = VERSION,
     rename_all = "kebab-case"
 )]
 pub struct Command {
