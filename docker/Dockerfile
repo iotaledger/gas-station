@@ -11,17 +11,19 @@ COPY Cargo.toml ./
 COPY src ./src
 RUN cargo build --release
 
-# Default binary name
 ARG ENTRY_BINARY=iota-gas-station
+
 
 # Production Image
 FROM debian:bullseye-slim AS runtime
 RUN apt-get update && apt-get install -y libjemalloc-dev ca-certificates
-COPY --from=builder /target/release/${ENTRY_BINARY} /usr/local/bin
+
+ARG ENTRY_BINARY=iota-gas-station
+COPY --from=builder /target/release/${ENTRY_BINARY} /usr/local/bin/entrypoint
 
 ARG BUILD_DATE
 ARG GIT_REVISION
 LABEL build-date=$BUILD_DATE
 LABEL git-revision=$GIT_REVISION
 
-ENTRYPOINT ["/usr/local/bin/${ENTRY_BINARY}"]
+ENTRYPOINT ["/usr/local/bin/entrypoint"]
