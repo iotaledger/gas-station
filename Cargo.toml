@@ -10,13 +10,13 @@ repository = "https://github.com/iotaledger/iota-gas-station"
 
 fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto" }
 
-iota-metrics = { git = "https://github.com/iotaledger/iota", version = "0.9.0-alpha", package = "iota-metrics" }
-iota-config = { git = "https://github.com/iotaledger/iota", version = "0.9.0-alpha", package = "iota-config" }
-iota-json-rpc-types = { git = "https://github.com/iotaledger/iota", version = "0.9.0-alpha", package = "iota-json-rpc-types" }
-iota-sdk = { git = "https://github.com/iotaledger/iota", version = "0.9.0-alpha", package = "iota-sdk" }
-iota-types = { git = "https://github.com/iotaledger/iota", version = "0.9.0-alpha", package = "iota-types" }
-shared-crypto = { git = "https://github.com/iotaledger/iota", version = "0.9.0-alpha", package = "shared-crypto" }
-telemetry-subscribers = { git = "https://github.com/iotaledger/iota", version = "0.9.0-alpha", package = "telemetry-subscribers" }
+iota-metrics = { git = "https://github.com/iotaledger/iota", version = "0.10.0-alpha", package = "iota-metrics" }
+iota-config = { git = "https://github.com/iotaledger/iota", version = "0.10.0-alpha", package = "iota-config" }
+iota-json-rpc-types = { git = "https://github.com/iotaledger/iota", version = "0.10.0-alpha", package = "iota-json-rpc-types" }
+iota-sdk = { git = "https://github.com/iotaledger/iota", version = "0.10.0-alpha", package = "iota-sdk" }
+iota-types = { git = "https://github.com/iotaledger/iota", version = "0.10.0-alpha", package = "iota-types" }
+shared-crypto = { git = "https://github.com/iotaledger/iota", version = "0.10.0-alpha", package = "shared-crypto" }
+telemetry-subscribers = { git = "https://github.com/iotaledger/iota", version = "0.10.0-alpha", package = "telemetry-subscribers" }
 
 
 anyhow = "1.0.75"
@@ -57,8 +57,8 @@ lazy_static = "1.5.0"
 [dev-dependencies]
 rand = "0.8.5"
 
-iota-swarm-config = { git = "https://github.com/iotaledger/iota", version = "0.9.0-alpha", package = "iota-swarm-config" }
-test-cluster = { git = "https://github.com/iotaledger/iota", version = "0.9.0-alpha", package = "test-cluster" }
+iota-swarm-config = { git = "https://github.com/iotaledger/iota", version = "0.10.0-alpha", package = "iota-swarm-config" }
+test-cluster = { git = "https://github.com/iotaledger/iota", version = "0.10.0-alpha", package = "test-cluster" }
 
 [profile.release]
 panic = "abort"
