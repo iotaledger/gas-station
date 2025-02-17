@@ -10,7 +10,8 @@ services:
     volumes:
       - redis_data:/data
   iota-gas-station:
-    image: "${DOCKER_IMAGE:-gas-station-test}"
+    # TODO when the image is available on Docker Hub, uncomment the following line
+    # image: "${DOCKER_IMAGE:-iotaledger/gas-station:latest}"
     build:
       context: ..
       args:

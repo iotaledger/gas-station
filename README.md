@@ -11,31 +11,9 @@ large number of transactions concurrently.
 
 ## Getting Started
 
-
-To easiest way to run the gas station is trough the docker-compose
-
-```bash
-cd docker
-
-```
-Please generate the config for the gas station.
-
-```shell
-../utils/./gas-station-tool.sh  generate-sample-config --docker-compose --config-path config.yaml
-```
-
->Note: The tool automatically generates the private key for you. Please change to your key if you wish
-
->Note: The tool assumes the configuration of the Testnet network. Please use `--network` flag to select preferred, or modify manually the generated `config.yaml`
-
-```shell
-GAS_STATION_AUTH=your_bearer_token docker-compose up
-```
-
-
 To setup up the Gas Station on Testnet, please follow this [link](GETTING_STARTED.md).
 
-## Examples
+## Transaction Examples
 
 - [Rust Examples](examples/rust/README.md)
 - [TypeScript Examples](examples/ts/README.md)

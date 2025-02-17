@@ -24,8 +24,8 @@ jobs:
     strategy:
       matrix:
         image:
-          - { name: "iota-gas-station", repo: "atoicafe/gas-station" }
-          - { name: "tool", repo: "atoicafe/gas-station" }
+          - { name: "iota-gas-station", repo: "iotaledger/gas-station" }
+          - { name: "tool", repo: "iotaledger/gas-station-tool" }
     steps:
       - name: Debug
         run: echo "is-dry-run is [${{ github.event.inputs.is-dry-run }}]"
