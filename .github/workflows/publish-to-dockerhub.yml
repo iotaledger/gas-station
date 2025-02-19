@@ -27,15 +27,6 @@ jobs:
           - { name: "iota-gas-station", repo: "iotaledger/gas-station" }
           - { name: "tool", repo: "iotaledger/gas-station-tool" }
     steps:
-      - name: Debug
-        run: echo "is-dry-run is [${{ github.event.inputs.is-dry-run }}]"
-
-      - name: Debug test true
-        run: echo "is-dry-run against string true [${{ github.event.inputs.is-dry-run == 'true' }}]"
-
-      - name: Debug test false
-        run: echo "is-dry-run against string false [${{ github.event.inputs.is-dry-run == 'false' }}]"
-
       - name: Check out the repo
         uses: actions/checkout@v4
         with:
