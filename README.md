@@ -13,7 +13,7 @@ large number of transactions concurrently.
 
 To setup up the Gas Station on Testnet, please follow this [link](GETTING_STARTED.md).
 
-## Examples
+## Transaction Examples
 
 - [Rust Examples](examples/rust/README.md)
 - [TypeScript Examples](examples/ts/README.md)

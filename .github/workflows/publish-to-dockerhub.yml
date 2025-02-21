@@ -1,17 +1,17 @@
-name: publish to dockerhub
+name: publish to DockerHub
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to publish under, defaults to latest'
+        description: "Tag to publish under, defaults to latest"
         required: false
         default: latest
       branch:
-        description: 'Branch to run publish from'
+        description: "Branch to run publish from"
         required: true
-      dry-run:
-        description: 'Run in dry-run mode'
+      is-dry-run:
+        description: "Run in dry-run mode"
         type: boolean
         required: false
         default: true
@@ -19,34 +19,41 @@ on:
 jobs:
   push_to_registry:
     environment: release
-    name: Push Docker image to Docker Hub
+    name: Push Docker images to Docker Hub
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image:
+          - { name: "iota-gas-station", repo: "iotaledger/gas-station" }
+          - { name: "tool", repo: "iotaledger/gas-station-tool" }
     steps:
-    - name: Check out the repo
-      uses: actions/checkout@v4
-      with:
-        ref: ${{ github.event.inputs.branch }}
+      - name: Check out the repo
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
 
-    - name: Log in to Docker Hub
-      uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567
-      with:
-        username: ${{ secrets.IOTALEDGER_DOCKER_USERNAME }}
-        password: ${{ secrets.IOTALEDGER_DOCKER_PASSWORD }}
+      - name: Log in to Docker Hub
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567
+        with:
+          username: ${{ secrets.IOTALEDGER_DOCKER_USERNAME }}
+          password: ${{ secrets.IOTALEDGER_DOCKER_PASSWORD }}
 
-    # - name: Build and push Docker image
-    #   uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671
-    #   with:
-    #     context: .
-    #     file: ./Dockerfile
-    #     push: ${{ !inputs.dry-run }}
-    #     tags: iotaledger/gas-station:${{ inputs.tag }}
+      - name: Build image with build.sh
+        run: |
+          chmod +x docker/build.sh
+          ENTRY_BINARY=${{ matrix.image.name }} docker/build.sh -t ${{ matrix.image.repo }}:${{ matrix.image.name }}_${{ github.event.inputs.tag }}
 
-    # - name: Docker Hub Description
-    #   uses: peter-evans/dockerhub-description@e98e4d1628a5f3be2be7c231e50981aee98723ae
-    #   if: ${{ !inputs.dry-run }}
-    #   with:
-    #     username: ${{ secrets.IOTALEDGER_DOCKER_USERNAME }}
-    #     password: ${{ secrets.IOTALEDGER_DOCKER_PASSWORD }}
-    #     repository: iotaledger/gas-station
-    #     readme-filepath: ./README.md
-    #     short-description: ${{ github.event.repository.description }}
+      - name: Push docker image
+        if: ${{ github.event.inputs.is-dry-run != 'true' }}
+        run: |
+          docker push ${{ matrix.image.repo }}:${{ matrix.image.name }}_${{ github.event.inputs.tag }}
+
+      - name: Docker Hub Description for ${{ matrix.image.repo }}
+        if: ${{ github.event.inputs.is-dry-run  == 'false'}}
+        uses: peter-evans/dockerhub-description@e98e4d1628a5f3be2be7c231e50981aee98723ae
+        with:
+          username: ${{ secrets.IOTALEDGER_DOCKER_USERNAME }}
+          password: ${{ secrets.IOTALEDGER_DOCKER_PASSWORD }}
+          repository: ${{ matrix.image.repo }}
+          readme-filepath: ./README.md
+          short-description: ${{ github.event.repository.description }}
