@@ -360,7 +360,7 @@ rules:
         let tx = TransactionDescription::default().with_sender_address(sender_address);
         let ac = AccessController::new(AccessPolicy::AllowAll, [allow_rule, deny_rule]);
 
-        // Even the second rule denied the transaction, the first rule should allow it.
+        // Even if the second rule denied the transaction, the first rule should allow it.
         assert!(ac.check_access(&tx).is_ok());
     }
 
