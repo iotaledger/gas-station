@@ -338,7 +338,7 @@ rules:
         let tx = TransactionDescription::default().with_sender_address(sender_address);
         let ac = AccessController::new(AccessPolicy::DenyAll, [deny_rule, allow_rule]);
 
-        // Even the second rule allows the transaction, the first rule should deny it.
+        // Even if the second rule allows the transaction, the first rule should deny it.
         let result = ac.check_access(&tx);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().to_string(), "Access denied by rule #1");
