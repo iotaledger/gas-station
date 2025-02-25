@@ -121,32 +121,34 @@ access-controller:
 | `daily-gas-usage-cap`                   | Maximum allowed daily gas usage                                     | `1500000000000`                  |
 | `access-controller.access-policy`       | Access policy mode.                                                 | `disabled`, `allow-all`, `deny-all`. See [this link](./docs/access-controller.md) to learn more|
 
-#### Signer Config
+#### Signer Configuration
 
-Signer config can be provided in two ways:
+You can configure the signer in two ways:
 
-- As local (hardcoded) key - unsafe
+- **Local (hardcoded) key** _(unsafe)_
 
-   **Example**
+   **Example**:
 
    ```yaml
    local:
-      keypair: AKT1Ghtd+yNbI9fFCQin3FpiGx8xoUdJMe7iAhoFUm4f
+      keypair: AKT1Ghtd+yNbI9fFCQin3FpiGx8xoUdJMe7iAhoFUm4f # base64 encoded private key
    ```
 
-   Generation:
-   #TODO how to obtain base64key format
+   To convert a private key to base64, follow these steps:
+   1. List available keys: `iota keytool list`
+   2. Export the key for a selected alias: `iota keytool export --key-identity [alias]`
+   3. Convert the bech32 key to base64: `./utils/gas-station-tool.sh convert-key --key iotaprivatkey...`
 
- - external key management store (KMS)
+- **External key management store (KMS)**
 
-   **Example**
+   **Example**:
 
    ```yaml
    sidecar:
-      sidecar_url:  https://localhost:8001
+      sidecar_url: https://localhost:8001
    ```
 
-   For more information, please refer to the [documentation](https://doca.iota.org/operator/gas-station/architecture/components#key-store-manager) and [sidecar example](./sample_kms_sidecar/)
+   For more details, see the [documentation](https://doca.iota.org/operator/gas-station/architecture/components#key-store-manager) and the [KMS sidecar](./sample_kms_sidecar/) example.
 
 ## Sponsored Transaction Examples
 
