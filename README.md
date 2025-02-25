@@ -161,8 +161,7 @@ Signer config can be provided in two ways:
 
 We would love to have you help us with the development of IOTA Identity. Each and every contribution is greatly valued!
 
-Please review the [contribution](https://wiki.iota.org/identity.rs/contribute) and [workflow](https://wiki.iota.org/identity.rs/workflow) sections in the [IOTA Wiki](https://wiki.iota.org/).
-
 To contribute directly to the repository, simply fork the project, push your changes to your fork and create a pull request to get them included!
 
-The best place to get involved in discussions about this library or to look for support at is the `#identity` channel on the [IOTA Discord](https://discord.iota.org). You can also ask questions on our [Stack Exchange](https://iota.stackexchange.com/).
+The best place to get involved in discussions about this library or to look for support at is the `#gas-station-dev` channel on the [IOTA Discord](https://discord.iota.org). You can also ask questions on our [Stack Exchange](https://iota.stackexchange.com/).
+
