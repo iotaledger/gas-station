@@ -148,7 +148,7 @@ You can configure the signer in two ways:
       sidecar-url: https://localhost:8001
    ```
 
-   For more details, see the [documentation](https://doca.iota.org/operator/gas-station/architecture/components#key-store-manager) and the [KMS sidecar](./sample_kms_sidecar/) example.
+   For more details, see the [documentation](https://docs.iota.org/operator/gas-station/architecture/components#key-store-manager) and the [KMS sidecar](./sample_kms_sidecar/) example.
 
 ## Sponsored Transaction Examples
 
