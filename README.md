@@ -33,7 +33,7 @@ git clone https://github.com/iotaledger/gas-station
 
 ```sh
 cd gas-station/docker
-../utils/./gas-station-tool.sh generate-sample-config --config-path config.yaml --docker-compose -e testnet
+../utils/./gas-station-tool.sh generate-sample-config --config-path config.yaml --docker-compose -n testnet
 ```
 
    **Note:** If the generated private key pair doesn’t meet your requirements, replace it with your own keys.
