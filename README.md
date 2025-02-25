@@ -46,6 +46,22 @@ cd gas-station/docker
 GAS_STATION_AUTH=[bearer_token] docker-compose up
 ```
 
+
+### Expected Output
+
+When the gas station starts, it will perform the initial coin-splitting procedure. You should see logs similar to the following:
+
+```log
+2024-12-16T17:12:49.369620Z  INFO iota_gas_station::gas_station_initializer: Number of coins got so far: 392
+2024-12-16T17:12:49.369690Z  INFO iota_gas_station::gas_station_initializer: Splitting finished. Got 392 coins. New total balance: 39615604800. Spent 384395200 gas in total
+2024-12-16T17:12:49.381289Z DEBUG iota_gas_station::storage::redis: After add_new_coins. New total balance: 39615604800, new coin count: 392
+2024-12-16T17:12:49.381378Z DEBUG iota_gas_station::storage::redis: Releasing the init lock.
+2024-12-16T17:12:49.382094Z  INFO iota_gas_station::gas_station_initializer: New coin initialization took 0s
+2024-12-16T17:12:49.383373Z  INFO iota_gas_station::rpc::server: listening on 0.0.0.0:9527
+```
+
+### API
+
 Your Gas Station instance should now be running and accessible via its [HTTP API](https://docs.iota.org/operator/gas-station/api-reference/).
 
 ## How to build
@@ -103,11 +119,11 @@ access-controller:
 | `coin-init-config.target-init-balance`  | Initial balance to maintain                                         | `100000000`                      |
 | `coin-init-config.refresh-interval-sec` | Interval in seconds to refresh balance                              | `86400`                          |
 | `daily-gas-usage-cap`                   | Maximum allowed daily gas usage                                     | `1500000000000`                  |
-| `access-controller.access-policy`       | Access policy mode.                                                 | `disabled`, `allow-all`, `deny-all`. See [this](./docs/access-controller.md) to learn more|
+| `access-controller.access-policy`       | Access policy mode.                                                 | `disabled`, `allow-all`, `deny-all`. See [this link](./docs/access-controller.md) to learn more|
 
 #### Signer Config
 
-Signer config can be provided in two ways.
+Signer config can be provided in two ways:
 
 - As local (hardcoded) key - unsafe
 
@@ -121,7 +137,7 @@ Signer config can be provided in two ways.
    Generation:
    #TODO how to obtain base64key format
 
- - external KMS
+ - external key management store (KMS)
 
    **Example**
 
@@ -130,7 +146,7 @@ Signer config can be provided in two ways.
       sidecar_url:  https://localhost:8001
    ```
 
-   For more informations, please refer to the [documentation](https://doca.iota.org/operator/gas-station/architecture/components#key-store-manager) and [sidecar example](./sample_kms_sidecar/)
+   For more information, please refer to the [documentation](https://doca.iota.org/operator/gas-station/architecture/components#key-store-manager) and [sidecar example](./sample_kms_sidecar/)
 
 ## Sponsored Transaction Examples
 

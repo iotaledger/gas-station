@@ -79,4 +79,4 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
 
 ## Learn More
 
-For more information about how the rules are processed, please refer to [this link](https://docs.iota.org/operator/gas-station/architecture/features#access-controller). }
+For more information about how the rules are processed, please refer to [this link](https://docs.iota.org/operator/gas-station/architecture/features#access-controller).
