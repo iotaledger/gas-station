@@ -9,3 +9,13 @@ async fn main() {
     let command = Command::parse();
     command.execute().await;
 }
+
+// test change
+#[cfg(test)]
+mod test {
+
+    #[test]
+    fn test() {
+        assert_eq!(1, 1);
+    }
+}
