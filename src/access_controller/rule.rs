@@ -83,6 +83,16 @@ impl AccessRuleBuilder {
 
         self
     }
+
+    pub fn move_call_package_module(mut self, module: impl Into<String>) -> Self {
+        self.rule.move_call_package_module = Some(module.into());
+        self
+    }
+
+    pub fn move_call_package_function(mut self, function: impl Into<String>) -> Self {
+        self.rule.move_call_package_function = Some(function.into());
+        self
+    }
 }
 
 #[skip_serializing_none]
@@ -92,6 +102,8 @@ pub struct AccessRule {
     pub sender_address: ValueIotaAddress,
     pub transaction_gas_budget: Option<ValueNumber>,
     pub move_call_package_address: Option<ValueIotaAddress>,
+    pub move_call_package_module: Option<String>,
+    pub move_call_package_function: Option<String>,
 
     pub action: Action,
 }
@@ -122,6 +134,12 @@ impl AccessRule {
             // Move Call Package Address
             && self
                 .move_call_package_address.as_ref().map(|address| address.includes_any(&data.move_call_package_addresses)).unwrap_or(true)
+            // Move Call Package Module
+            && self
+                .move_call_package_module.as_ref().map(|module| data.move_call_package_modules.contains(module)).unwrap_or(true)
+            // Move Call Package Function
+            && self
+                .move_call_package_function.as_ref().map(|function| data.move_call_package_functions.contains(function)).unwrap_or(true)
     }
 
     /// Evaluates the access action based on the access policy.
@@ -143,6 +161,8 @@ pub struct TransactionDescription {
     pub sender_address: IotaAddress,
     pub transaction_budget: u64,
     pub move_call_package_addresses: Vec<IotaAddress>,
+    pub move_call_package_modules: Vec<String>,
+    pub move_call_package_functions: Vec<String>,
 }
 
 impl TransactionDescription {
@@ -151,6 +171,8 @@ impl TransactionDescription {
             sender_address: transaction_data.sender().clone(),
             transaction_budget: transaction_data.gas_budget(),
             move_call_package_addresses: get_move_call_package_addresses(transaction_data),
+            move_call_package_modules: get_move_call_package_modules(transaction_data),
+            move_call_package_functions: get_move_call_package_functions(transaction_data),
         }
     }
 
@@ -171,6 +193,22 @@ impl TransactionDescription {
         self.move_call_package_addresses = move_call_package_addresses;
         self
     }
+
+    pub fn with_move_call_package_modules(
+        mut self,
+        move_call_package_modules: Vec<String>,
+    ) -> Self {
+        self.move_call_package_modules = move_call_package_modules;
+        self
+    }
+
+    pub fn with_move_call_package_functions(
+        mut self,
+        move_call_package_functions: Vec<String>,
+    ) -> Self {
+        self.move_call_package_functions = move_call_package_functions;
+        self
+    }
 }
 
 fn get_move_call_package_addresses(transaction_data: &TransactionData) -> Vec<IotaAddress> {
@@ -179,6 +217,24 @@ fn get_move_call_package_addresses(transaction_data: &TransactionData) -> Vec<Io
         .move_calls()
         .iter()
         .map(|call| IotaAddress::new(call.0.into_bytes()))
+        .collect()
+}
+
+fn get_move_call_package_modules(transaction_data: &TransactionData) -> Vec<String> {
+    let TransactionData::V1(data_v1) = transaction_data;
+    data_v1
+        .move_calls()
+        .iter()
+        .map(|call| call.1.as_str().to_string())
+        .collect()
+}
+
+fn get_move_call_package_functions(transaction_data: &TransactionData) -> Vec<String> {
+    let TransactionData::V1(data_v1) = transaction_data;
+    data_v1
+        .move_calls()
+        .iter()
+        .map(|call| call.2.as_str().to_string())
         .collect()
 }
 
@@ -312,6 +368,78 @@ mod test {
             .build();
         let transaction_description = TransactionDescription::default()
             .with_move_call_package_addresses(vec![move_call_package_address]);
+
+        assert_eq!(
+            rule_allow.check_access(AccessPolicy::AllowAll, &transaction_description),
+            Decision::Allow
+        );
+        assert_eq!(
+            rule_allow.check_access(AccessPolicy::DenyAll, &transaction_description),
+            Decision::Allow
+        );
+        assert_eq!(
+            rule_deny.check_access(AccessPolicy::AllowAll, &transaction_description),
+            Decision::Deny
+        );
+        assert_eq!(
+            rule_deny.check_access(AccessPolicy::DenyAll, &transaction_description),
+            Decision::Deny
+        );
+    }
+
+    #[test]
+    fn test_constraint_move_call_package_module() {
+        let move_call_package_module = "module".to_string();
+        let rule_allow = AccessRuleBuilder::new()
+            .move_call_package_address(IotaAddress::new([1; 32]))
+            .move_call_package_module(move_call_package_module.clone())
+            .allow()
+            .build();
+
+        let rule_deny = AccessRuleBuilder::new()
+            .move_call_package_address(IotaAddress::new([1; 32]))
+            .move_call_package_module(move_call_package_module.clone())
+            .deny()
+            .build();
+
+        let transaction_description = TransactionDescription::default()
+            .with_move_call_package_modules(vec![move_call_package_module.clone()]);
+
+        assert_eq!(
+            rule_allow.check_access(AccessPolicy::AllowAll, &transaction_description),
+            Decision::Allow
+        );
+        assert_eq!(
+            rule_allow.check_access(AccessPolicy::DenyAll, &transaction_description),
+            Decision::Allow
+        );
+        assert_eq!(
+            rule_deny.check_access(AccessPolicy::AllowAll, &transaction_description),
+            Decision::Deny
+        );
+        assert_eq!(
+            rule_deny.check_access(AccessPolicy::DenyAll, &transaction_description),
+            Decision::Deny
+        );
+    }
+
+    #[test]
+    fn test_constraint_move_call_package_function() {
+        let move_call_package_function = "function".to_string();
+        let rule_allow = AccessRuleBuilder::new()
+            .move_call_package_address(IotaAddress::new([1; 32]))
+            .move_call_package_function(move_call_package_function.clone())
+            .allow()
+            .build();
+
+        let rule_deny = AccessRuleBuilder::new()
+            .move_call_package_address(IotaAddress::new([1; 32]))
+            .move_call_package_function(move_call_package_function.clone())
+            .deny()
+            .build();
+
+        let transaction_description = TransactionDescription::default()
+            .with_move_call_package_functions(vec![move_call_package_function.clone()]);
 
         assert_eq!(
             rule_allow.check_access(AccessPolicy::AllowAll, &transaction_description),
