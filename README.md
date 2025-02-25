@@ -110,7 +110,7 @@ access-controller:
 
 | Parameter                               | Description                                                         | Example                          |
 | --------------------------------------- | ------------------------------------------------------------------- | -------------------------------- |
-| `signer-config`                         | Configuration of signer. It can be a local or an external KMS.      |  See [down below](#signer-config)|
+| `signer-config`                         | Configuration of signer. It can be a local or an external KMS.      |  See [down below](#signer-configuration)|
 | `rpc-host-ip`                           | IP address for the RPC server                                       | `0.0.0.0`                        |
 | `rpc-port`                              | Port for the RPC server                                             | `9527`                           |
 | `metrics-port`                          | Port for collecting and exposing metrics                            | `9184`                           |
