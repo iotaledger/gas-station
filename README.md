@@ -155,9 +155,9 @@ You can configure the signer in two ways:
 - [Rust Example](examples/rust/README.md)
 - [TypeScript Example](examples/ts/README.md)
 
-## Troubleshooting
+## Common Issues
 
-[See the troubleshooting guide](./docs/troubleshooting.md)
+[See the Common Issues section](./docs/common-issues.md)
 
 ## Contributing
 
