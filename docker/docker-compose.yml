@@ -10,8 +10,7 @@ services:
     volumes:
       - redis_data:/data
   iota-gas-station:
-    # TODO when the image is available on Docker Hub, uncomment the following line
-    # image: "${DOCKER_IMAGE:-iotaledger/gas-station:latest}"
+    image: "${DOCKER_IMAGE:-iotaledger/gas-station:latest}"
     build:
       context: ..
       args:
@@ -30,7 +29,7 @@ services:
       - RUST_BACKTRACE=1
       - GAS_STATION_AUTH=${GAS_STATION_AUTH}
     volumes:
-      - ${CONFIG_PATH:-./config.yaml}:/app/config.yaml
+      - ${LOCAL_CONFIG_PATH:-./config.yaml}:/app/config.yaml
 
 volumes:
   redis_data:
