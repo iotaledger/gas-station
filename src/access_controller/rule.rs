@@ -53,7 +53,7 @@ impl AccessRuleBuilder {
         self
     }
 
-    pub fn denied(mut self) -> Self {
+    pub fn deny(mut self) -> Self {
         self.rule.action = Action::Deny;
         self
     }
@@ -103,7 +103,7 @@ impl AccessRule {
         access_policy: AccessPolicy,
         data: &TransactionDescription,
     ) -> Decision {
-        if self.rule_matches(data) {
+        if self.matches(data) {
             return self.evaluate_access_action(access_policy);
         }
 
@@ -111,8 +111,7 @@ impl AccessRule {
     }
 
     /// Checks if the rule matches the transaction data.
-    pub fn rule_matches(&self, data: &TransactionDescription) -> bool {
-        // Sender Address
+    pub fn matches(&self, data: &TransactionDescription) -> bool {
         self.sender_address.includes(&data.sender_address)
             // Gas Budget
             && self
@@ -256,7 +255,7 @@ mod test {
 
         let rule_deny = AccessRuleBuilder::new()
             .gas_budget(ValueNumber::GreaterThan(gas_limit))
-            .denied()
+            .deny()
             .build();
 
         let low_transaction_budget = TransactionDescription::default().with_gas_budget(50);
@@ -309,7 +308,7 @@ mod test {
 
         let rule_deny = AccessRuleBuilder::new()
             .move_call_package_address(move_call_package_address)
-            .denied()
+            .deny()
             .build();
         let transaction_description = TransactionDescription::default()
             .with_move_call_package_addresses(vec![move_call_package_address]);

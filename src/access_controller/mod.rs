@@ -33,34 +33,27 @@ impl AccessController {
     }
 
     /// Checks if the transaction can be executed based on the access controller's rules.
+    // If a rule matches, the corresponding action is applied. If no rule matches, the next rule is checked.
+    // If none match, the default policy is applied.
     pub fn check_access(&self, transaction_description: &TransactionDescription) -> Result<()> {
         if self.is_disabled() {
             return Ok(());
         }
 
-        // In case of allow_all, we looking for the first rule that deny the access
-        if self.access_policy == AccessPolicy::AllowAll {
-            for (i, rule) in self.rules.iter().enumerate() {
-                if rule.check_access(self.access_policy, &transaction_description) == Decision::Deny
-                {
-                    return Err(anyhow!("Access denied by rule {}", i));
-                }
+        for (i, rule) in self.rules.iter().enumerate() {
+            if rule.matches(&transaction_description) {
+                return match rule.check_access(self.access_policy, &transaction_description) {
+                    Decision::Allow => Ok(()),
+                    Decision::Deny => Err(anyhow!("Access denied by rule #{}", i + 1)),
+                };
             }
-            return Ok(());
-        }
-        // In case of deny_all, we looking for the first rule that allow the access
-        if self.access_policy == AccessPolicy::DenyAll {
-            for rule in &self.rules {
-                if rule.check_access(self.access_policy, &transaction_description)
-                    == Decision::Allow
-                {
-                    return Ok(());
-                }
-            }
-            return Err(anyhow!("Access denied by policy"));
         }
 
-        Ok(())
+        if self.access_policy == AccessPolicy::AllowAll {
+            Ok(())
+        } else {
+            Err(anyhow!("Access denied by policy"))
+        }
     }
 
     /// Adds a new rule to the access controller.
@@ -129,7 +122,7 @@ mod test {
 
         let deny_rule = AccessRuleBuilder::new()
             .sender_address(blocked_address)
-            .denied()
+            .deny()
             .build();
 
         let blocked_transaction_description = TransactionDescription {
@@ -180,7 +173,7 @@ mod test {
         let deny_rule = AccessRuleBuilder::new()
             .sender_address(sender_address)
             .gas_budget(ValueNumber::GreaterThanOrEqual(gas_budget))
-            .denied()
+            .deny()
             .build();
         let allowed_tx = TransactionDescription::default()
             .with_sender_address(sender_address)
@@ -201,7 +194,7 @@ mod test {
         let deny_rule = AccessRuleBuilder::new()
             .sender_address(sender_address)
             .move_call_package_address(package_address)
-            .denied()
+            .deny()
             .build();
         let denied_tx = TransactionDescription::default()
             .with_sender_address(sender_address)
@@ -327,5 +320,83 @@ rules:
             Some(ValueIotaAddress::List(vec![IotaAddress::new([2; 32])]))
         );
         assert_eq!(ac.rules[0].action, Action::Allow);
+    }
+
+    #[test]
+    fn test_evaluation_order_multiple_rules_policy_deny() {
+        let sender_address = IotaAddress::new([1; 32]);
+        let deny_rule = AccessRuleBuilder::new()
+            .sender_address(sender_address)
+            .deny()
+            .build();
+
+        let allow_rule = AccessRuleBuilder::new()
+            .sender_address(sender_address)
+            .allow()
+            .build();
+
+        let tx = TransactionDescription::default().with_sender_address(sender_address);
+        let ac = AccessController::new(AccessPolicy::DenyAll, [deny_rule, allow_rule]);
+
+        // Even if the second rule allows the transaction, the first rule should deny it.
+        let result = ac.check_access(&tx);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().to_string(), "Access denied by rule #1");
+    }
+
+    #[test]
+    fn test_evaluation_order_multiple_rules_policy_allow() {
+        let sender_address = IotaAddress::new([1; 32]);
+
+        let deny_rule = AccessRuleBuilder::new()
+            .sender_address(sender_address)
+            .deny()
+            .build();
+        let allow_rule = AccessRuleBuilder::new()
+            .sender_address(sender_address)
+            .allow()
+            .build();
+
+        let tx = TransactionDescription::default().with_sender_address(sender_address);
+        let ac = AccessController::new(AccessPolicy::AllowAll, [allow_rule, deny_rule]);
+
+        // Even if the second rule denied the transaction, the first rule should allow it.
+        assert!(ac.check_access(&tx).is_ok());
+    }
+
+    #[test]
+    fn test_evaluation_logic_matching() {
+        let sender_1 = IotaAddress::new([1; 32]);
+        let sender_2 = IotaAddress::new([2; 32]);
+        let package_id = IotaAddress::new([10; 32]);
+
+        let allow_sender_1_and_package = AccessRuleBuilder::new()
+            .sender_address(sender_1)
+            .move_call_package_address(package_id)
+            .allow()
+            .build();
+
+        let deny_sender_1 = AccessRuleBuilder::new()
+            .sender_address(sender_1)
+            .deny()
+            .build();
+
+        let tx_sender_1_accepted = TransactionDescription::default()
+            .with_sender_address(sender_1)
+            .with_move_call_package_addresses(vec![package_id]);
+        let tx_sender_1_rejected = TransactionDescription::default().with_sender_address(sender_1);
+        let tx_sender_2_accepted = TransactionDescription::default().with_sender_address(sender_2);
+
+        let ac = AccessController::new(
+            AccessPolicy::AllowAll,
+            [allow_sender_1_and_package, deny_sender_1],
+        );
+
+        // accepted because of rule 1
+        assert!(ac.check_access(&tx_sender_1_accepted).is_ok());
+        // rejected because of rule 2
+        assert!(ac.check_access(&tx_sender_1_rejected).is_err());
+        // accepted because of default policy
+        assert!(ac.check_access(&tx_sender_2_accepted).is_ok());
     }
 }
