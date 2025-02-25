@@ -10,7 +10,7 @@ use iota_gas_station::config::{GasStationConfig, GasStationStorageConfig, TxSign
 use iota_gas_station::rpc::client::GasStationRpcClient;
 use iota_sdk::{IOTA_DEVNET_URL, IOTA_MAINNET_URL, IOTA_TESTNET_URL};
 use iota_types::base_types::IotaAddress;
-use iota_types::crypto::get_account_key_pair;
+use iota_types::crypto::{get_account_key_pair, EncodeDecodeBase64, IotaKeyPair};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -71,6 +71,12 @@ pub enum ToolCommand {
             default_value = "testnet"
         )]
         network: Network,
+    },
+    /// Converts the Bech32 key to Base64 encoded
+    #[clap(name = "convert-key")]
+    ConvertKeyConfig {
+        #[arg(long, short, help = "bech32 encoded key i.e. iotaprivkey...")]
+        key: String,
     },
     #[clap(name = "cli")]
     CLI {
@@ -187,6 +193,10 @@ impl ToolCommand {
                     println!("Station server version: {}", version);
                 }
             },
+            ToolCommand::ConvertKeyConfig { key } => {
+                let key = IotaKeyPair::decode(&key).unwrap();
+                println!("{}", key.encode_base64());
+            }
         }
     }
 }
