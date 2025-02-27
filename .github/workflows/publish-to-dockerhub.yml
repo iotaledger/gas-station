@@ -50,11 +50,10 @@ jobs:
           chmod +x docker/build.sh
           ENTRY_BINARY=${{ matrix.image.name }} docker/build.sh \
           -t ${{ matrix.image.repo }}:${{ github.event.inputs.tag }} \
-          --platform linux/amd64,linux/arm64 \
-          --load
+          --platform linux/amd64,linux/arm64
 
       - name: Build & Push docker image
-        if: ${{ github.event.inputs.is-dry-run != 'true' }}
+        if: ${{ github.event.inputs.is-dry-run == 'false' }}
         run: |
           chmod +x docker/build.sh
           ENTRY_BINARY=${{ matrix.image.name }} docker/build.sh \
