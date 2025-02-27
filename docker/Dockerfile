@@ -32,7 +32,7 @@ RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
   fi
 
 
-FROM debian:bullseye-slim AS runtime
+FROM ${TARGETPLATFORM}/debian:bullseye-slim AS runtime
 
 ARG TARGETPLATFORM
 ARG ENTRY_BINARY
