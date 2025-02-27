@@ -32,21 +32,35 @@ jobs:
         with:
           ref: ${{ github.event.inputs.branch }}
 
+      - name: Set up QEMU (for cross-arch emulation)
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
       - name: Log in to Docker Hub
         uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567
         with:
           username: ${{ secrets.IOTALEDGER_DOCKER_USERNAME }}
           password: ${{ secrets.IOTALEDGER_DOCKER_PASSWORD }}
 
-      - name: Build image with build.sh
+      - name: Build docker image (DRY-RUN)
+        if: ${{ github.event.inputs.is-dry-run == 'true' }}
         run: |
           chmod +x docker/build.sh
-          ENTRY_BINARY=${{ matrix.image.name }} docker/build.sh -t ${{ matrix.image.repo }}:${{ github.event.inputs.tag }}
+          ENTRY_BINARY=${{ matrix.image.name }} docker/build.sh \
+          -t ${{ matrix.image.repo }}:${{ github.event.inputs.tag }} \
+          --platform linux/amd64,linux/arm64 \
+          --load
 
-      - name: Push docker image
+      - name: Build & Push docker image
         if: ${{ github.event.inputs.is-dry-run != 'true' }}
         run: |
-          docker push ${{ matrix.image.repo }}:${{ github.event.inputs.tag }}
+          chmod +x docker/build.sh
+          ENTRY_BINARY=${{ matrix.image.name }} docker/build.sh \
+          -t ${{ matrix.image.repo }}:${{ github.event.inputs.tag }} \
+          --platform linux/amd64,linux/arm64 \
+          --push
 
       # - name: Docker Hub Description for ${{ matrix.image.repo }}
       #   if: ${{ github.event.inputs.is-dry-run  == 'false'}}

@@ -22,7 +22,7 @@ echo "git revision: \t$GIT_REVISION"
 echo "binary: \t$ENTRY_BINARY"
 echo
 
-docker build -f "$DOCKERFILE" "$REPO_ROOT" \
+docker buildx build -f "$DOCKERFILE" "$REPO_ROOT" \
 	--build-arg GIT_REVISION="$GIT_REVISION" \
 	--build-arg BUILD_DATE="$BUILD_DATE" \
 	--build-arg ENTRY_BINARY="$ENTRY_BINARY" \
