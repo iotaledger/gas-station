@@ -1,14 +1,14 @@
 [package]
 name = "iota-gas-station"
-version = "0.4.0"
+version = "0.1.0"
 edition = "2021"
-authors = ["Mysten Labs <build@mystenlabs.com>"]
+authors = ["Mysten Labs <build@mystenlabs.com>", "IOTA Stiftung"]
 license = "Apache-2.0"
-repository = "https://github.com/iotaledger/iota-gas-station"
+repository = "https://github.com/iotaledger/gas-station"
 
 [dependencies]
 
-fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto" }
+fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "5f2c63266a065996d53f98156f0412782b468597" }
 
 iota-metrics = { git = "https://github.com/iotaledger/iota", version = "0.10.0-alpha", package = "iota-metrics" }
 iota-config = { git = "https://github.com/iotaledger/iota", version = "0.10.0-alpha", package = "iota-config" }
