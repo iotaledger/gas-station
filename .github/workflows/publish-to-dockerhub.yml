@@ -26,29 +26,29 @@ jobs:
         config:
           - {
               binary_name: "iota-gas-station",
-              docker_repo: "atoicafe/gas-station",
+              docker_repo: "iotaledger/gas-station",
               runner: "ubuntu-latest",
               platform: "linux/amd64",
             }
           - {
               binary_name: "iota-gas-station",
-              docker_repo: "atoicafe/gas-station",
+              docker_repo: "iotaledger/gas-station",
               runner: "macos-latest",
               platform: "linux/arm64/v8",
             }
 
-          # - {
-          #     binary_name: "tool",
-          #     docker_repo: "atoicafe/gas-station-tool",
-          #     runner: "ubuntu-latest",
-          #     platform: "linux/amd64",
-          #   }
-          # - {
-          #     binary_name: "tool",
-          #     docker_repo: "atoicafe/gas-station-tool",
-          #     runner: "macos-latest",
-          #     platform: "linux/arm64/v8",
-          #   }
+          - {
+              binary_name: "tool",
+              docker_repo: "iotaledger/gas-station-tool",
+              runner: "ubuntu-latest",
+              platform: "linux/amd64",
+            }
+          - {
+              binary_name: "tool",
+              docker_repo: "iotaledger/gas-station-tool",
+              runner: "macos-latest",
+              platform: "linux/arm64/v8",
+            }
     steps:
       - name: Check out the repo
         uses: actions/checkout@v4
@@ -119,9 +119,9 @@ jobs:
         config:
           - {
               binary_name: "iota-gas-station",
-              docker_repo: "atoicafe/gas-station",
+              docker_repo: "iotaledger/gas-station",
             }
-          # - { binary_name: "tool", docker_repo: "atoicafe/gas-station-tool" }
+          - { binary_name: "tool", docker_repo: "iotaledger/gas-station-tool" }
 
     steps:
       - name: Login to Docker Registry
