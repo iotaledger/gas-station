@@ -68,7 +68,7 @@ Your Gas Station instance should now be running and accessible via its [HTTP API
 
 ### Build prerequisites
 
-- [Rust 1.84](https://www.rust-lang.org/tools/install)
+- [Rust 1.85](https://www.rust-lang.org/tools/install)
 
 ### Build
 

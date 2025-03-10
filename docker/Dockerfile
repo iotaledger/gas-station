@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM  rust:1.84-bullseye AS chef
+FROM --platform=$BUILDPLATFORM  rust:1.85-bullseye AS chef
 
 WORKDIR /iota
 
