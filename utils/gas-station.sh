@@ -1,6 +1,7 @@
 #!/bin/env bash
 
-IMAGE_NAME="iotaledger/gas-station:latest"
+# IMAGE_NAME="iotaledger/gas-station:latest"
+IMAGE_NAME="atoicafe/gas-station:latest"
 
 docker run --init -it --rm \
       --name iota-gas-station \
