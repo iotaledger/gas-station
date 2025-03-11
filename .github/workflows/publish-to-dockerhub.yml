@@ -73,7 +73,6 @@ jobs:
       - name: Build docker image (DRY-RUN) ${{ matrix.config.docker_repo }} - ${{ matrix.config.platform }}
         if: ${{ github.event.inputs.is-dry-run == 'true' }}
         run: |
-          chmod +x docker/build.sh
           ENTRY_BINARY=${{ matrix.config.binary_name }} docker/build.sh \
           -t ${{ steps.names.outputs.ext_image }}  \
           --platform ${{ matrix.config.platform }}
@@ -82,7 +81,6 @@ jobs:
         if: ${{ github.event.inputs.is-dry-run == 'false' }}
         id: build-push-image
         run: |
-          chmod +x docker/build.sh
           ENTRY_BINARY=${{ matrix.config.binary_name }} docker/build.sh \
           --platform ${{ matrix.config.platform }} \
           --output type=image,"name=${{ matrix.config.docker_repo }}",push-by-digest=true,name-canonical=true,push=true \
