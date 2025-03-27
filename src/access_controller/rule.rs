@@ -12,12 +12,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use serde_with::skip_serializing_none;
 
+use super::location::Source;
+use super::predicates::{Action, LimitBy, ValueAggregate, ValueIotaAddress, ValueNumber};
 use crate::tracker::{
     stats_tracker_storage::{Aggregate, AggregateType},
     StatsTracker,
 };
-
-use super::predicates::{Action, LimitBy, ValueAggregate, ValueIotaAddress, ValueNumber};
 
 /// The AccessRuleBuilder is used to build an AccessRule with fluent API.
 pub struct AccessRuleBuilder {
@@ -108,6 +108,7 @@ pub struct AccessRule {
     pub move_call_package_address: Option<ValueIotaAddress>,
     pub ptb_command_count: Option<ValueNumber<usize>>,
     pub gas_usage: Option<ValueAggregate>,
+    pub rego_policy: Option<Source>,
 
     pub action: Action,
 }
@@ -215,6 +216,8 @@ impl AccessRule {
             _ => true,
         }
     }
+
+    // pub fn compile()
 }
 
 // This input is used to check the access policy.

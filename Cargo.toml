@@ -54,6 +54,7 @@ serde_json_canonicalizer = { version = "0.3.0" }
 serde_yaml = "0.9.33"
 lazy_static = "1.5.0"
 humantime = "2.2.0"
+regorus = { version = "0.4.0" }
 
 
 [dev-dependencies]

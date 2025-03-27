@@ -5,6 +5,7 @@
 //! It provides a way to control the constraints for executing transactions, ensuring that only authorized addresses can perform specific actions.
 
 pub mod decision;
+pub mod location;
 pub mod policy;
 pub mod predicates;
 pub mod rule;
