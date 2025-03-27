@@ -28,7 +28,10 @@ impl RegoExpression {
                 .with_context(|| format!("failed to add policy {}", source.location.to_string()))?;
             Some(expression)
         } else {
-            trace!("Source data is empty for {}. Use 'reload_source()' to initialize the expression", source.location.to_string());
+            trace!(
+                "Source data is empty for {}. Use 'reload_source()' to initialize the expression",
+                source.location.to_string()
+            );
             None
         };
         Ok(RegoExpression { source, expression })
@@ -43,8 +46,8 @@ impl RegoExpression {
                 self.source.location.to_string()
             )
         })?;
-        let mut expression = regorus::Engine::new();
-        expression
+        let mut engine = regorus::Engine::new();
+        engine
             .add_policy(self.source.location.to_string(), source_data)
             .with_context(|| {
                 format!(
@@ -52,17 +55,14 @@ impl RegoExpression {
                     self.source.location.to_string()
                 )
             })?;
-        self.expression = Some(expression);
+        self.engine = engine;
         Ok(())
     }
 
     /// Evaluate the policy with the given input data.
-    pub fn matches(&self, input_data: &str) -> Result<bool, anyhow::Error> {
-        let rego_rule_name = self.source.location.get_rego_rule_path().to_string();
-        if self.expression.is_none() {
-            bail!("Rego expression is not initialized");
-        }
-        let mut engine = self.expression.clone().unwrap();
+    pub fn matches(&mut self, input_data: &str) -> Result<bool, anyhow::Error> {
+        let rego_rule_name = self.source.location.get_rego_rule_name().to_string();
+        let mut engine = self.engine.clone();
         let value = Value::from_json_str(input_data)
             .with_context(|| format!("error while converting input data to json {}", input_data))?;
         engine.set_input(value);

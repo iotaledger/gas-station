@@ -134,7 +134,7 @@ impl AccessRule {
         }
         Ok(())
     }
-    
+
     /// Returns the action of the rule.
     ///
     /// Checks if the rule matches the transaction data.
@@ -251,6 +251,8 @@ impl AccessRule {
             _ => true,
         }
     }
+
+    // pub fn compile()
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
