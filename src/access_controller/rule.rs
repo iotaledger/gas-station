@@ -4,7 +4,7 @@
 use iota_types::{
     base_types::IotaAddress,
     signature::GenericSignature,
-    transaction::{TransactionData, TransactionDataAPI},
+    transaction::{TransactionData, TransactionDataAPI, TransactionDataV1, TransactionKind},
 };
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
@@ -92,6 +92,7 @@ pub struct AccessRule {
     pub sender_address: ValueIotaAddress,
     pub transaction_gas_budget: Option<ValueNumber>,
     pub move_call_package_address: Option<ValueIotaAddress>,
+    pub max_commands_per_ptb: Option<usize>,
 
     pub action: Action,
 }
@@ -122,6 +123,8 @@ impl AccessRule {
             // Move Call Package Address
             && self
                 .move_call_package_address.as_ref().map(|address| address.includes_any(&data.move_call_package_addresses)).unwrap_or(true)
+            // ptb command count
+            && data.ptb_command_count <= self.max_commands_per_ptb
     }
 
     /// Evaluates the access action based on the access policy.
@@ -143,14 +146,23 @@ pub struct TransactionDescription {
     pub sender_address: IotaAddress,
     pub transaction_budget: u64,
     pub move_call_package_addresses: Vec<IotaAddress>,
+    pub ptb_command_count: Option<usize>,
 }
 
 impl TransactionDescription {
     pub fn new(_signature: &GenericSignature, transaction_data: &TransactionData) -> Self {
+        let ptb_command_count = match transaction_data {
+            TransactionData::V1(TransactionDataV1 {
+                kind: TransactionKind::ProgrammableTransaction(pt),
+                ..
+            }) => Some(pt.commands.len()),
+            TransactionData::V1(TransactionDataV1 { kind: _, .. }) => None,
+        };
         Self {
             sender_address: transaction_data.sender().clone(),
             transaction_budget: transaction_data.gas_budget(),
             move_call_package_addresses: get_move_call_package_addresses(transaction_data),
+            ptb_command_count,
         }
     }
 
@@ -171,6 +183,11 @@ impl TransactionDescription {
         self.move_call_package_addresses = move_call_package_addresses;
         self
     }
+
+    pub fn with_ptb_command_count(mut self, ptb_count: usize) -> Self {
+        self.ptb_command_count = Some(ptb_count);
+        self
+    }
 }
 
 fn get_move_call_package_addresses(transaction_data: &TransactionData) -> Vec<IotaAddress> {
@@ -189,7 +206,7 @@ mod test {
 
     use crate::access_controller::{
         policy::AccessPolicy,
-        predicates::ValueNumber,
+        predicates::{ValueIotaAddress, ValueNumber},
         rule::{AccessRule, AccessRuleBuilder, Action, Decision, TransactionDescription},
     };
 
@@ -446,7 +463,41 @@ mod test {
     }
 
     #[test]
+    fn test_constraint_ptb_defined_and_allowed() {
+        let rule = super::AccessRule {
+            sender_address: ValueIotaAddress::All,
+            action: Action::Allow,
+            max_commands_per_ptb: Some(1),
+            ..Default::default()
+        };
+        let data_with_allowed_ptb_count =
+            TransactionDescription::default().with_ptb_command_count(1);
+        let data_with_denied_ptb_count =
+            TransactionDescription::default().with_ptb_command_count(5);
 
+        assert_eq!(
+            rule.check_access(AccessPolicy::DenyAll, &data_with_allowed_ptb_count),
+            Decision::Allow,
+            "deny all policy, rule \"allow all senders\", within ptb command limit: should allow tx"
+        );
+        assert_eq!(
+            rule.check_access(AccessPolicy::DenyAll, &data_with_denied_ptb_count),
+            Decision::Deny,
+            "deny all policy, with rule \"allow all senders\", above ptb command limit: should deny tx"
+        );
+        assert_eq!(
+            rule.check_access(AccessPolicy::AllowAll, &data_with_allowed_ptb_count),
+            Decision::Allow,
+            "allow all policy, with rule \"allow all senders\", within ptb command limit should allow tx"
+        );
+        assert_eq!(
+            rule.check_access(AccessPolicy::AllowAll, &data_with_denied_ptb_count),
+            Decision::Allow,
+            "allow all policy, with rule \"allow all senders\", within ptb command limit should allow tx"
+        );
+    }
+
+    #[test]
     fn test_allow_when_deny_all() {
         let policy = super::AccessPolicy::DenyAll;
         let sender_address = IotaAddress::new([0; 32]);
