@@ -1,6 +1,9 @@
 // Copyright (c) 2024 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
+use std::any;
+
+use anyhow::{bail, Context};
 use iota_types::{
     base_types::IotaAddress,
     signature::GenericSignature,
@@ -9,9 +12,14 @@ use iota_types::{
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
+use crate::tracker::{
+    tracker_storage::{redis::RedisTrackerStorage, Aggregate, AggregateType},
+    StatsTracker,
+};
+
 use super::{
     decision::Decision,
-    predicates::{Action, ValueIotaAddress, ValueNumber},
+    predicates::{Action, ValueAggregate, ValueIotaAddress, ValueNumber},
     AccessPolicy,
 };
 
@@ -98,27 +106,31 @@ pub struct AccessRule {
     pub transaction_gas_budget: Option<ValueNumber<u64>>,
     pub move_call_package_address: Option<ValueIotaAddress>,
     pub ptb_command_count: Option<ValueNumber<usize>>,
+    pub gas_limit: Option<ValueAggregate>,
 
     pub action: Action,
 }
 
 impl AccessRule {
+    // TODO This should be removed
     /// Checks if the transaction can be executed based on the access rule and the access policy.
-    pub fn check_access(
-        &self,
-        access_policy: AccessPolicy,
-        data: &TransactionDescription,
-    ) -> Decision {
-        if self.matches(data) {
-            return self.evaluate_access_action(access_policy);
-        }
+    // pub async fn matches(
+    //     &self,
+    //     access_policy: AccessPolicy,
+    //     data: &TransactionDescription,
+    // ) -> Decision {
+    //     if self.matches(data).await {
+    //         return self.evaluate_access_action();
+    //     }
 
-        return access_policy.into();
-    }
+    //     return access_policy.into();
+    // }
+
+    // The problem right now is that matching could return the error
 
     /// Checks if the rule matches the transaction data.
-    pub fn matches(&self, data: &TransactionDescription) -> bool {
-        self.sender_address.includes(&data.sender_address)
+    pub async fn matches(&self, data: &TransactionDescription) -> Result<bool, anyhow::Error> {
+        Ok(self.sender_address.includes(&data.sender_address)
             // Gas Budget
             && self
                 .transaction_gas_budget
@@ -129,17 +141,36 @@ impl AccessRule {
             && self
                 .move_call_package_address.as_ref().map(|address| address.includes_any(&data.move_call_package_addresses)).unwrap_or(true)
             && self.ptb_command_count_matches_or_not_applicable(data)
+            // Match gas limit
+            && self.match_gas_limit(data).await?)
     }
 
-    /// Evaluates the access action based on the access policy.
-    pub fn evaluate_access_action(&self, _general_policy: AccessPolicy) -> Decision {
-        match self.action {
-            Action::Allow => {
-                return Decision::Allow;
+    pub async fn match_gas_limit(
+        &self,
+        data: &TransactionDescription,
+    ) -> Result<bool, anyhow::Error> {
+        if let Some(gas_limit) = self.gas_limit.as_ref() {
+            if let Some(stats_tracker) = &data.stats_tracker {
+                let json_rule = serde_json::to_value(self.clone())
+                    .context("Failed to serialize rule to JSON")?;
+                let rule_to_hash = json_rule.as_object().context("The rule isn't a map")?;
+
+                let aggr_request = Aggregate::with_name("gas_limit")
+                    .with_value(data.transaction_budget as f64)
+                    .with_aggr_type(AggregateType::Sum)
+                    .with_window(gas_limit.window);
+
+                let total_gas_claim = stats_tracker
+                    .update_aggr(rule_to_hash, &aggr_request)
+                    .await
+                    .context("Updating aggregate failed")?;
+
+                return Ok(gas_limit.limit.matches(total_gas_claim as u64));
+            } else {
+                bail!("Stats tracker is not defined. But it should be");
             }
-            Action::Deny => {
-                return Decision::Deny;
-            }
+        } else {
+            return Ok(false);
         }
     }
 }
@@ -154,12 +185,14 @@ impl AccessRule {
 }
 
 // This input is used to check the access policy.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, Default)]
 pub struct TransactionDescription {
     pub sender_address: IotaAddress,
     pub transaction_budget: u64,
     pub move_call_package_addresses: Vec<IotaAddress>,
     pub ptb_command_count: Option<usize>,
+
+    pub stats_tracker: Option<StatsTracker<RedisTrackerStorage>>,
 }
 
 impl TransactionDescription {
@@ -176,6 +209,7 @@ impl TransactionDescription {
             transaction_budget: transaction_data.gas_budget(),
             move_call_package_addresses: get_move_call_package_addresses(transaction_data),
             ptb_command_count,
+            stats_tracker: None,
         }
     }
 
@@ -199,6 +233,10 @@ impl TransactionDescription {
 
     pub fn with_ptb_command_count(mut self, ptb_count: usize) -> Self {
         self.ptb_command_count = Some(ptb_count);
+    }
+
+    pub fn with_stats_tracker(mut self, stats_tracker: StatsTracker<RedisTrackerStorage>) -> Self {
+        self.stats_tracker = Some(stats_tracker);
         self
     }
 }
@@ -223,8 +261,8 @@ mod test {
         rule::{AccessRule, AccessRuleBuilder, Action, Decision, TransactionDescription},
     };
 
-    #[test]
-    fn test_constraint_src_address_defined_and_allowed() {
+    #[tokio::test]
+    async fn test_constraint_src_address_defined_and_allowed() {
         let sender_address = IotaAddress::new([1; 32]);
         let rule = super::AccessRule {
             sender_address: [sender_address].into(),
@@ -235,134 +273,55 @@ mod test {
             TransactionDescription::default().with_sender_address(sender_address);
         let data_with_denied_sender = TransactionDescription::default();
 
-        assert!(
-            rule.check_access(AccessPolicy::DenyAll, &data_with_allowed_sender) == Decision::Allow
-        );
-        assert!(
-            rule.check_access(AccessPolicy::DenyAll, &data_with_denied_sender) == Decision::Deny
-        );
-        assert!(
-            rule.check_access(AccessPolicy::AllowAll, &data_with_allowed_sender) == Decision::Allow
-        );
-        assert!(
-            rule.check_access(AccessPolicy::AllowAll, &data_with_denied_sender) == Decision::Allow
-        );
+        assert!(rule.matches(&data_with_allowed_sender).await.unwrap());
+        assert!(rule.matches(&data_with_denied_sender).await.unwrap());
     }
 
-    #[test]
-    fn test_constraint_src_address_defined_and_denied() {
+    #[tokio::test]
+    async fn test_constraint_src_address_defined_and_denied() {
         let sender_address = IotaAddress::new([1; 32]);
         let rule = super::AccessRule {
             sender_address: [sender_address].into(),
-            action: Action::Deny,
             ..Default::default()
         };
         let data_with_allowed_sender =
             TransactionDescription::default().with_sender_address(sender_address);
         let data_with_denied_sender = TransactionDescription::default();
 
-        assert!(
-            rule.check_access(AccessPolicy::AllowAll, &data_with_allowed_sender) == Decision::Deny
-        );
-        assert!(
-            rule.check_access(AccessPolicy::DenyAll, &data_with_allowed_sender) == Decision::Deny
-        );
-        assert!(
-            rule.check_access(AccessPolicy::DenyAll, &data_with_denied_sender) == Decision::Deny
-        );
-        assert!(
-            rule.check_access(AccessPolicy::DenyAll, &data_with_denied_sender) == Decision::Deny
-        );
+        assert!(rule.matches(&data_with_allowed_sender).await.unwrap());
+        assert!(!rule.matches(&data_with_denied_sender).await.unwrap());
     }
 
-    #[test]
-    fn test_constraint_gas_budget() {
+    #[tokio::test]
+    async fn test_constraint_gas_budget() {
         let gas_limit = 100;
-        let rule_allow = AccessRuleBuilder::new()
+        let rule = AccessRuleBuilder::new()
             .gas_budget(ValueNumber::LessThanOrEqual(gas_limit))
-            .allow()
-            .build();
-
-        let rule_deny = AccessRuleBuilder::new()
-            .gas_budget(ValueNumber::GreaterThan(gas_limit))
-            .deny()
             .build();
 
         let low_transaction_budget = TransactionDescription::default().with_gas_budget(50);
         let high_transaction_budget = TransactionDescription::default().with_gas_budget(200);
 
-        assert_eq!(
-            rule_deny.check_access(AccessPolicy::AllowAll, &low_transaction_budget),
-            Decision::Allow
-        );
-        assert_eq!(
-            rule_deny.check_access(AccessPolicy::AllowAll, &high_transaction_budget),
-            Decision::Deny
-        );
-
-        // now when policy is deny
-        assert_eq!(
-            rule_deny.check_access(AccessPolicy::DenyAll, &low_transaction_budget),
-            Decision::Deny
-        );
-        assert_eq!(
-            rule_deny.check_access(AccessPolicy::DenyAll, &high_transaction_budget),
-            Decision::Deny
-        );
-
-        assert_eq!(
-            rule_allow.check_access(AccessPolicy::AllowAll, &low_transaction_budget),
-            Decision::Allow
-        );
-        assert_eq!(
-            rule_allow.check_access(AccessPolicy::AllowAll, &high_transaction_budget),
-            Decision::Allow
-        );
-        assert_eq!(
-            rule_allow.check_access(AccessPolicy::DenyAll, &low_transaction_budget),
-            Decision::Allow
-        );
-        assert_eq!(
-            rule_allow.check_access(AccessPolicy::DenyAll, &high_transaction_budget),
-            Decision::Deny
-        );
+        assert!(rule.matches(&low_transaction_budget).await.unwrap());
+        assert!(!rule.matches(&high_transaction_budget).await.unwrap());
     }
 
-    #[test]
-    fn test_constraint_move_call_package_addr() {
+    #[tokio::test]
+    async fn test_constraint_move_call_package_addr() {
         let move_call_package_address = IotaAddress::new([1; 32]);
-        let rule_allow = AccessRuleBuilder::new()
+        let rule = AccessRuleBuilder::new()
             .move_call_package_address(move_call_package_address)
-            .allow()
             .build();
 
-        let rule_deny = AccessRuleBuilder::new()
-            .move_call_package_address(move_call_package_address)
-            .deny()
-            .build();
         let transaction_description = TransactionDescription::default()
             .with_move_call_package_addresses(vec![move_call_package_address]);
 
-        assert_eq!(
-            rule_allow.check_access(AccessPolicy::AllowAll, &transaction_description),
-            Decision::Allow
-        );
-        assert_eq!(
-            rule_allow.check_access(AccessPolicy::DenyAll, &transaction_description),
-            Decision::Allow
-        );
-        assert_eq!(
-            rule_deny.check_access(AccessPolicy::AllowAll, &transaction_description),
-            Decision::Deny
-        );
-        assert_eq!(
-            rule_deny.check_access(AccessPolicy::DenyAll, &transaction_description),
-            Decision::Deny
-        );
+        assert!(rule.matches(&transaction_description).await.unwrap());
+        assert!(!rule.matches(&transaction_description).await.unwrap());
     }
 
-    #[test]
-    fn test_constraint_mix_ups_sender_package_address() {
+    #[tokio::test]
+    async fn test_constraint_mix_ups_sender_package_address() {
         let sender_address = IotaAddress::new([1; 32]);
         let move_call_package_address = IotaAddress::new([2; 32]);
 
@@ -376,38 +335,21 @@ mod test {
             .with_sender_address(sender_address)
             .with_move_call_package_addresses(vec![move_call_package_address]);
 
-        assert_eq!(
-            rule.check_access(AccessPolicy::AllowAll, &transaction_description),
-            Decision::Allow
-        );
-        assert_eq!(
-            rule.check_access(AccessPolicy::DenyAll, &transaction_description),
-            Decision::Allow
-        );
+        assert!(rule.matches(&transaction_description).await.unwrap());
 
         let transaction_description_with_not_matched_package_address =
             TransactionDescription::default()
                 .with_sender_address(sender_address)
                 .with_move_call_package_addresses(vec![IotaAddress::new([3; 32])]);
 
-        assert_eq!(
-            rule.check_access(
-                AccessPolicy::AllowAll,
-                &transaction_description_with_not_matched_package_address
-            ),
-            Decision::Allow
-        );
-        assert_eq!(
-            rule.check_access(
-                AccessPolicy::DenyAll,
-                &transaction_description_with_not_matched_package_address
-            ),
-            Decision::Deny
-        );
+        assert!(!rule
+            .matches(&transaction_description_with_not_matched_package_address)
+            .await
+            .unwrap());
     }
 
-    #[test]
-    fn test_constraint_mix_ups_sender_budget_package_address() {
+    #[tokio::test]
+    async fn test_constraint_mix_ups_sender_budget_package_address() {
         let sender_address = IotaAddress::new([1; 32]);
         let move_call_package_address = IotaAddress::new([2; 32]);
         let gas_limit = 100;
@@ -424,14 +366,7 @@ mod test {
             .with_gas_budget(gas_limit)
             .with_move_call_package_addresses(vec![move_call_package_address]);
 
-        assert_eq!(
-            rule.check_access(AccessPolicy::AllowAll, &transaction_description),
-            Decision::Allow
-        );
-        assert_eq!(
-            rule.check_access(AccessPolicy::DenyAll, &transaction_description),
-            Decision::Allow
-        );
+        assert!(rule.matches(&transaction_description).await.unwrap());
 
         let transaction_description_with_not_matched_package_address =
             TransactionDescription::default()
@@ -439,40 +374,20 @@ mod test {
                 .with_gas_budget(gas_limit)
                 .with_move_call_package_addresses(vec![IotaAddress::new([3; 32])]);
 
-        assert_eq!(
-            rule.check_access(
-                AccessPolicy::AllowAll,
-                &transaction_description_with_not_matched_package_address
-            ),
-            Decision::Allow
-        );
-        assert_eq!(
-            rule.check_access(
-                AccessPolicy::DenyAll,
-                &transaction_description_with_not_matched_package_address
-            ),
-            Decision::Deny
-        );
+        assert!(!rule
+            .matches(&transaction_description_with_not_matched_package_address)
+            .await
+            .unwrap());
 
         let transaction_description_with_not_matched_gas_limit = TransactionDescription::default()
             .with_sender_address(sender_address)
             .with_gas_budget(gas_limit + 1)
             .with_move_call_package_addresses(vec![move_call_package_address]);
 
-        assert_eq!(
-            rule.check_access(
-                AccessPolicy::AllowAll,
-                &transaction_description_with_not_matched_gas_limit
-            ),
-            Decision::Allow
-        );
-        assert_eq!(
-            rule.check_access(
-                AccessPolicy::DenyAll,
-                &transaction_description_with_not_matched_gas_limit
-            ),
-            Decision::Deny
-        );
+        assert!(!rule
+            .matches(&transaction_description_with_not_matched_gas_limit)
+            .await
+            .unwrap());
     }
 
     #[test]
@@ -492,9 +407,8 @@ mod test {
         assert!(!rule.matches(&data_with_not_matching_ptb_count));
     }
 
-    #[test]
-    fn test_allow_when_deny_all() {
-        let policy = super::AccessPolicy::DenyAll;
+    #[tokio::test]
+    async fn test_allow_when_deny_all() {
         let sender_address = IotaAddress::new([0; 32]);
         let input = TransactionDescription::default().with_sender_address(sender_address);
         let access_rule = AccessRule {
@@ -503,9 +417,6 @@ mod test {
             ..Default::default()
         };
 
-        assert_eq!(
-            access_rule.check_access(policy, &input),
-            super::Decision::Allow
-        );
+        assert!(access_rule.matches(&input).await.unwrap());
     }
 }

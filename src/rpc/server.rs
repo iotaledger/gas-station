@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::access_controller::rule::TransactionDescription;
-use crate::access_controller::AccessController;
+use crate::access_controller::{self, AccessController};
 use crate::gas_station::gas_station_core::GasStation;
 use crate::logging::TxLogMessage;
 use crate::metrics::GasStationRpcMetrics;
@@ -11,6 +11,7 @@ use crate::rpc::rpc_types::{
     ExecuteTxRequest, ExecuteTxResponse, ReserveGasRequest, ReserveGasResponse,
 };
 use crate::{read_auth_env, VERSION};
+use anyhow::bail;
 use axum::headers::authorization::Bearer;
 use axum::headers::Authorization;
 use axum::http::StatusCode;
@@ -19,6 +20,7 @@ use axum::routing::{get, post};
 use axum::{Extension, Json, Router, TypedHeader};
 use fastcrypto::encoding::Base64;
 use iota_json_rpc_types::IotaTransactionBlockEffectsAPI;
+use iota_types::base_types::is_primitive_type_tag;
 use iota_types::crypto::ToFromBytes;
 use iota_types::signature::GenericSignature;
 use iota_types::transaction::TransactionData;
@@ -215,6 +217,7 @@ async fn execute_tx(
             ))),
         );
     }
+
     server.metrics.num_authorized_execute_tx_requests.inc();
 
     debug!("Received v1 execute_tx request: {:?}", payload);
@@ -232,15 +235,7 @@ async fn execute_tx(
         );
     };
 
-    // Check the access control policy.
-    if let Err(err) = server
-        .access_controller
-        .check_access(&TransactionDescription::new(&user_sig, &tx_data))
-    {
-        server.metrics.num_blocked_execute_tx_requests.inc();
-        return (StatusCode::FORBIDDEN, Json(ExecuteTxResponse::new_err(err)));
-    }
-    server.metrics.num_allowed_execute_tx_requests.inc();
+    tokio::task::spawn(test_get_ac(server.access_controller.clone())).await;
 
     // Spawn a thread to process the request so that it will finish even when client drops the connection.
     tokio::task::spawn(execute_tx_impl(
@@ -249,6 +244,7 @@ async fn execute_tx(
         reservation_id,
         tx_data,
         user_sig,
+        server.access_controller.clone(),
     ))
     .await
     .unwrap_or_else(|err| {
@@ -262,13 +258,60 @@ async fn execute_tx(
     })
 }
 
+async fn test_get_ac(ac: Arc<AccessController>) -> Result<(), anyhow::Error> {
+    // ac.add_rule(Default::default());
+
+    if ac.is_disabled() {
+        return Ok(());
+    } else {
+        bail!("Access controller is not disabled");
+    }
+    // Test the access control policy.
+    // if let Err(err) = ac
+    //     .check_access(&TransactionDescription::new(
+    //         &GenericSignature::default(),
+    //         &TransactionData::default(),
+    //     ))
+    //     .await
+    // {
+    //     error!("Access denied: {:?}", err);
+    // }
+    // Ok(())
+}
+
+async fn execute_check_access(
+    ac: Arc<AccessController>,
+    tx_data: TransactionData,
+    user_sig: GenericSignature,
+) -> Result<(), anyhow::Error> {
+    // Check the access control policy.
+    if let Err(err) = ac
+        .check_access(&TransactionDescription::new(&user_sig, &tx_data))
+        .await
+    {
+        error!("Access denied: {:?}", err);
+    }
+    Ok(())
+}
+
 async fn execute_tx_impl(
     gas_station: Arc<GasStation>,
     metrics: Arc<GasStationRpcMetrics>,
     reservation_id: u64,
     tx_data: TransactionData,
     user_sig: GenericSignature,
+    access_controller: Arc<AccessController>,
 ) -> (StatusCode, Json<ExecuteTxResponse>) {
+    if let Err(err) = access_controller
+        .check_access(&TransactionDescription::new(&user_sig, &tx_data))
+        .await
+    {
+        error!("Access denied: {:?}", err);
+        metrics.num_failed_execute_tx_requests.inc();
+        return (StatusCode::FORBIDDEN, Json(ExecuteTxResponse::new_err(err)));
+    }
+    metrics.num_allowed_execute_tx_requests.inc();
+
     match gas_station
         .execute_transaction(reservation_id, tx_data, user_sig)
         .await

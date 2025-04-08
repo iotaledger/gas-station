@@ -12,6 +12,7 @@ pub mod rule;
 use anyhow::{anyhow, Result};
 use decision::Decision;
 use policy::AccessPolicy;
+use predicates::Action;
 use rule::{AccessRule, TransactionDescription};
 use serde::{Deserialize, Serialize};
 
@@ -35,24 +36,31 @@ impl AccessController {
     /// Checks if the transaction can be executed based on the access controller's rules.
     // If a rule matches, the corresponding action is applied. If no rule matches, the next rule is checked.
     // If none match, the default policy is applied.
-    pub fn check_access(&self, transaction_description: &TransactionDescription) -> Result<()> {
+    pub async fn check_access(
+        &self,
+        transaction_description: &TransactionDescription,
+    ) -> Result<Decision> {
         if self.is_disabled() {
-            return Ok(());
+            return Ok(Decision::Allow);
         }
 
         for (i, rule) in self.rules.iter().enumerate() {
-            if rule.matches(&transaction_description) {
-                return match rule.check_access(self.access_policy, &transaction_description) {
-                    Decision::Allow => Ok(()),
-                    Decision::Deny => Err(anyhow!("Access denied by rule #{}", i + 1)),
-                };
+            match rule.matches(&transaction_description).await {
+                Ok(true) => {
+                    return match rule.action {
+                        Action::Allow => Ok(Decision::Allow),
+                        Action::Deny => Err(anyhow!("Access denied by rule #{}", i + 1)),
+                    };
+                }
+                Ok(false) => continue,
+                Err(e) => return Err(anyhow!("Error evaluating rule #{}: {}", i + 1, e)),
             }
         }
 
-        if self.access_policy == AccessPolicy::AllowAll {
-            Ok(())
-        } else {
-            Err(anyhow!("Access denied by policy"))
+        match self.access_policy {
+            AccessPolicy::AllowAll => Ok(Decision::Allow),
+            AccessPolicy::DenyAll => Ok(Decision::Deny),
+            AccessPolicy::Disabled => Ok(Decision::Allow),
         }
     }
 
@@ -77,6 +85,7 @@ mod test {
     use iota_types::base_types::IotaAddress;
 
     use crate::access_controller::{
+        decision::Decision,
         predicates::{Action, ValueIotaAddress},
         AccessController,
     };
@@ -87,8 +96,8 @@ mod test {
         rule::{AccessRuleBuilder, TransactionDescription},
     };
 
-    #[test]
-    fn test_deny_policy_rules_should_allow() {
+    #[tokio::test]
+    async fn test_deny_policy_rules_should_allow() {
         let sender_address = IotaAddress::new([1; 32]);
         let blocked_address = IotaAddress::new([2; 32]);
         let allow_rule = AccessRuleBuilder::new()
@@ -106,17 +115,17 @@ mod test {
 
         let mut ac = AccessController::new(AccessPolicy::DenyAll, []);
 
-        assert!(ac.check_access(&allowed_tx).is_err());
-        assert!(ac.check_access(&blocked_tx).is_err());
+        assert!(ac.check_access(&allowed_tx).await.is_err());
+        assert!(ac.check_access(&blocked_tx).await.is_err());
 
         ac.add_rule(allow_rule);
 
-        assert!(ac.check_access(&allowed_tx).is_ok());
-        assert!(ac.check_access(&blocked_tx).is_err());
+        assert!(ac.check_access(&allowed_tx).await.is_ok());
+        assert!(ac.check_access(&blocked_tx).await.is_err());
     }
 
-    #[test]
-    fn test_allow_policy_rules_should_block() {
+    #[tokio::test]
+    async fn test_allow_policy_rules_should_block() {
         let blocked_address = IotaAddress::new([1; 32]);
         let sender_address = IotaAddress::new([2; 32]);
 
@@ -135,17 +144,29 @@ mod test {
         };
         let mut ac = AccessController::new(AccessPolicy::AllowAll, []);
 
-        assert!(ac.check_access(&allowed_transaction_description).is_ok());
-        assert!(ac.check_access(&blocked_transaction_description).is_ok());
+        assert!(matches!(
+            ac.check_access(&allowed_transaction_description).await,
+            Ok(Decision::Allow)
+        ));
+        assert!(matches!(
+            ac.check_access(&blocked_transaction_description).await,
+            Ok(Decision::Allow)
+        ));
 
         ac.add_rule(deny_rule);
 
-        assert!(ac.check_access(&allowed_transaction_description).is_ok());
-        assert!(ac.check_access(&blocked_transaction_description).is_err());
+        assert!(matches!(
+            ac.check_access(&allowed_transaction_description).await,
+            Ok(Decision::Allow)
+        ));
+        assert!(matches!(
+            ac.check_access(&blocked_transaction_description).await,
+            Ok(Decision::Deny)
+        ));
     }
 
-    #[test]
-    fn test_deny_policy_rules_gas_budget() {
+    #[tokio::test]
+    async fn test_deny_policy_rules_gas_budget() {
         let sender_address = IotaAddress::new([1; 32]);
         let gas_budget = 100;
         let allow_rule = AccessRuleBuilder::new()
@@ -162,12 +183,18 @@ mod test {
 
         let ac = AccessController::new(AccessPolicy::DenyAll, [allow_rule]);
 
-        assert!(ac.check_access(&allowed_tx).is_ok());
-        assert!(ac.check_access(&blocked_tx).is_err());
+        assert!(matches!(
+            ac.check_access(&allowed_tx).await,
+            Ok(Decision::Allow)
+        ));
+        assert!(matches!(
+            ac.check_access(&blocked_tx).await,
+            Ok(Decision::Deny)
+        ));
     }
 
-    #[test]
-    fn test_allow_policy_rules_gas_budget() {
+    #[tokio::test]
+    async fn test_allow_policy_rules_gas_budget() {
         let sender_address = IotaAddress::new([1; 32]);
         let gas_budget = 100;
         let deny_rule = AccessRuleBuilder::new()
@@ -183,12 +210,15 @@ mod test {
             .with_gas_budget(gas_budget);
 
         let ac = AccessController::new(AccessPolicy::AllowAll, [deny_rule]);
-        assert!(ac.check_access(&allowed_tx).is_ok());
-        assert!(ac.check_access(&blocked_tx).is_err());
+        assert!(matches!(
+            ac.check_access(&allowed_tx).await,
+            Ok(Decision::Allow)
+        ));
+        assert!(ac.check_access(&blocked_tx).await.is_err());
     }
 
-    #[test]
-    fn test_allow_policy_rules_move_call_package_address() {
+    #[tokio::test]
+    async fn test_allow_policy_rules_move_call_package_address() {
         let sender_address = IotaAddress::new([1; 32]);
         let package_address = IotaAddress::new([2; 32]);
         let deny_rule = AccessRuleBuilder::new()
@@ -204,12 +234,18 @@ mod test {
             .with_move_call_package_addresses(vec![IotaAddress::new([3; 32])]);
 
         let ac = AccessController::new(AccessPolicy::AllowAll, [deny_rule]);
-        assert!(ac.check_access(&allowed_tx).is_ok());
-        assert!(ac.check_access(&denied_tx).is_err());
+        assert!(matches!(
+            ac.check_access(&allowed_tx).await,
+            Ok(Decision::Allow)
+        ));
+        assert!(matches!(
+            ac.check_access(&denied_tx).await,
+            Ok(Decision::Deny)
+        ));
     }
 
-    #[test]
-    fn test_deny_policy_rules_move_call_package_address() {
+    #[tokio::test]
+    async fn test_deny_policy_rules_move_call_package_address() {
         let sender_address = IotaAddress::new([1; 32]);
         let package_address = IotaAddress::new([2; 32]);
         let allow_rule = AccessRuleBuilder::new()
@@ -225,8 +261,14 @@ mod test {
             .with_move_call_package_addresses(vec![IotaAddress::new([3; 32])]);
 
         let ac = AccessController::new(AccessPolicy::DenyAll, [allow_rule]);
-        assert!(ac.check_access(&allowed_tx).is_ok());
-        assert!(ac.check_access(&blocked_tx).is_err());
+        assert!(matches!(
+            ac.check_access(&allowed_tx).await,
+            Ok(Decision::Allow)
+        ));
+        assert!(matches!(
+            ac.check_access(&blocked_tx).await,
+            Ok(Decision::Deny)
+        ));
     }
 
     #[test]
@@ -369,8 +411,8 @@ rules:
         assert_eq!(ac.rules[0].action, Action::Allow);
     }
 
-    #[test]
-    fn test_evaluation_order_multiple_rules_policy_deny() {
+    #[tokio::test]
+    async fn test_evaluation_order_multiple_rules_policy_deny() {
         let sender_address = IotaAddress::new([1; 32]);
         let deny_rule = AccessRuleBuilder::new()
             .sender_address(sender_address)
@@ -386,13 +428,12 @@ rules:
         let ac = AccessController::new(AccessPolicy::DenyAll, [deny_rule, allow_rule]);
 
         // Even if the second rule allows the transaction, the first rule should deny it.
-        let result = ac.check_access(&tx);
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err().to_string(), "Access denied by rule #1");
+        let result = ac.check_access(&tx).await;
+        assert!(matches!(result, Ok(Decision::Deny)));
     }
 
-    #[test]
-    fn test_evaluation_order_multiple_rules_policy_allow() {
+    #[tokio::test]
+    async fn test_evaluation_order_multiple_rules_policy_allow() {
         let sender_address = IotaAddress::new([1; 32]);
 
         let deny_rule = AccessRuleBuilder::new()
@@ -408,11 +449,11 @@ rules:
         let ac = AccessController::new(AccessPolicy::AllowAll, [allow_rule, deny_rule]);
 
         // Even if the second rule denied the transaction, the first rule should allow it.
-        assert!(ac.check_access(&tx).is_ok());
+        assert!(matches!(ac.check_access(&tx).await, Ok(Decision::Allow)));
     }
 
-    #[test]
-    fn test_evaluation_logic_matching() {
+    #[tokio::test]
+    async fn test_evaluation_logic_matching() {
         let sender_1 = IotaAddress::new([1; 32]);
         let sender_2 = IotaAddress::new([2; 32]);
         let package_id = IotaAddress::new([10; 32]);
@@ -440,10 +481,19 @@ rules:
         );
 
         // accepted because of rule 1
-        assert!(ac.check_access(&tx_sender_1_accepted).is_ok());
+        assert!(matches!(
+            ac.check_access(&tx_sender_1_accepted).await,
+            Ok(Decision::Allow)
+        ));
         // rejected because of rule 2
-        assert!(ac.check_access(&tx_sender_1_rejected).is_err());
+        assert!(matches!(
+            ac.check_access(&tx_sender_1_rejected).await,
+            Ok(Decision::Deny)
+        ));
         // accepted because of default policy
-        assert!(ac.check_access(&tx_sender_2_accepted).is_ok());
+        assert!(matches!(
+            ac.check_access(&tx_sender_2_accepted).await,
+            Ok(Decision::Allow)
+        ));
     }
 }
