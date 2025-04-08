@@ -230,12 +230,53 @@ mod test {
     }
 
     #[test]
+    fn test_allow_policy_rules_ptb_command_count() {
+        let sender_address = IotaAddress::new([1; 32]);
+        let deny_rule = AccessRuleBuilder::new()
+            .sender_address(sender_address)
+            .ptb_command_count(ValueNumber::GreaterThan(1))
+            .deny()
+            .build();
+        let denied_tx = TransactionDescription::default()
+            .with_sender_address(sender_address)
+            .with_ptb_command_count(5);
+        let allowed_tx = TransactionDescription::default()
+            .with_sender_address(sender_address)
+            .with_ptb_command_count(1);
+
+        let ac = AccessController::new(AccessPolicy::AllowAll, [deny_rule]);
+        assert!(ac.check_access(&allowed_tx).is_ok());
+        assert!(ac.check_access(&denied_tx).is_err());
+    }
+
+    #[test]
+    fn test_deny_policy_rules_ptb_command_count() {
+        let sender_address = IotaAddress::new([1; 32]);
+        let allow_rule = AccessRuleBuilder::new()
+            .sender_address(sender_address)
+            .ptb_command_count(ValueNumber::LessThanOrEqual(1))
+            .allow()
+            .build();
+        let allowed_tx = TransactionDescription::default()
+            .with_sender_address(sender_address)
+            .with_ptb_command_count(1);
+        let blocked_tx = TransactionDescription::default()
+            .with_sender_address(sender_address)
+            .with_ptb_command_count(5);
+
+        let ac = AccessController::new(AccessPolicy::DenyAll, [allow_rule]);
+        assert!(ac.check_access(&allowed_tx).is_ok());
+        assert!(ac.check_access(&blocked_tx).is_err());
+    }
+
+    #[test]
     fn deserialize_access_controller() {
         let yaml = r#"
 access-policy: "deny-all"
 rules:
       - sender-address: ['0x0101010101010101010101010101010101010101010101010101010101010101']
         transaction-gas-budget: <=10000
+        ptb-command-count: <=5
         action: allow
 "#;
         let ac: AccessController = serde_yaml::from_str(yaml).unwrap();
@@ -249,6 +290,10 @@ rules:
             ac.rules[0].transaction_gas_budget,
             Some(ValueNumber::LessThanOrEqual(10000))
         );
+        assert_eq!(
+            ac.rules[0].ptb_command_count,
+            Some(ValueNumber::LessThanOrEqual(5))
+        );
         assert_eq!(ac.rules[0].action, Action::Allow);
     }
 
@@ -259,6 +304,7 @@ rules:
             [AccessRuleBuilder::new()
                 .sender_address(IotaAddress::new([1; 32]))
                 .gas_budget(ValueNumber::LessThanOrEqual(10000))
+                .ptb_command_count(ValueNumber::LessThanOrEqual(5))
                 .allow()
                 .build()],
         );
@@ -271,6 +317,7 @@ rules:
 rules:
 - sender-address: 0x0101010101010101010101010101010101010101010101010101010101010101
   transaction-gas-budget: <=10000
+  ptb-command-count: <=5
   action: allow
 "#
         );

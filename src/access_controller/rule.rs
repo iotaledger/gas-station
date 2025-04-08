@@ -58,7 +58,7 @@ impl AccessRuleBuilder {
         self
     }
 
-    pub fn gas_budget(mut self, gas_size: ValueNumber) -> Self {
+    pub fn gas_budget(mut self, gas_size: ValueNumber<u64>) -> Self {
         self.rule.transaction_gas_budget = Some(gas_size);
         self
     }
@@ -83,6 +83,11 @@ impl AccessRuleBuilder {
 
         self
     }
+
+    pub fn ptb_command_count(mut self, ptb_command_count: ValueNumber<usize>) -> Self {
+        self.rule.ptb_command_count = Some(ptb_command_count);
+        self
+    }
 }
 
 #[skip_serializing_none]
@@ -90,9 +95,9 @@ impl AccessRuleBuilder {
 #[serde(rename_all = "kebab-case")]
 pub struct AccessRule {
     pub sender_address: ValueIotaAddress,
-    pub transaction_gas_budget: Option<ValueNumber>,
+    pub transaction_gas_budget: Option<ValueNumber<u64>>,
     pub move_call_package_address: Option<ValueIotaAddress>,
-    pub max_commands_per_ptb: Option<usize>,
+    pub ptb_command_count: Option<ValueNumber<usize>>,
 
     pub action: Action,
 }
@@ -123,8 +128,7 @@ impl AccessRule {
             // Move Call Package Address
             && self
                 .move_call_package_address.as_ref().map(|address| address.includes_any(&data.move_call_package_addresses)).unwrap_or(true)
-            // ptb command count
-            && data.ptb_command_count <= self.max_commands_per_ptb
+            && self.ptb_command_count_matches_or_not_applicable(data)
     }
 
     /// Evaluates the access action based on the access policy.
@@ -136,6 +140,15 @@ impl AccessRule {
             Action::Deny => {
                 return Decision::Deny;
             }
+        }
+    }
+}
+
+impl AccessRule {
+    fn ptb_command_count_matches_or_not_applicable(&self, data: &TransactionDescription) -> bool {
+        match (self.ptb_command_count, data.ptb_command_count) {
+            (Some(criteria), Some(value)) => criteria.matches(value),
+            _ => true,
         }
     }
 }
@@ -463,38 +476,20 @@ mod test {
     }
 
     #[test]
-    fn test_constraint_ptb_defined_and_allowed() {
+    fn test_constraint_ptb_count_matches() {
         let rule = super::AccessRule {
             sender_address: ValueIotaAddress::All,
             action: Action::Allow,
-            max_commands_per_ptb: Some(1),
+            ptb_command_count: Some(ValueNumber::LessThanOrEqual(1)),
             ..Default::default()
         };
-        let data_with_allowed_ptb_count =
+        let data_with_matching_ptb_count =
             TransactionDescription::default().with_ptb_command_count(1);
-        let data_with_denied_ptb_count =
+        let data_with_not_matching_ptb_count =
             TransactionDescription::default().with_ptb_command_count(5);
 
-        assert_eq!(
-            rule.check_access(AccessPolicy::DenyAll, &data_with_allowed_ptb_count),
-            Decision::Allow,
-            "deny all policy, rule \"allow all senders\", within ptb command limit: should allow tx"
-        );
-        assert_eq!(
-            rule.check_access(AccessPolicy::DenyAll, &data_with_denied_ptb_count),
-            Decision::Deny,
-            "deny all policy, with rule \"allow all senders\", above ptb command limit: should deny tx"
-        );
-        assert_eq!(
-            rule.check_access(AccessPolicy::AllowAll, &data_with_allowed_ptb_count),
-            Decision::Allow,
-            "allow all policy, with rule \"allow all senders\", within ptb command limit should allow tx"
-        );
-        assert_eq!(
-            rule.check_access(AccessPolicy::AllowAll, &data_with_denied_ptb_count),
-            Decision::Allow,
-            "allow all policy, with rule \"allow all senders\", within ptb command limit should allow tx"
-        );
+        assert!(rule.matches(&data_with_matching_ptb_count));
+        assert!(!rule.matches(&data_with_not_matching_ptb_count));
     }
 
     #[test]

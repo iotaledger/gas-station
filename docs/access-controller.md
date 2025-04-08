@@ -69,14 +69,16 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
 
 - Programmable Transaction Command Count Limits
 
-   To avoid users submitting transactions blocks with a large number of transactions, a limit for the commands in the programmable transaction can be configured. In the following example, the sender may only submit one command in the programmable transaction.
+   To avoid users submitting transactions blocks with a large number of transactions, limits for the commands in the programmable transaction can be configured. In the following example, the sender may only submit up to one command in the programmable transaction.
+
+   Note that this rule condition is only applied to transactions, that include a programmable transaction and will be ignored for other transaction kinds.
 
    ```yaml
    access-controller:
       access-policy: deny-all
       rules:
          - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
-           max-commands-per-ptb: 1
+           ptb-command-count: <=1 # allowed operators: =, !=, <, >, <=, >=
            action: 'allow'
    ```
 
@@ -89,7 +91,7 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
 | `sender-address`            |  yes       | `'0x0000...'`, `[0x0000.., 0x1111...]`, `'*'`                  |
 | `gas-budget`                |  no        | `'=100'`, `'<100'`,  `'<=100'`, `'>100'`, `'>=100'`, `'!=100'` |
 | `move-call-package-address` |  no        | `'0x0000...'`, `[0x0000..., 0x1111...]`, `'*'`                 |
-| `max-commands-per-ptb`      |  no        | `1`, `2`, ..., `usize:MAX`                                     |
+| `ptb-command-count`         |  no        | `'=10'`, `'<10'`,  `'<=10'`, `'>10'`, `'>=10'`, `'!=10'`       |
 | `action`                    |  yes       | `'allow'`,  `'deny'`                                           |
 
 ## Learn More
