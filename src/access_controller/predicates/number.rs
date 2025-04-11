@@ -1,6 +1,8 @@
 // Copyright (c) 2024 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
+use std::{fmt::Display, str::FromStr};
+
 use serde::{Deserialize, Serialize};
 
 pub const OP_GE: &str = ">=";
@@ -12,24 +14,27 @@ pub const OP_LT: &str = "<";
 
 // The ValueNumber represents the number value in the rule. It can represent a single number or a range of number
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ValueNumber {
-    GreaterThan(u64),
-    LessThan(u64),
-    Equal(u64),
-    NotEqual(u64),
-    GreaterThanOrEqual(u64),
-    LessThanOrEqual(u64),
+pub enum ValueNumber<T> {
+    GreaterThan(T),
+    LessThan(T),
+    Equal(T),
+    NotEqual(T),
+    GreaterThanOrEqual(T),
+    LessThanOrEqual(T),
 }
 
-impl From<u64> for ValueNumber {
-    fn from(value: u64) -> Self {
+impl<T> From<T> for ValueNumber<T> {
+    fn from(value: T) -> Self {
         ValueNumber::Equal(value)
     }
 }
 
-impl ValueNumber {
+impl<T> ValueNumber<T>
+where
+    T: PartialOrd,
+{
     /// Check if the value matches the number.
-    pub fn matches(&self, value: u64) -> bool {
+    pub fn matches(&self, value: T) -> bool {
         match self {
             ValueNumber::GreaterThan(number) => value > *number,
             ValueNumber::LessThan(number) => value < *number,
@@ -41,7 +46,10 @@ impl ValueNumber {
     }
 }
 
-impl Serialize for ValueNumber {
+impl<T> Serialize for ValueNumber<T>
+where
+    T: Display,
+{
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -67,8 +75,12 @@ impl Serialize for ValueNumber {
     }
 }
 
-impl<'de> Deserialize<'de> for ValueNumber {
-    fn deserialize<D>(deserializer: D) -> Result<ValueNumber, D::Error>
+impl<'de, T> Deserialize<'de> for ValueNumber<T>
+where
+    T: FromStr,
+    <T as FromStr>::Err: Display,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
@@ -135,7 +147,7 @@ mod test {
         let serialized = serde_json::to_string(&number).unwrap();
         assert_eq!(serialized, "\"=42\"");
 
-        let deserialized: super::ValueNumber = serde_json::from_str(&serialized).unwrap();
+        let deserialized: super::ValueNumber<u64> = serde_json::from_str(&serialized).unwrap();
         assert_eq!(deserialized, number);
     }
 
@@ -145,7 +157,7 @@ mod test {
         let serialized = serde_json::to_string(&number).unwrap();
         assert_eq!(serialized, "\"!=42\"");
 
-        let deserialized: super::ValueNumber = serde_json::from_str(&serialized).unwrap();
+        let deserialized: super::ValueNumber<u64> = serde_json::from_str(&serialized).unwrap();
         assert_eq!(deserialized, number);
     }
 
@@ -155,7 +167,7 @@ mod test {
         let serialized = serde_json::to_string(&number).unwrap();
         assert_eq!(serialized, "\">42\"");
 
-        let deserialized: super::ValueNumber = serde_json::from_str(&serialized).unwrap();
+        let deserialized: super::ValueNumber<u64> = serde_json::from_str(&serialized).unwrap();
         assert_eq!(deserialized, number);
     }
 
@@ -165,7 +177,7 @@ mod test {
         let serialized = serde_json::to_string(&number).unwrap();
         assert_eq!(serialized, "\"<42\"");
 
-        let deserialized: super::ValueNumber = serde_json::from_str(&serialized).unwrap();
+        let deserialized: super::ValueNumber<u64> = serde_json::from_str(&serialized).unwrap();
         assert_eq!(deserialized, number);
     }
 
@@ -175,7 +187,7 @@ mod test {
         let serialized = serde_json::to_string(&number).unwrap();
         assert_eq!(serialized, "\">=42\"");
 
-        let deserialized: super::ValueNumber = serde_json::from_str(&serialized).unwrap();
+        let deserialized: super::ValueNumber<u64> = serde_json::from_str(&serialized).unwrap();
         assert_eq!(deserialized, number);
     }
 
@@ -185,7 +197,7 @@ mod test {
         let serialized = serde_json::to_string(&number).unwrap();
         assert_eq!(serialized, "\"<=42\"");
 
-        let deserialized: super::ValueNumber = serde_json::from_str(&serialized).unwrap();
+        let deserialized: super::ValueNumber<u64> = serde_json::from_str(&serialized).unwrap();
         assert_eq!(deserialized, number);
     }
 }

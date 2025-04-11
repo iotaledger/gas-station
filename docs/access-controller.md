@@ -10,11 +10,11 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
 
    ```yaml
    access-controller:
-   access-policy: deny-all
-   rules:
-      - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
-        move-call-package-address: "0x0202020202020202020202020202020202020202020202020202020202020202"
-        action: 'allow' # allowed actions: 'allow', 'deny'
+      access-policy: deny-all
+      rules:
+         - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
+           move-call-package-address: "0x0202020202020202020202020202020202020202020202020202020202020202"
+           action: 'allow' # allowed actions: 'allow', 'deny'
    ```
 
 ---
@@ -25,10 +25,10 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
 
    ```yaml
    access-controller:
-   access-policy: deny-all
-   rules:
-      - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
-        action: 'deny'
+      access-policy: deny-all
+      rules:
+         - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
+           action: 'deny'
    ```
 
 ---
@@ -39,11 +39,11 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
 
    ```yaml
    access-controller:
-   access-policy: deny-all
-   rules:
-      - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
-        transaction-gas-budget: '<1000000' # allowed operators: =, !=, <, >, <=, >=
-        action: 'allow'
+      access-policy: deny-all
+      rules:
+         - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
+           transaction-gas-budget: '<1000000' # allowed operators: =, !=, <, >, <=, >=
+           action: 'allow'
    ```
 
 ---
@@ -54,16 +54,32 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
 
    ```yaml
    access-controller:
-   access-policy: deny-all
-   rules:
-      - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
-        transaction-gas-budget: '<=10000000'
-        action: 'allow'
+      access-policy: deny-all
+      rules:
+         - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
+           transaction-gas-budget: '<=10000000'
+           action: 'allow'
 
-      - sender-address: '*'
-        transaction-gas-budget: '<500000'
-        action: 'allow'
+         - sender-address: '*'
+           transaction-gas-budget: '<500000'
+           action: 'allow'
+   ```
 
+---
+
+- Programmable Transaction Command Count Limits
+
+   To avoid users submitting transactions blocks with a large number of transactions, limits for the commands in the programmable transaction can be configured. In the following example, the sender may only submit up to one command in the programmable transaction.
+
+   Note that this rule condition is only applied to transactions, that include a programmable transaction and will be ignored for other transaction kinds.
+
+   ```yaml
+   access-controller:
+      access-policy: deny-all
+      rules:
+         - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
+           ptb-command-count: <=1 # allowed operators: =, !=, <, >, <=, >=
+           action: 'allow'
    ```
 
 ---
@@ -75,6 +91,7 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
 | `sender-address`            |  yes       | `'0x0000...'`, `[0x0000.., 0x1111...]`, `'*'`                  |
 | `gas-budget`                |  no        | `'=100'`, `'<100'`,  `'<=100'`, `'>100'`, `'>=100'`, `'!=100'` |
 | `move-call-package-address` |  no        | `'0x0000...'`, `[0x0000..., 0x1111...]`, `'*'`                 |
+| `ptb-command-count`         |  no        | `'=10'`, `'<10'`,  `'<=10'`, `'>10'`, `'>=10'`, `'!=10'`       |
 | `action`                    |  yes       | `'allow'`,  `'deny'`                                           |
 
 ## Learn More

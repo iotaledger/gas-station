@@ -1,4 +1,4 @@
-#!/bin/env bash
+#!/bin/bash
 
 IMAGE_NAME="iotaledger/gas-station:latest"
 
