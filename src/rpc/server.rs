@@ -1,6 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::access_controller::decision::Decision;
 use crate::access_controller::rule::TransactionContext;
 use crate::access_controller::AccessController;
 use crate::gas_station::gas_station_core::GasStation;
@@ -269,17 +270,32 @@ async fn execute_tx_impl(
     access_controller: Arc<AccessController>,
     stats_tracker: StatsTracker,
 ) -> (StatusCode, Json<ExecuteTxResponse>) {
-    if let Err(err) = access_controller
+    match access_controller
         .check_access(
-            &TransactionContext::new(&user_sig, &tx_data).with_stats_tracker(stats_tracker.clone()),
+            &TransactionContext::new(&user_sig, &tx_data).with_stats_tracker(stats_tracker),
         )
         .await
     {
-        error!("Access denied: {:?}", err);
-        metrics.num_failed_execute_tx_requests.inc();
-        return (StatusCode::FORBIDDEN, Json(ExecuteTxResponse::new_err(err)));
+        Ok(Decision::Allow) => {
+            metrics.num_allowed_execute_tx_requests.inc();
+        }
+        Ok(Decision::Deny) => {
+            metrics.num_failed_execute_tx_requests.inc();
+            return (
+                StatusCode::FORBIDDEN,
+                Json(ExecuteTxResponse::new_err(anyhow::anyhow!(
+                    "Access denied by access controller"
+                ))),
+            );
+        }
+        Err(err) => {
+            error!("Error while checking access: {:?}", err);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ExecuteTxResponse::new_err(err)),
+            );
+        }
     }
-    metrics.num_allowed_execute_tx_requests.inc();
 
     match gas_station
         .execute_transaction(reservation_id, tx_data, user_sig)
