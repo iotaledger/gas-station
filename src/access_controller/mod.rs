@@ -60,7 +60,7 @@ impl AccessController {
                 Ok(true) => {
                     return match rule.action {
                         Action::Allow => Ok(Decision::Allow),
-                        Action::Deny => Err(anyhow!("Access denied by rule #{}", i + 1)),
+                        Action::Deny => Ok(Decision::Deny),
                     };
                 }
                 Ok(false) => continue,
@@ -115,24 +115,36 @@ mod test {
             .sender_address(sender_address)
             .allow()
             .build();
-        let allowed_tx = TransactionContext {
+        let to_allow_tx = TransactionContext {
             sender_address: sender_address.clone(),
             ..Default::default()
         };
-        let blocked_tx = TransactionContext {
+        let denied_tx = TransactionContext {
             sender_address: blocked_address.clone(),
             ..Default::default()
         };
 
         let mut ac = AccessController::new(AccessPolicy::DenyAll, []);
 
-        assert!(ac.check_access(&allowed_tx).await.is_err());
-        assert!(ac.check_access(&blocked_tx).await.is_err());
+        assert!(matches!(
+            ac.check_access(&to_allow_tx).await,
+            Ok(Decision::Deny)
+        ));
+        assert!(matches!(
+            ac.check_access(&denied_tx).await,
+            Ok(Decision::Deny)
+        ));
 
         ac.add_rule(allow_rule);
 
-        assert!(ac.check_access(&allowed_tx).await.is_ok());
-        assert!(ac.check_access(&blocked_tx).await.is_err());
+        assert!(matches!(
+            ac.check_access(&to_allow_tx).await,
+            Ok(Decision::Allow)
+        ));
+        assert!(matches!(
+            ac.check_access(&denied_tx).await,
+            Ok(Decision::Deny)
+        ));
     }
 
     #[tokio::test]
@@ -145,33 +157,33 @@ mod test {
             .deny()
             .build();
 
-        let blocked_transaction_description = TransactionContext {
+        let to_deny_tx = TransactionContext {
             sender_address: blocked_address.clone(),
             ..Default::default()
         };
-        let allowed_transaction_description = TransactionContext {
+        let allowed_tx = TransactionContext {
             sender_address: sender_address.clone(),
             ..Default::default()
         };
         let mut ac = AccessController::new(AccessPolicy::AllowAll, []);
 
         assert!(matches!(
-            ac.check_access(&allowed_transaction_description).await,
+            ac.check_access(&allowed_tx).await,
             Ok(Decision::Allow)
         ));
         assert!(matches!(
-            ac.check_access(&blocked_transaction_description).await,
+            ac.check_access(&to_deny_tx).await,
             Ok(Decision::Allow)
         ));
 
         ac.add_rule(deny_rule);
 
         assert!(matches!(
-            ac.check_access(&allowed_transaction_description).await,
+            ac.check_access(&allowed_tx).await,
             Ok(Decision::Allow)
         ));
         assert!(matches!(
-            ac.check_access(&blocked_transaction_description).await,
+            ac.check_access(&to_deny_tx).await,
             Ok(Decision::Deny)
         ));
     }
@@ -188,7 +200,7 @@ mod test {
         let allowed_tx = TransactionContext::default()
             .with_sender_address(sender_address)
             .with_gas_budget(gas_budget - 1);
-        let blocked_tx = TransactionContext::default()
+        let denied_tx = TransactionContext::default()
             .with_sender_address(sender_address)
             .with_gas_budget(gas_budget);
 
@@ -199,7 +211,7 @@ mod test {
             Ok(Decision::Allow)
         ));
         assert!(matches!(
-            ac.check_access(&blocked_tx).await,
+            ac.check_access(&denied_tx).await,
             Ok(Decision::Deny)
         ));
     }
@@ -216,7 +228,7 @@ mod test {
         let allowed_tx = TransactionContext::default()
             .with_sender_address(sender_address)
             .with_gas_budget(gas_budget - 1);
-        let blocked_tx = TransactionContext::default()
+        let denied_tx = TransactionContext::default()
             .with_sender_address(sender_address)
             .with_gas_budget(gas_budget);
 
@@ -225,7 +237,10 @@ mod test {
             ac.check_access(&allowed_tx).await,
             Ok(Decision::Allow)
         ));
-        assert!(ac.check_access(&blocked_tx).await.is_err());
+        assert!(matches!(
+            ac.check_access(&denied_tx).await,
+            Ok(Decision::Deny)
+        ));
     }
 
     #[tokio::test]
@@ -267,7 +282,7 @@ mod test {
         let allowed_tx = TransactionContext::default()
             .with_sender_address(sender_address)
             .with_move_call_package_addresses(vec![package_address]);
-        let blocked_tx = TransactionContext::default()
+        let denied_tx = TransactionContext::default()
             .with_sender_address(sender_address)
             .with_move_call_package_addresses(vec![IotaAddress::new([3; 32])]);
 
@@ -277,7 +292,7 @@ mod test {
             Ok(Decision::Allow)
         ));
         assert!(matches!(
-            ac.check_access(&blocked_tx).await,
+            ac.check_access(&denied_tx).await,
             Ok(Decision::Deny)
         ));
     }
