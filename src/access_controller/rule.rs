@@ -130,13 +130,9 @@ impl AccessRule {
     pub async fn match_gas_limit(&self, data: &TransactionContext) -> Result<bool, anyhow::Error> {
         if let Some(gas_limit) = self.gas_limit.as_ref() {
             if let Some(stats_tracker) = &data.stats_tracker {
-                // This is already with the values
                 let json_rule = serde_json::to_value(self.clone())
                     .context("Failed to serialize rule to JSON")?;
                 let rule_to_hash = json_rule.as_object().context("The rule isn't a map")?;
-
-                println!("The transaction budget is {}", data.transaction_budget);
-
                 let aggr_request = Aggregate::with_name("gas_limit")
                     .with_value(data.transaction_budget as f64)
                     .with_aggr_type(AggregateType::Sum)
@@ -147,18 +143,13 @@ impl AccessRule {
                     .await
                     .context("Updating aggregate failed")?;
 
-                println!("The total gas claim is {}", total_gas_claim);
-
-                let matches = gas_limit.limit.matches(total_gas_claim as u64);
-                println!("the gas limit is {}", gas_limit.limit.get_number());
-                println!("The matches is {}", matches);
-
                 return Ok(gas_limit.limit.matches(total_gas_claim as u64));
             } else {
                 bail!("Stats tracker is not defined. But it should be");
             }
         } else {
-            return Ok(false);
+            // If the gas limit is not defined then the rule matches
+            return Ok(true);
         }
     }
 }
@@ -243,42 +234,29 @@ mod test {
 
     use iota_types::base_types::IotaAddress;
 
-    use crate::access_controller::{
-        policy::AccessPolicy,
-        predicates::{ValueIotaAddress, ValueNumber},
-        rule::{AccessRule, AccessRuleBuilder, Action, Decision, TransactionDescription},
+    use crate::{
+        access_controller::{
+            predicates::{ValueAggregate, ValueNumber},
+            rule::{AccessRule, AccessRuleBuilder, TransactionContext},
+        },
         test_env::{new_stats_tracker_for_testing, random_address},
     };
 
     #[tokio::test]
-    async fn test_constraint_src_address_defined_and_allowed() {
-        let sender_address = IotaAddress::new([1; 32]);
-        let rule = super::AccessRule {
-            sender_address: [sender_address].into(),
-            action: Action::Allow,
+    async fn test_constraint_sender_address() {
+        let matched_sender = IotaAddress::new([0; 32]);
+        let unmatched_sender = IotaAddress::new([1; 32]);
+
+        let matched_data = TransactionContext::default().with_sender_address(matched_sender);
+        let unmatched_data = TransactionContext::default().with_sender_address(unmatched_sender);
+
+        let rule = AccessRule {
+            sender_address: [matched_sender].into(),
             ..Default::default()
         };
-        let data_with_allowed_sender =
-            TransactionContext::default().with_sender_address(sender_address);
-        let data_with_denied_sender = TransactionContext::default();
 
-        assert!(rule.matches(&data_with_allowed_sender).await.unwrap());
-        assert!(rule.matches(&data_with_denied_sender).await.unwrap());
-    }
-
-    #[tokio::test]
-    async fn test_constraint_src_address_defined_and_denied() {
-        let sender_address = IotaAddress::new([1; 32]);
-        let rule = super::AccessRule {
-            sender_address: [sender_address].into(),
-            ..Default::default()
-        };
-        let data_with_allowed_sender =
-            TransactionContext::default().with_sender_address(sender_address);
-        let data_with_denied_sender = TransactionContext::default();
-
-        assert!(rule.matches(&data_with_allowed_sender).await.unwrap());
-        assert!(!rule.matches(&data_with_denied_sender).await.unwrap());
+        assert!(rule.matches(&matched_data).await.unwrap());
+        assert!(!rule.matches(&unmatched_data).await.unwrap());
     }
 
     #[tokio::test]
@@ -288,25 +266,29 @@ mod test {
             .gas_budget(ValueNumber::LessThanOrEqual(gas_limit))
             .build();
 
-        let low_transaction_budget = TransactionContext::default().with_gas_budget(50);
-        let high_transaction_budget = TransactionContext::default().with_gas_budget(200);
+        let matched_data = TransactionContext::default().with_gas_budget(50);
+        let unmatched_data = TransactionContext::default().with_gas_budget(200);
 
-        assert!(rule.matches(&low_transaction_budget).await.unwrap());
-        assert!(!rule.matches(&high_transaction_budget).await.unwrap());
+        assert!(rule.matches(&matched_data).await.unwrap());
+        assert!(!rule.matches(&unmatched_data).await.unwrap());
     }
 
     #[tokio::test]
     async fn test_constraint_move_call_package_addr() {
-        let move_call_package_address = IotaAddress::new([1; 32]);
+        let matched_package_id = IotaAddress::new([1; 32]);
+        let unmatch_package_id = IotaAddress::new([2; 32]);
+
         let rule = AccessRuleBuilder::new()
-            .move_call_package_address(move_call_package_address)
+            .move_call_package_address(matched_package_id)
             .build();
 
-        let transaction_description = TransactionContext::default()
-            .with_move_call_package_addresses(vec![move_call_package_address]);
+        let matched_data = TransactionContext::default()
+            .with_move_call_package_addresses(vec![matched_package_id]);
+        let unmatched_data = TransactionContext::default()
+            .with_move_call_package_addresses(vec![unmatch_package_id]);
 
-        assert!(rule.matches(&transaction_description).await.unwrap());
-        assert!(!rule.matches(&transaction_description).await.unwrap());
+        assert!(rule.matches(&matched_data).await.unwrap());
+        assert!(!rule.matches(&unmatched_data).await.unwrap());
     }
 
     #[tokio::test]
@@ -322,25 +304,21 @@ mod test {
             .allow()
             .build();
 
-        let transaction_description = TransactionContext::default()
+        let data = TransactionContext::default()
             .with_sender_address(sender_address)
             .with_gas_budget(gas_limit)
             .with_move_call_package_addresses(vec![move_call_package_address]);
 
-        assert!(rule.matches(&transaction_description).await.unwrap());
+        assert!(rule.matches(&data).await.unwrap());
 
-        let transaction_description_with_not_matched_package_address =
-            TransactionContext::default()
-                .with_sender_address(sender_address)
-                .with_gas_budget(gas_limit)
-                .with_move_call_package_addresses(vec![IotaAddress::new([3; 32])]);
+        let unmatched_data_package_address = TransactionContext::default()
+            .with_sender_address(sender_address)
+            .with_gas_budget(gas_limit)
+            .with_move_call_package_addresses(vec![IotaAddress::new([3; 32])]);
 
-        assert!(!rule
-            .matches(&transaction_description_with_not_matched_package_address)
-            .await
-            .unwrap());
+        assert!(!rule.matches(&unmatched_data_package_address).await.unwrap());
 
-        let transaction_description_with_not_matched_gas_limit = TransactionContext::default()
+        let unmatched_data_gas_limit = TransactionContext::default()
             .with_sender_address(sender_address)
             .with_gas_budget(gas_limit + 1)
             .with_move_call_package_addresses(vec![move_call_package_address]);
@@ -379,6 +357,7 @@ mod test {
         };
 
         assert!(access_rule.matches(&input).await.unwrap());
+        assert!(!rule.matches(&unmatched_data_gas_limit).await.unwrap());
     }
 
     #[tokio::test]
@@ -392,21 +371,17 @@ mod test {
             .allow()
             .build();
 
-        let transaction_description = TransactionContext::default()
+        let matched_data = TransactionContext::default()
             .with_sender_address(sender_address)
             .with_move_call_package_addresses(vec![move_call_package_address]);
 
-        assert!(rule.matches(&transaction_description).await.unwrap());
+        assert!(rule.matches(&matched_data).await.unwrap());
 
-        let transaction_description_with_not_matched_package_address =
-            TransactionContext::default()
-                .with_sender_address(sender_address)
-                .with_move_call_package_addresses(vec![IotaAddress::new([3; 32])]);
+        let unmatched_data = TransactionContext::default()
+            .with_sender_address(sender_address)
+            .with_move_call_package_addresses(vec![IotaAddress::new([3; 32])]);
 
-        assert!(!rule
-            .matches(&transaction_description_with_not_matched_package_address)
-            .await
-            .unwrap());
+        assert!(!rule.matches(&unmatched_data).await.unwrap());
     }
 
     #[tokio::test]
@@ -425,19 +400,20 @@ mod test {
             .deny()
             .build();
 
-        // The context will be matched second time, because the gas limit is 300
-        let matched_context = TransactionContext::default()
+        // The context will be matched second time, because the gas limit increments
+        // and crosses 300 threshold
+        let matched_data = TransactionContext::default()
             .with_sender_address(sender_address_limited)
             .with_gas_budget(200)
             .with_stats_tracker(stats_tracker.clone());
         // The wont be matched, because the sender address is different
-        let unmatched_transaction_context = TransactionContext::default()
+        let unmatched_data = TransactionContext::default()
             .with_sender_address(sender_address_unlimited)
             .with_gas_budget(200)
             .with_stats_tracker(stats_tracker.clone());
 
-        assert!(!rule.matches(&matched_context).await.unwrap());
-        assert!(rule.matches(&matched_context).await.unwrap());
-        assert!(!rule.matches(&unmatched_transaction_context).await.unwrap());
+        assert!(!rule.matches(&matched_data).await.unwrap());
+        assert!(rule.matches(&matched_data).await.unwrap());
+        assert!(!rule.matches(&unmatched_data).await.unwrap());
     }
 }
