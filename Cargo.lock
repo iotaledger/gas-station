@@ -4839,6 +4839,7 @@ dependencies = [
  "futures-util",
  "git-version",
  "hostname",
+ "humantime",
  "iota-config",
  "iota-json-rpc-types",
  "iota-metrics",

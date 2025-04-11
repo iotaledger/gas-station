@@ -9,6 +9,8 @@ use crate::iota_client::IotaClient;
 use crate::metrics::{GasStationCoreMetrics, GasStationRpcMetrics, StorageMetrics};
 use crate::rpc::GasStationServer;
 use crate::storage::connect_storage;
+use crate::tracker::tracker_storage::redis::connect_stats_storage;
+use crate::tracker::StatsTracker;
 use crate::{TRANSACTION_LOGGING_ENV_NAME, TRANSACTION_LOGGING_TARGET_NAME, VERSION};
 use clap::*;
 use iota_config::Config;
@@ -81,6 +83,11 @@ impl Command {
         };
 
         let core_metrics = GasStationCoreMetrics::new(&prometheus_registry);
+
+        let stats_storage = connect_stats_storage(&gas_station_config, sponsor_address).await;
+        let stats_tracker = StatsTracker::new(Arc::new(stats_storage));
+        let access_controller = Arc::new(access_controller);
+
         let container = GasStationContainer::new(
             signer,
             storage,
@@ -92,14 +99,13 @@ impl Command {
 
         let rpc_metrics = GasStationRpcMetrics::new(&prometheus_registry);
 
-        let access_controller = Arc::new(access_controller);
-
         let server = GasStationServer::new(
             container.get_gas_station_arc(),
             rpc_host_ip,
             rpc_port,
             rpc_metrics,
             access_controller,
+            stats_tracker,
         )
         .await;
         server.handle.await.unwrap();

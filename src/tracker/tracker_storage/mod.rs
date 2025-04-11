@@ -1,19 +1,20 @@
+//  Copyright (c) 2024 IOTA Stiftung
+//  SPDX-License-Identifier: Apache-2.0
+
 use std::{
     fmt::{Display, Formatter},
     time::Duration,
 };
 
 use anyhow::Result;
+use async_trait::async_trait;
 use serde_json::Value;
 
 pub mod redis;
 
+#[async_trait]
 pub trait TrackerStorageLike: Sync + Send {
-    async fn update_aggr<'a>(
-        &self,
-        key_meta: impl IntoIterator<Item = (&'a String, &'a Value)> + Send,
-        udpate: &Aggregate,
-    ) -> Result<f64>;
+    async fn update_aggr(&self, key_meta: &[(String, Value)], udpate: &Aggregate) -> Result<f64>;
 }
 
 #[derive(Debug, Clone, Default)]

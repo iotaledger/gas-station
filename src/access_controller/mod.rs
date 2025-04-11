@@ -9,19 +9,30 @@ pub mod policy;
 pub mod predicates;
 pub mod rule;
 
+use std::fmt::Formatter;
+
 use anyhow::{anyhow, Result};
 use decision::Decision;
 use policy::AccessPolicy;
 use predicates::Action;
-use rule::{AccessRule, TransactionDescription};
+use rule::{AccessRule, TransactionContext};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub struct AccessController {
     access_policy: AccessPolicy,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     rules: Vec<AccessRule>,
+}
+
+impl std::fmt::Debug for AccessController {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AccessController")
+            .field("access_policy", &self.access_policy)
+            .field("rules", &self.rules)
+            .finish()
+    }
 }
 
 impl AccessController {
@@ -38,7 +49,7 @@ impl AccessController {
     // If none match, the default policy is applied.
     pub async fn check_access(
         &self,
-        transaction_description: &TransactionDescription,
+        transaction_description: &TransactionContext,
     ) -> Result<Decision> {
         if self.is_disabled() {
             return Ok(Decision::Allow);
@@ -93,7 +104,7 @@ mod test {
     use super::{
         policy::AccessPolicy,
         predicates::ValueNumber,
-        rule::{AccessRuleBuilder, TransactionDescription},
+        rule::{AccessRuleBuilder, TransactionContext},
     };
 
     #[tokio::test]
@@ -104,11 +115,11 @@ mod test {
             .sender_address(sender_address)
             .allow()
             .build();
-        let allowed_tx = TransactionDescription {
+        let allowed_tx = TransactionContext {
             sender_address: sender_address.clone(),
             ..Default::default()
         };
-        let blocked_tx = TransactionDescription {
+        let blocked_tx = TransactionContext {
             sender_address: blocked_address.clone(),
             ..Default::default()
         };
@@ -134,11 +145,11 @@ mod test {
             .deny()
             .build();
 
-        let blocked_transaction_description = TransactionDescription {
+        let blocked_transaction_description = TransactionContext {
             sender_address: blocked_address.clone(),
             ..Default::default()
         };
-        let allowed_transaction_description = TransactionDescription {
+        let allowed_transaction_description = TransactionContext {
             sender_address: sender_address.clone(),
             ..Default::default()
         };
@@ -174,10 +185,10 @@ mod test {
             .gas_budget(ValueNumber::LessThan(gas_budget))
             .allow()
             .build();
-        let allowed_tx = TransactionDescription::default()
+        let allowed_tx = TransactionContext::default()
             .with_sender_address(sender_address)
             .with_gas_budget(gas_budget - 1);
-        let blocked_tx = TransactionDescription::default()
+        let blocked_tx = TransactionContext::default()
             .with_sender_address(sender_address)
             .with_gas_budget(gas_budget);
 
@@ -202,10 +213,10 @@ mod test {
             .gas_budget(ValueNumber::GreaterThanOrEqual(gas_budget))
             .deny()
             .build();
-        let allowed_tx = TransactionDescription::default()
+        let allowed_tx = TransactionContext::default()
             .with_sender_address(sender_address)
             .with_gas_budget(gas_budget - 1);
-        let blocked_tx = TransactionDescription::default()
+        let blocked_tx = TransactionContext::default()
             .with_sender_address(sender_address)
             .with_gas_budget(gas_budget);
 
@@ -226,10 +237,10 @@ mod test {
             .move_call_package_address(package_address)
             .deny()
             .build();
-        let denied_tx = TransactionDescription::default()
+        let denied_tx = TransactionContext::default()
             .with_sender_address(sender_address)
             .with_move_call_package_addresses(vec![package_address]);
-        let allowed_tx = TransactionDescription::default()
+        let allowed_tx = TransactionContext::default()
             .with_sender_address(sender_address)
             .with_move_call_package_addresses(vec![IotaAddress::new([3; 32])]);
 
@@ -253,10 +264,10 @@ mod test {
             .move_call_package_address(package_address)
             .allow()
             .build();
-        let allowed_tx = TransactionDescription::default()
+        let allowed_tx = TransactionContext::default()
             .with_sender_address(sender_address)
             .with_move_call_package_addresses(vec![package_address]);
-        let blocked_tx = TransactionDescription::default()
+        let blocked_tx = TransactionContext::default()
             .with_sender_address(sender_address)
             .with_move_call_package_addresses(vec![IotaAddress::new([3; 32])]);
 
@@ -424,7 +435,7 @@ rules:
             .allow()
             .build();
 
-        let tx = TransactionDescription::default().with_sender_address(sender_address);
+        let tx = TransactionContext::default().with_sender_address(sender_address);
         let ac = AccessController::new(AccessPolicy::DenyAll, [deny_rule, allow_rule]);
 
         // Even if the second rule allows the transaction, the first rule should deny it.
@@ -445,7 +456,7 @@ rules:
             .allow()
             .build();
 
-        let tx = TransactionDescription::default().with_sender_address(sender_address);
+        let tx = TransactionContext::default().with_sender_address(sender_address);
         let ac = AccessController::new(AccessPolicy::AllowAll, [allow_rule, deny_rule]);
 
         // Even if the second rule denied the transaction, the first rule should allow it.
@@ -469,11 +480,11 @@ rules:
             .deny()
             .build();
 
-        let tx_sender_1_accepted = TransactionDescription::default()
+        let tx_sender_1_accepted = TransactionContext::default()
             .with_sender_address(sender_1)
             .with_move_call_package_addresses(vec![package_id]);
-        let tx_sender_1_rejected = TransactionDescription::default().with_sender_address(sender_1);
-        let tx_sender_2_accepted = TransactionDescription::default().with_sender_address(sender_2);
+        let tx_sender_1_rejected = TransactionContext::default().with_sender_address(sender_1);
+        let tx_sender_2_accepted = TransactionContext::default().with_sender_address(sender_2);
 
         let ac = AccessController::new(
             AccessPolicy::AllowAll,

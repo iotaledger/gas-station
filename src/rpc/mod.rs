@@ -9,9 +9,15 @@ pub use server::GasStationServer;
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    use crate::access_controller::policy::AccessPolicy;
+    use crate::access_controller::predicates::{ValueAggregate, ValueNumber};
+    use crate::access_controller::rule::AccessRuleBuilder;
+    use crate::access_controller::AccessController;
     use crate::test_env::{
         create_test_transaction, start_rpc_server_for_testing,
-        start_rpc_server_for_testing_with_access_ctrl_deny_all,
+        start_rpc_server_for_testing_with_access_controller,
     };
     use crate::AUTH_ENV_NAME;
     use iota_json_rpc_types::IotaTransactionBlockEffectsAPI;
@@ -58,9 +64,10 @@ mod tests {
     #[tokio::test]
     async fn test_access_denied_from_controller() {
         let (test_cluster, _container, server) =
-            start_rpc_server_for_testing_with_access_ctrl_deny_all(
+            start_rpc_server_for_testing_with_access_controller(
                 vec![NANOS_PER_IOTA; 10],
                 NANOS_PER_IOTA,
+                AccessController::new(AccessPolicy::DenyAll, []),
             )
             .await;
         let client = server.get_local_client();
@@ -74,6 +81,41 @@ mod tests {
         assert!(client.reserve_gas(NANOS_PER_IOTA * 10, 10).await.is_err());
 
         let (tx_data, user_sig) = create_test_transaction(&test_cluster, sponsor, gas_coins).await;
+        assert!(client
+            .execute_tx(reservation_id, &tx_data, &user_sig)
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn test_access_denied_from_controller_gas_usage() {
+        let rules = [AccessRuleBuilder::new()
+            .gas_limit(ValueAggregate::new(
+                Duration::from_secs(60),
+                ValueNumber::GreaterThanOrEqual(10000),
+            ))
+            .deny()
+            .build()];
+
+        let (test_cluster, _container, server) =
+            start_rpc_server_for_testing_with_access_controller(
+                vec![NANOS_PER_IOTA; 60],
+                NANOS_PER_IOTA,
+                AccessController::new(AccessPolicy::AllowAll, rules),
+            )
+            .await;
+
+        let client = server.get_local_client();
+        client.health().await.unwrap();
+        let (sponsor, reservation_id, gas_coins) =
+            client.reserve_gas(NANOS_PER_IOTA, 10).await.unwrap();
+        assert_eq!(gas_coins.len(), 1);
+
+        // We can no longer request all balance given one is loaned out above.
+        assert!(client.reserve_gas(NANOS_PER_IOTA * 10, 10).await.is_err());
+
+        let (tx_data, user_sig) = create_test_transaction(&test_cluster, sponsor, gas_coins).await;
+        // The transaction sets the gas budget to 10000000, which is more than the limit set in the rule.
         assert!(client
             .execute_tx(reservation_id, &tx_data, &user_sig)
             .await

@@ -1,8 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::access_controller::rule::TransactionDescription;
-use crate::access_controller::{self, AccessController};
+use crate::access_controller::rule::TransactionContext;
+use crate::access_controller::AccessController;
 use crate::gas_station::gas_station_core::GasStation;
 use crate::logging::TxLogMessage;
 use crate::metrics::GasStationRpcMetrics;
@@ -10,8 +10,8 @@ use crate::rpc::client::GasStationRpcClient;
 use crate::rpc::rpc_types::{
     ExecuteTxRequest, ExecuteTxResponse, ReserveGasRequest, ReserveGasResponse,
 };
+use crate::tracker::StatsTracker;
 use crate::{read_auth_env, VERSION};
-use anyhow::bail;
 use axum::headers::authorization::Bearer;
 use axum::headers::Authorization;
 use axum::http::StatusCode;
@@ -20,7 +20,6 @@ use axum::routing::{get, post};
 use axum::{Extension, Json, Router, TypedHeader};
 use fastcrypto::encoding::Base64;
 use iota_json_rpc_types::IotaTransactionBlockEffectsAPI;
-use iota_types::base_types::is_primitive_type_tag;
 use iota_types::crypto::ToFromBytes;
 use iota_types::signature::GenericSignature;
 use iota_types::transaction::TransactionData;
@@ -42,8 +41,9 @@ impl GasStationServer {
         rpc_port: u16,
         metrics: Arc<GasStationRpcMetrics>,
         access_controller: Arc<AccessController>,
+        stats_tracker: StatsTracker,
     ) -> Self {
-        let state = ServerState::new(station, metrics, access_controller);
+        let state = ServerState::new(station, metrics, access_controller, stats_tracker);
         let app = Router::new()
             .route("/", get(health))
             .route("/version", get(version))
@@ -73,6 +73,7 @@ struct ServerState {
     secret: Arc<String>,
     metrics: Arc<GasStationRpcMetrics>,
     access_controller: Arc<AccessController>,
+    stats_tracker: StatsTracker,
 }
 
 impl ServerState {
@@ -80,6 +81,7 @@ impl ServerState {
         gas_station: Arc<GasStation>,
         metrics: Arc<GasStationRpcMetrics>,
         access_controller: Arc<AccessController>,
+        stats_tracker: StatsTracker,
     ) -> Self {
         let secret = Arc::new(read_auth_env());
         Self {
@@ -87,6 +89,7 @@ impl ServerState {
             secret,
             metrics,
             access_controller,
+            stats_tracker,
         }
     }
 }
@@ -235,8 +238,6 @@ async fn execute_tx(
         );
     };
 
-    tokio::task::spawn(test_get_ac(server.access_controller.clone())).await;
-
     // Spawn a thread to process the request so that it will finish even when client drops the connection.
     tokio::task::spawn(execute_tx_impl(
         server.gas_station.clone(),
@@ -245,6 +246,7 @@ async fn execute_tx(
         tx_data,
         user_sig,
         server.access_controller.clone(),
+        server.stats_tracker.clone(),
     ))
     .await
     .unwrap_or_else(|err| {
@@ -258,42 +260,6 @@ async fn execute_tx(
     })
 }
 
-async fn test_get_ac(ac: Arc<AccessController>) -> Result<(), anyhow::Error> {
-    // ac.add_rule(Default::default());
-
-    if ac.is_disabled() {
-        return Ok(());
-    } else {
-        bail!("Access controller is not disabled");
-    }
-    // Test the access control policy.
-    // if let Err(err) = ac
-    //     .check_access(&TransactionDescription::new(
-    //         &GenericSignature::default(),
-    //         &TransactionData::default(),
-    //     ))
-    //     .await
-    // {
-    //     error!("Access denied: {:?}", err);
-    // }
-    // Ok(())
-}
-
-async fn execute_check_access(
-    ac: Arc<AccessController>,
-    tx_data: TransactionData,
-    user_sig: GenericSignature,
-) -> Result<(), anyhow::Error> {
-    // Check the access control policy.
-    if let Err(err) = ac
-        .check_access(&TransactionDescription::new(&user_sig, &tx_data))
-        .await
-    {
-        error!("Access denied: {:?}", err);
-    }
-    Ok(())
-}
-
 async fn execute_tx_impl(
     gas_station: Arc<GasStation>,
     metrics: Arc<GasStationRpcMetrics>,
@@ -301,9 +267,12 @@ async fn execute_tx_impl(
     tx_data: TransactionData,
     user_sig: GenericSignature,
     access_controller: Arc<AccessController>,
+    stats_tracker: StatsTracker,
 ) -> (StatusCode, Json<ExecuteTxResponse>) {
     if let Err(err) = access_controller
-        .check_access(&TransactionDescription::new(&user_sig, &tx_data))
+        .check_access(
+            &TransactionContext::new(&user_sig, &tx_data).with_stats_tracker(stats_tracker.clone()),
+        )
         .await
     {
         error!("Access denied: {:?}", err);

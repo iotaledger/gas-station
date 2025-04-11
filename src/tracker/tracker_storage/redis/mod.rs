@@ -1,11 +1,18 @@
+// Copyright (c) 2024 IOTA Stiftung
+// SPDX-License-Identifier: Apache-2.0
+
+use async_trait::async_trait;
 use fastcrypto::hash::*;
 
 use anyhow::Result;
+use iota_types::base_types::IotaAddress;
 use itertools::Itertools;
 use redis::aio::ConnectionManager;
 use script_manager::ScriptManager;
 use serde_json::Value;
 use serde_json_canonicalizer::to_string;
+
+use crate::config::GasStationStorageConfig;
 
 use super::{Aggregate, AggregateType, TrackerStorageLike};
 
@@ -15,7 +22,7 @@ mod script_manager;
 pub struct RedisTrackerStorage {
     conn_manager: ConnectionManager,
     // String format of the sponsor address to avoid converting it to string multiple times.
-    sponsor_str: String,
+    pub sponsor_key: String,
 }
 
 impl RedisTrackerStorage {
@@ -24,17 +31,21 @@ impl RedisTrackerStorage {
         let conn_manager = ConnectionManager::new(client).await.unwrap();
         Self {
             conn_manager,
-            sponsor_str: sponsor.as_ref().to_string(),
+            sponsor_key: sponsor.as_ref().to_string(),
         }
+    }
+
+    #[cfg(test)]
+    pub async fn new_localhost() -> RedisTrackerStorage {
+        use crate::test_env::random_address;
+        let sponsor_key = random_address().to_string();
+        Self::new("redis://127.0.0.1:6379", sponsor_key).await
     }
 }
 
+#[async_trait]
 impl TrackerStorageLike for RedisTrackerStorage {
-    async fn update_aggr<'a>(
-        &self,
-        key: impl IntoIterator<Item = (&'a String, &'a Value)>,
-        update: &Aggregate,
-    ) -> Result<f64> {
+    async fn update_aggr(&self, key: &[(String, Value)], update: &Aggregate) -> Result<f64> {
         let hash = generate_hash_from_key(key);
         let key = format!("{}:{}:{}", update.name, update.aggr_type, hash);
 
@@ -43,7 +54,7 @@ impl TrackerStorageLike for RedisTrackerStorage {
                 let script = ScriptManager::increment_aggr_sum_script();
                 let mut conn = self.conn_manager.clone();
                 let new_value: f64 = script
-                    .arg(self.sponsor_str.to_string())
+                    .arg(self.sponsor_key.to_string())
                     .arg(key)
                     .arg(update.value)
                     .arg(update.window.as_secs())
@@ -56,16 +67,29 @@ impl TrackerStorageLike for RedisTrackerStorage {
 }
 
 // we should generate the canonical hash key from the given key
-fn generate_hash_from_key<'a>(key: impl IntoIterator<Item = (&'a String, &'a Value)>) -> String {
+fn generate_hash_from_key<'a>(key: &[(String, Value)]) -> String {
     let mut hash_key = String::new();
     for (k, v) in key.into_iter().sorted_by(|a, b| a.0.cmp(&b.0)) {
-        hash_key.push_str(k);
+        hash_key.push_str(&k);
         hash_key.push_str(&to_string(&v).unwrap());
     }
 
     let mut hasher = Sha256::default();
     hasher.update(hash_key.as_bytes());
     hasher.finalize().to_string()
+}
+
+pub async fn connect_stats_storage(
+    config: &GasStationStorageConfig,
+    sponsor_address: IotaAddress,
+) -> RedisTrackerStorage {
+    let storage = match config {
+        GasStationStorageConfig::Redis { redis_url } => {
+            RedisTrackerStorage::new(redis_url, sponsor_address.to_string()).await
+        }
+    };
+
+    storage
 }
 
 #[cfg(test)]
@@ -79,9 +103,8 @@ mod test {
 
     #[tokio::test]
     async fn update_aggr() {
-        let redis_url = "redis://127.0.0.1:6379";
-        let sponsor = "sponsor_key";
-        let window_size = Duration::from_secs(3);
+        let storage = RedisTrackerStorage::new_localhost().await;
+        let window_size = Duration::from_secs(2);
         let aggregate = Aggregate {
             name: "gas_usage".to_string(),
             window: window_size,
@@ -94,8 +117,9 @@ mod test {
         })
         .as_object()
         .unwrap()
-        .to_owned();
-        let storage = RedisTrackerStorage::new(redis_url, sponsor).await;
+        .to_owned()
+        .into_iter()
+        .collect::<Vec<_>>();
 
         let result = storage.update_aggr(&key_meta, &aggregate).await.unwrap();
         assert_eq!(result, 1.0);
@@ -131,14 +155,26 @@ mod test {
                 "a": map_data,
             }
         );
-        let key_reversed = json!(
+        let key_rev = json!(
             {
                 "a": map_data_reversed,
             }
         );
 
-        let hash_key = generate_hash_from_key(key.as_object().unwrap());
-        let hash_key_reversed = generate_hash_from_key(key_reversed.as_object().unwrap());
+        let key_map = key
+            .as_object()
+            .unwrap()
+            .to_owned()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let key_map_rev = key_rev
+            .as_object()
+            .unwrap()
+            .to_owned()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let hash_key = generate_hash_from_key(&key_map);
+        let hash_key_reversed = generate_hash_from_key(&key_map_rev);
 
         assert_eq!(hash_key, hash_key_reversed);
     }

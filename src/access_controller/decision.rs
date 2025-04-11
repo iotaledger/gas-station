@@ -7,8 +7,6 @@ use serde::{Deserialize, Serialize};
 
 use super::{policy::AccessPolicy, predicates::Action};
 
-type Reason = String;
-
 /// The Decision enum represents the decision of the access controller.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Decision {
