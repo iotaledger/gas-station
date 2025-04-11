@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
 use crate::tracker::{
-    tracker_storage::{Aggregate, AggregateType},
+    stats_tracker_storage::{Aggregate, AggregateType},
     StatsTracker,
 };
 

@@ -14,18 +14,18 @@ use serde_json_canonicalizer::to_string;
 
 use crate::config::GasStationStorageConfig;
 
-use super::{Aggregate, AggregateType, TrackerStorageLike};
+use super::{Aggregate, AggregateType, StatsTrackerStorage};
 
 mod script_manager;
 
 #[derive(Clone)]
-pub struct RedisTrackerStorage {
+pub struct RedisStatsTrackerStorage {
     conn_manager: ConnectionManager,
     // String format of the sponsor address to avoid converting it to string multiple times.
     pub sponsor_key: String,
 }
 
-impl RedisTrackerStorage {
+impl RedisStatsTrackerStorage {
     pub async fn new(redis_url: impl AsRef<str>, sponsor: impl AsRef<str>) -> Self {
         let client = redis::Client::open(redis_url.as_ref()).unwrap();
         let conn_manager = ConnectionManager::new(client).await.unwrap();
@@ -36,7 +36,7 @@ impl RedisTrackerStorage {
     }
 
     #[cfg(test)]
-    pub async fn new_localhost() -> RedisTrackerStorage {
+    pub async fn new_localhost() -> RedisStatsTrackerStorage {
         use crate::test_env::random_address;
         let sponsor_key = random_address().to_string();
         Self::new("redis://127.0.0.1:6379", sponsor_key).await
@@ -44,7 +44,7 @@ impl RedisTrackerStorage {
 }
 
 #[async_trait]
-impl TrackerStorageLike for RedisTrackerStorage {
+impl StatsTrackerStorage for RedisStatsTrackerStorage {
     async fn update_aggr(&self, key: &[(String, Value)], update: &Aggregate) -> Result<f64> {
         let hash = generate_hash_from_key(key);
         let key = format!("{}:{}:{}", update.name, update.aggr_type, hash);
@@ -82,10 +82,10 @@ fn generate_hash_from_key<'a>(key: &[(String, Value)]) -> String {
 pub async fn connect_stats_storage(
     config: &GasStationStorageConfig,
     sponsor_address: IotaAddress,
-) -> RedisTrackerStorage {
+) -> RedisStatsTrackerStorage {
     let storage = match config {
         GasStationStorageConfig::Redis { redis_url } => {
-            RedisTrackerStorage::new(redis_url, sponsor_address.to_string()).await
+            RedisStatsTrackerStorage::new(redis_url, sponsor_address.to_string()).await
         }
     };
 
@@ -103,7 +103,7 @@ mod test {
 
     #[tokio::test]
     async fn update_aggr() {
-        let storage = RedisTrackerStorage::new_localhost().await;
+        let storage = RedisStatsTrackerStorage::new_localhost().await;
         let window_size = Duration::from_secs(2);
         let aggregate = Aggregate {
             name: "gas_usage".to_string(),

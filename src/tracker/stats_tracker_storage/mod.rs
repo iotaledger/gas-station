@@ -13,7 +13,7 @@ use serde_json::Value;
 pub mod redis;
 
 #[async_trait]
-pub trait TrackerStorageLike: Sync + Send {
+pub trait StatsTrackerStorage: Sync + Send {
     async fn update_aggr(&self, key_meta: &[(String, Value)], udpate: &Aggregate) -> Result<f64>;
 }
 

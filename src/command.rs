@@ -9,7 +9,7 @@ use crate::iota_client::IotaClient;
 use crate::metrics::{GasStationCoreMetrics, GasStationRpcMetrics, StorageMetrics};
 use crate::rpc::GasStationServer;
 use crate::storage::connect_storage;
-use crate::tracker::tracker_storage::redis::connect_stats_storage;
+use crate::tracker::stats_tracker_storage::redis::connect_stats_storage;
 use crate::tracker::StatsTracker;
 use crate::{TRANSACTION_LOGGING_ENV_NAME, TRANSACTION_LOGGING_TARGET_NAME, VERSION};
 use clap::*;
