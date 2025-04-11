@@ -93,7 +93,7 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
 | `move-call-package-address` |  no        | `'0x0000...'`, `[0x0000..., 0x1111...]`, `'*'`                 |
 | `ptb-command-count`         |  no        | `'=10'`, `'<10'`,  `'<=10'`, `'>10'`, `'>=10'`, `'!=10'`       |
 | `action`                    |  yes       | `'allow'`,  `'deny'`                                           |
-| `gas_usage`                 |  no        | See [Gas Usage Limit](#gas-usage-limit)                       |
+| `gas_usage`                 |  no        | See [Gas Usage Limit](#gas-usage-limit-feature)                |
 
 Below is a revised version of the documentation with improved grammar and clarity:
 
@@ -108,6 +108,8 @@ gas_usage:
   limit: [range_of_numbers]
   duration: [duration]
 ```
+
+> **Note:** The syntax of `duration` follows the specification used in the [`humantime`](https://docs.rs/humantime/latest/humantime/index.html) crate
 
 #### Gas Usage Examples
 
