@@ -128,26 +128,23 @@ impl AccessRule {
             && self.match_gas_limit(data).await?)
     }
 
-    pub async fn match_gas_limit(&self, data: &TransactionContext) -> Result<bool, anyhow::Error> {
+    pub async fn match_gas_limit(&self, ctx: &TransactionContext) -> Result<bool, anyhow::Error> {
         if let Some(gas_limit) = self.gas_limit.as_ref() {
-            if let Some(stats_tracker) = &data.stats_tracker {
-                let json_rule = serde_json::to_value(self.clone())
-                    .context("Failed to serialize rule to JSON")?;
-                let rule_to_hash = json_rule.as_object().context("The rule isn't a map")?;
-                let aggr_request = Aggregate::with_name("gas_limit")
-                    .with_value(data.transaction_budget as f64)
-                    .with_aggr_type(AggregateType::Sum)
-                    .with_window(gas_limit.window);
+            let json_rule =
+                serde_json::to_value(self.clone()).context("Failed to serialize rule to JSON")?;
+            let rule_to_hash = json_rule.as_object().context("The rule isn't a map")?;
+            let aggr_request = Aggregate::with_name("gas_limit")
+                .with_value(ctx.transaction_budget as f64)
+                .with_aggr_type(AggregateType::Sum)
+                .with_window(gas_limit.window);
 
-                let total_gas_claim = stats_tracker
-                    .update_aggr(rule_to_hash.to_owned(), &aggr_request)
-                    .await
-                    .context("Updating aggregate failed")?;
+            let total_gas_claim = ctx
+                .stats_tracker
+                .update_aggr(rule_to_hash.to_owned(), &aggr_request)
+                .await
+                .context("Updating aggregate failed")?;
 
-                return Ok(gas_limit.limit.matches(total_gas_claim as u64));
-            } else {
-                bail!("Stats tracker is not defined. But it should be");
-            }
+            return Ok(gas_limit.limit.matches(total_gas_claim as u64));
         } else {
             // If the gas limit is not defined then the rule matches
             return Ok(true);
@@ -165,18 +162,35 @@ impl AccessRule {
 }
 
 // This input is used to check the access policy.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct TransactionContext {
     pub sender_address: IotaAddress,
     pub transaction_budget: u64,
     pub move_call_package_addresses: Vec<IotaAddress>,
     pub ptb_command_count: Option<usize>,
 
-    pub stats_tracker: Option<StatsTracker>,
+    pub stats_tracker: StatsTracker,
+}
+
+#[cfg(test)]
+impl Default for TransactionContext {
+    fn default() -> Self {
+        Self {
+            sender_address: IotaAddress::default(),
+            transaction_budget: 0,
+            move_call_package_addresses: vec![],
+            ptb_command_count: None,
+            stats_tracker: crate::test_env::mocked_stats_tracker(),
+        }
+    }
 }
 
 impl TransactionContext {
-    pub fn new(_signature: &GenericSignature, transaction_data: &TransactionData) -> Self {
+    pub fn new(
+        _signature: &GenericSignature,
+        transaction_data: &TransactionData,
+        stats_tracker: StatsTracker,
+    ) -> Self {
         let ptb_command_count = match transaction_data {
             TransactionData::V1(TransactionDataV1 {
                 kind: TransactionKind::ProgrammableTransaction(pt),
@@ -189,7 +203,7 @@ impl TransactionContext {
             transaction_budget: transaction_data.gas_budget(),
             move_call_package_addresses: get_move_call_package_addresses(transaction_data),
             ptb_command_count,
-            stats_tracker: None,
+            stats_tracker,
         }
     }
 
@@ -217,7 +231,7 @@ impl TransactionContext {
     }
 
     pub fn with_stats_tracker(mut self, stats_tracker: StatsTracker) -> Self {
-        self.stats_tracker = Some(stats_tracker);
+        self.stats_tracker = stats_tracker;
         self
     }
 }
@@ -372,7 +386,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_match_gas_usage() {
+    async fn test_constraint_gas_usage_matches() {
         let sponsor_address = random_address();
         let sender_address_limited = random_address();
         let sender_address_unlimited = random_address();

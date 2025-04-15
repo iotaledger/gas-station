@@ -271,9 +271,7 @@ async fn execute_tx_impl(
     stats_tracker: StatsTracker,
 ) -> (StatusCode, Json<ExecuteTxResponse>) {
     match access_controller
-        .check_access(
-            &TransactionContext::new(&user_sig, &tx_data).with_stats_tracker(stats_tracker),
-        )
+        .check_access(&TransactionContext::new(&user_sig, &tx_data, stats_tracker))
         .await
     {
         Ok(Decision::Allow) => {

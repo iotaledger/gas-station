@@ -10,9 +10,11 @@ use crate::metrics::{GasStationCoreMetrics, GasStationRpcMetrics};
 use crate::rpc::GasStationServer;
 use crate::storage::connect_storage_for_testing;
 use crate::tracker::stats_tracker_storage::redis::connect_stats_storage;
+use crate::tracker::stats_tracker_storage::{self, StatsTrackerStorage};
 use crate::tracker::StatsTracker;
 use crate::tx_signer::{TestTxSigner, TxSigner};
 use crate::AUTH_ENV_NAME;
+use async_trait::async_trait;
 use iota_config::local_ip_utils::{get_available_port, localhost_for_testing};
 use iota_swarm_config::genesis_config::AccountConfig;
 use iota_types::base_types::{IotaAddress, ObjectRef};
@@ -20,6 +22,7 @@ use iota_types::crypto::get_account_key_pair;
 use iota_types::gas_coin::NANOS_PER_IOTA;
 use iota_types::signature::GenericSignature;
 use iota_types::transaction::{TransactionData, TransactionDataAPI};
+use serde_json::Value;
 use std::sync::Arc;
 use test_cluster::{TestCluster, TestClusterBuilder};
 use tracing::debug;
@@ -160,4 +163,21 @@ pub async fn new_stats_tracker_for_testing(sponsor_address: IotaAddress) -> Stat
 pub fn random_address() -> IotaAddress {
     let random_bytes = rand::random::<[u8; 32]>();
     IotaAddress::new(random_bytes)
+}
+
+struct MockedStatsTrackerStorage;
+
+#[async_trait]
+impl StatsTrackerStorage for MockedStatsTrackerStorage {
+    async fn update_aggr(
+        &self,
+        _key_meta: &[(String, Value)],
+        _update: &stats_tracker_storage::Aggregate,
+    ) -> anyhow::Result<f64> {
+        Ok(0.0)
+    }
+}
+
+pub fn mocked_stats_tracker() -> StatsTracker {
+    StatsTracker::new(Arc::new(MockedStatsTrackerStorage {}))
 }
