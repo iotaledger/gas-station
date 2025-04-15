@@ -297,44 +297,56 @@ mod test {
         ));
     }
 
-    #[test]
-    fn test_allow_policy_rules_ptb_command_count() {
+    #[tokio::test]
+    async fn test_allow_policy_rules_ptb_command_count() {
         let sender_address = IotaAddress::new([1; 32]);
         let deny_rule = AccessRuleBuilder::new()
             .sender_address(sender_address)
             .ptb_command_count(ValueNumber::GreaterThan(1))
             .deny()
             .build();
-        let denied_tx = TransactionDescription::default()
+        let denied_tx = TransactionContext::default()
             .with_sender_address(sender_address)
             .with_ptb_command_count(5);
-        let allowed_tx = TransactionDescription::default()
+        let allowed_tx = TransactionContext::default()
             .with_sender_address(sender_address)
             .with_ptb_command_count(1);
 
         let ac = AccessController::new(AccessPolicy::AllowAll, [deny_rule]);
-        assert!(ac.check_access(&allowed_tx).is_ok());
-        assert!(ac.check_access(&denied_tx).is_err());
+        assert!(matches!(
+            ac.check_access(&allowed_tx).await,
+            Ok(Decision::Allow)
+        ));
+        assert!(matches!(
+            ac.check_access(&denied_tx).await,
+            Ok(Decision::Deny)
+        ));
     }
 
-    #[test]
-    fn test_deny_policy_rules_ptb_command_count() {
+    #[tokio::test]
+    async fn test_deny_policy_rules_ptb_command_count() {
         let sender_address = IotaAddress::new([1; 32]);
         let allow_rule = AccessRuleBuilder::new()
             .sender_address(sender_address)
             .ptb_command_count(ValueNumber::LessThanOrEqual(1))
             .allow()
             .build();
-        let allowed_tx = TransactionDescription::default()
+        let allowed_tx = TransactionContext::default()
             .with_sender_address(sender_address)
             .with_ptb_command_count(1);
-        let blocked_tx = TransactionDescription::default()
+        let blocked_tx = TransactionContext::default()
             .with_sender_address(sender_address)
             .with_ptb_command_count(5);
 
         let ac = AccessController::new(AccessPolicy::DenyAll, [allow_rule]);
-        assert!(ac.check_access(&allowed_tx).is_ok());
-        assert!(ac.check_access(&blocked_tx).is_err());
+        assert!(matches!(
+            ac.check_access(&allowed_tx).await,
+            Ok(Decision::Allow)
+        ));
+        assert!(matches!(
+            ac.check_access(&blocked_tx).await,
+            Ok(Decision::Deny)
+        ));
     }
 
     #[test]

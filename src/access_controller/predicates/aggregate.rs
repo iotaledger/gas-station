@@ -10,11 +10,11 @@ use super::ValueNumber;
 pub struct ValueAggregate {
     #[serde(with = "serde_duration")]
     pub window: Duration,
-    pub limit: ValueNumber,
+    pub limit: ValueNumber<u64>,
 }
 
 impl ValueAggregate {
-    pub fn new(window: Duration, limit: ValueNumber) -> Self {
+    pub fn new(window: Duration, limit: ValueNumber<u64>) -> Self {
         ValueAggregate { window, limit }
     }
 }

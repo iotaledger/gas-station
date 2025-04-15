@@ -88,6 +88,7 @@ impl AccessRuleBuilder {
 
     pub fn ptb_command_count(mut self, ptb_command_count: ValueNumber<usize>) -> Self {
         self.rule.ptb_command_count = Some(ptb_command_count);
+        self
     }
 
     pub fn gas_limit(mut self, gas_limit: ValueAggregate) -> Self {
@@ -155,7 +156,7 @@ impl AccessRule {
 }
 
 impl AccessRule {
-    fn ptb_command_count_matches_or_not_applicable(&self, data: &TransactionDescription) -> bool {
+    fn ptb_command_count_matches_or_not_applicable(&self, data: &TransactionContext) -> bool {
         match (self.ptb_command_count, data.ptb_command_count) {
             (Some(criteria), Some(value)) => criteria.matches(value),
             _ => true,
@@ -212,6 +213,7 @@ impl TransactionContext {
 
     pub fn with_ptb_command_count(mut self, ptb_count: usize) -> Self {
         self.ptb_command_count = Some(ptb_count);
+        self
     }
 
     pub fn with_stats_tracker(mut self, stats_tracker: StatsTracker) -> Self {
@@ -236,7 +238,7 @@ mod test {
 
     use crate::{
         access_controller::{
-            predicates::{ValueAggregate, ValueNumber},
+            predicates::{Action, ValueAggregate, ValueIotaAddress, ValueNumber},
             rule::{AccessRule, AccessRuleBuilder, TransactionContext},
         },
         test_env::{new_stats_tracker_for_testing, random_address},
@@ -323,41 +325,26 @@ mod test {
             .with_gas_budget(gas_limit + 1)
             .with_move_call_package_addresses(vec![move_call_package_address]);
 
-        assert!(!rule
-            .matches(&transaction_description_with_not_matched_gas_limit)
-            .await
-            .unwrap());
+        assert!(!rule.matches(&unmatched_data_gas_limit).await.unwrap());
     }
 
-    #[test]
-    fn test_constraint_ptb_count_matches() {
+    #[tokio::test]
+    async fn test_constraint_ptb_count_matches() {
         let rule = super::AccessRule {
             sender_address: ValueIotaAddress::All,
             action: Action::Allow,
             ptb_command_count: Some(ValueNumber::LessThanOrEqual(1)),
             ..Default::default()
         };
-        let data_with_matching_ptb_count =
-            TransactionDescription::default().with_ptb_command_count(1);
+        let data_with_matching_ptb_count = TransactionContext::default().with_ptb_command_count(1);
         let data_with_not_matching_ptb_count =
-            TransactionDescription::default().with_ptb_command_count(5);
+            TransactionContext::default().with_ptb_command_count(5);
 
-        assert!(rule.matches(&data_with_matching_ptb_count));
-        assert!(!rule.matches(&data_with_not_matching_ptb_count));
-    }
-
-    #[tokio::test]
-    async fn test_allow_when_deny_all() {
-        let sender_address = IotaAddress::new([0; 32]);
-        let input = TransactionContext::default().with_sender_address(sender_address);
-        let access_rule = AccessRule {
-            sender_address: [sender_address].into(),
-            action: Action::Allow,
-            ..Default::default()
-        };
-
-        assert!(access_rule.matches(&input).await.unwrap());
-        assert!(!rule.matches(&unmatched_data_gas_limit).await.unwrap());
+        assert!(rule.matches(&data_with_matching_ptb_count).await.unwrap());
+        assert!(!rule
+            .matches(&data_with_not_matching_ptb_count)
+            .await
+            .unwrap());
     }
 
     #[tokio::test]

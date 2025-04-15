@@ -31,7 +31,7 @@ impl<T> From<T> for ValueNumber<T> {
 
 impl<T> ValueNumber<T>
 where
-    T: PartialOrd,
+    T: PartialOrd + Copy,
 {
     /// Return the number value.
     pub fn get_number(&self) -> T {
