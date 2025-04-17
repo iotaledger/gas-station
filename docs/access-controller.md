@@ -123,14 +123,14 @@ This configuration sets a daily gas usage limit for a specific address. In the e
 
 ```yaml
 access-controller:
-access-policy: deny-all
-rules:
-  - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
-    move-call-package-address: "0x0202020202020202020202020202020202020202020202020202020202020202"
-    gas-usage:
-      limit: '<1000000'
-      duration: 1 day
-    action: 'allow'
+  access-policy: deny-all
+  rules:
+    - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
+      move-call-package-address: "0x0202020202020202020202020202020202020202020202020202020202020202"
+      gas-usage:
+        limit: '<1000000'
+        duration: 1 day
+      action: 'allow'
 ```
 
 ---
