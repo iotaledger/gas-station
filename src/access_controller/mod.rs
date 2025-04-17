@@ -57,12 +57,7 @@ impl AccessController {
 
         for (i, rule) in self.rules.iter().enumerate() {
             match rule.matches(&transaction_description).await {
-                Ok(true) => {
-                    return match rule.action {
-                        Action::Allow => Ok(Decision::Allow),
-                        Action::Deny => Ok(Decision::Deny),
-                    };
-                }
+                Ok(true) => return Ok(rule.action.into()),
                 Ok(false) => continue,
                 Err(e) => return Err(anyhow!("Error evaluating rule #{}: {}", i + 1, e)),
             }
