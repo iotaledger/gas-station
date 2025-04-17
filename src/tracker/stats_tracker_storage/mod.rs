@@ -14,7 +14,7 @@ pub mod redis;
 
 #[async_trait]
 pub trait StatsTrackerStorage: Sync + Send {
-    async fn update_aggr(&self, key_meta: &[(String, Value)], udpate: &Aggregate) -> Result<f64>;
+    async fn update_aggr(&self, key_meta: &[(String, Value)], update: &Aggregate) -> Result<f64>;
 }
 
 #[derive(Debug, Clone, Default)]
