@@ -141,16 +141,16 @@ In this example, the configuration restricts the daily gas usage for a specific 
 
 ```yaml
 access-controller:
-access-policy: deny-all
-rules:
-  - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
-    gas-usage:
-      limit: '>1000000'
-      duration: 1 day
-    action: 'deny'
-
-  - sender-address: '*'
-    action: 'allow'
+  access-policy: deny-all
+  rules:
+    - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
+      gas-usage:
+        limit: '>1000000'
+        duration: 1 day
+      action: 'deny'
+  
+    - sender-address: '*'
+      action: 'allow'
 ```
 
 ## Learn More
