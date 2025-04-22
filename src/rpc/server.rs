@@ -321,8 +321,8 @@ async fn execute_tx_impl(
                     &stats_tracker.clone(),
                 )
                 .await;
-            // The transaction is successful, the confirmation should be sent to the
-            // user. But if the confirmation fails, we log the error and continue.
+            // When then confirmation fails, the error shouldn't prevent the user from
+            // receiving the successful response.
             if let Err(err) = confirmation_result {
                 error!("Error while confirming transaction in AC: {:?}", err);
             }

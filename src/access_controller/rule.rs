@@ -17,7 +17,7 @@ use crate::tracker::{
     StatsTracker,
 };
 
-use super::predicates::{Action, ValueAggregate, ValueIotaAddress, ValueNumber};
+use super::predicates::{Action, LimitBy, ValueAggregate, ValueIotaAddress, ValueNumber};
 
 /// The AccessRuleBuilder is used to build an AccessRule with fluent API.
 pub struct AccessRuleBuilder {
@@ -153,13 +153,23 @@ impl AccessRule {
     }
 
     /// Returns the rule meta data as a JSON object. The rule meta is used to calculate the hash of the rule.
-    fn get_rule_meta(&self) -> Result<Map<String, Value>, anyhow::Error> {
+    fn get_rule_meta(&self, ctx: &TransactionContext) -> Result<Map<String, Value>, anyhow::Error> {
         let json_rule =
             serde_json::to_value(self.clone()).context("Failed to serialize rule to JSON")?;
-        let rule_to_hash = json_rule.as_object().context("The rule isn't a map")?;
-        // TODO include the group_by in calculation
+        let mut rule_to_hash = json_rule
+            .as_object()
+            .context("The rule isn't a map")?
+            .to_owned();
 
-        Ok(rule_to_hash.to_owned())
+        if let Some(gas_limit) = self.gas_limit.as_ref() {
+            for limit_by in gas_limit.limit_by.iter() {
+                let limit_by_value = match limit_by {
+                    LimitBy::SenderAddress => ctx.sender_address.to_string(),
+                };
+                (&mut rule_to_hash).insert(limit_by.to_string(), Value::String(limit_by_value));
+            }
+        }
+        Ok(rule_to_hash)
     }
 
     async fn match_gas_limit(
@@ -168,7 +178,7 @@ impl AccessRule {
     ) -> Result<(bool, Option<GasUsageConfirmationRequest>), anyhow::Error> {
         if let Some(gas_limit) = self.gas_limit.as_ref() {
             let rule_meta = self
-                .get_rule_meta()
+                .get_rule_meta(ctx)
                 .context("Failed to calculate rule meta")?;
 
             let aggr = Aggregate::with_name("gas_limit")

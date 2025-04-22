@@ -11,11 +11,35 @@ pub struct ValueAggregate {
     #[serde(with = "serde_duration")]
     pub window: Duration,
     pub limit: ValueNumber<u64>,
+    pub limit_by: Vec<LimitBy>,
 }
 
 impl ValueAggregate {
     pub fn new(window: Duration, limit: ValueNumber<u64>) -> Self {
-        ValueAggregate { window, limit }
+        ValueAggregate {
+            window,
+            limit,
+            limit_by: vec![],
+        }
+    }
+
+    pub fn with_group_by(mut self, group_by: Vec<LimitBy>) -> Self {
+        self.limit_by = group_by;
+        self
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LimitBy {
+    SenderAddress,
+}
+
+impl ToString for LimitBy {
+    fn to_string(&self) -> String {
+        match self {
+            LimitBy::SenderAddress => "sender_address".to_string(),
+        }
     }
 }
 

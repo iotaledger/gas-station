@@ -6,6 +6,6 @@ mod aggregate;
 mod iota_address;
 mod number;
 pub use action::Action;
-pub use aggregate::ValueAggregate;
+pub use aggregate::{LimitBy, ValueAggregate};
 pub use iota_address::ValueIotaAddress;
 pub use number::ValueNumber;
