@@ -11,6 +11,7 @@ pub struct ValueAggregate {
     #[serde(with = "serde_duration")]
     pub window: Duration,
     pub limit: ValueNumber<u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub limit_by: Vec<LimitBy>,
 }
 
@@ -23,7 +24,7 @@ impl ValueAggregate {
         }
     }
 
-    pub fn with_group_by(mut self, group_by: Vec<LimitBy>) -> Self {
+    pub fn with_limit_by(mut self, group_by: Vec<LimitBy>) -> Self {
         self.limit_by = group_by;
         self
     }

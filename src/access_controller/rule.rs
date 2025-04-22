@@ -308,10 +308,11 @@ fn get_move_call_package_addresses(transaction_data: &TransactionData) -> Vec<Io
 mod test {
 
     use iota_types::base_types::IotaAddress;
+    use itertools::GroupBy;
 
     use crate::{
         access_controller::{
-            predicates::{Action, ValueAggregate, ValueIotaAddress, ValueNumber},
+            predicates::{Action, LimitBy, ValueAggregate, ValueIotaAddress, ValueNumber},
             rule::{AccessRule, AccessRuleBuilder, TransactionContext},
         },
         test_env::{new_stats_tracker_for_testing, random_address},
@@ -453,10 +454,13 @@ mod test {
 
         let rule = AccessRuleBuilder::new()
             .sender_address(sender_address_limited)
-            .gas_limit(ValueAggregate::new(
-                std::time::Duration::from_secs(10),
-                ValueNumber::GreaterThanOrEqual(300),
-            ))
+            .gas_limit(
+                ValueAggregate::new(
+                    std::time::Duration::from_secs(10),
+                    ValueNumber::GreaterThanOrEqual(300),
+                )
+                .with_limit_by(vec![LimitBy::SenderAddress]),
+            )
             .deny()
             .build();
 
@@ -466,14 +470,15 @@ mod test {
             .with_sender_address(sender_address_limited)
             .with_gas_budget(200)
             .with_stats_tracker(stats_tracker.clone());
+
         // The wont be matched, because the sender address is different
         let unmatched_data = TransactionContext::default()
             .with_sender_address(sender_address_unlimited)
             .with_gas_budget(200)
             .with_stats_tracker(stats_tracker.clone());
 
-        assert!(!rule.matches(&matched_data).await.unwrap());
-        assert!(rule.matches(&matched_data).await.unwrap());
-        assert!(!rule.matches(&unmatched_data).await.unwrap());
+        assert!(!rule.match_global_limits(&matched_data).await.unwrap().0);
+        assert!(rule.match_global_limits(&matched_data).await.unwrap().0);
+        assert!(!rule.match_global_limits(&unmatched_data).await.unwrap().0);
     }
 }
