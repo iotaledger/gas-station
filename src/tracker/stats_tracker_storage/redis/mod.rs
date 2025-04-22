@@ -45,22 +45,27 @@ impl RedisStatsTrackerStorage {
 
 #[async_trait]
 impl StatsTrackerStorage for RedisStatsTrackerStorage {
-    async fn update_aggr(&self, key: &[(String, Value)], update: &Aggregate) -> Result<f64> {
+    async fn update_aggr(
+        &self,
+        key: &[(String, Value)],
+        aggr: &Aggregate,
+        value: f64,
+    ) -> Result<f64> {
         let hash = generate_hash_from_key(key);
-        let key = format!("{}:{}:{}", update.name, update.aggr_type, hash);
+        let key = format!("{}:{}:{}", aggr.name, aggr.aggr_type, hash);
 
-        match update.aggr_type {
+        match aggr.aggr_type {
             AggregateType::Sum => {
                 let script = ScriptManager::increment_aggr_sum_script();
                 let mut conn = self.conn_manager.clone();
-                let new_value: f64 = script
+                let new_value: i64 = script
                     .arg(self.sponsor_key.to_string())
                     .arg(key)
-                    .arg(update.value)
-                    .arg(update.window.as_secs())
+                    .arg(value)
+                    .arg(aggr.window.as_secs())
                     .invoke_async(&mut conn)
                     .await?;
-                Ok(new_value)
+                Ok(new_value as f64)
             }
         }
     }
@@ -109,7 +114,6 @@ mod test {
             name: "gas_usage".to_string(),
             window: window_size,
             aggr_type: AggregateType::Sum,
-            value: 1.0,
         };
         let key_meta = json!(
         {
@@ -121,18 +125,21 @@ mod test {
         .into_iter()
         .collect::<Vec<_>>();
 
-        let result = storage.update_aggr(&key_meta, &aggregate).await.unwrap();
+        let result = storage
+            .update_aggr(&key_meta, &aggregate, 1.0)
+            .await
+            .unwrap();
         assert_eq!(result, 1.0);
 
         let result = storage
-            .update_aggr(&key_meta, &aggregate.clone().with_value(2.0))
+            .update_aggr(&key_meta, &aggregate, 2.0)
             .await
             .unwrap();
         assert_eq!(result, 3.0);
 
         time::sleep(window_size + Duration::from_secs(1)).await;
         let result = storage
-            .update_aggr(&key_meta, &aggregate.clone().with_value(2.0))
+            .update_aggr(&key_meta, &aggregate, 2.0)
             .await
             .unwrap();
         assert_eq!(result, 2.0);

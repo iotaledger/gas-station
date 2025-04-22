@@ -3,7 +3,7 @@
 
 use crate::access_controller::decision::Decision;
 use crate::access_controller::rule::TransactionContext;
-use crate::access_controller::AccessController;
+use crate::access_controller::{AccessController, TransactionExecutionResult};
 use crate::gas_station::gas_station_core::GasStation;
 use crate::logging::TxLogMessage;
 use crate::metrics::GasStationRpcMetrics;
@@ -271,7 +271,11 @@ async fn execute_tx_impl(
     stats_tracker: StatsTracker,
 ) -> (StatusCode, Json<ExecuteTxResponse>) {
     match access_controller
-        .check_access(&TransactionContext::new(&user_sig, &tx_data, stats_tracker))
+        .check_access(&TransactionContext::new(
+            &user_sig,
+            &tx_data,
+            stats_tracker.clone(),
+        ))
         .await
     {
         Ok(Decision::Allow) => {
@@ -295,6 +299,7 @@ async fn execute_tx_impl(
         }
     }
 
+    let transaction_digest = tx_data.digest();
     match gas_station
         .execute_transaction(reservation_id, tx_data, user_sig)
         .await
@@ -309,10 +314,34 @@ async fn execute_tx_impl(
             trace!(target: "transactions", "{}", TxLogMessage::new(&effects));
 
             metrics.num_successful_execute_tx_requests.inc();
+            let confirmation_result = access_controller
+                .confirm_transaction(
+                    TransactionExecutionResult::new(transaction_digest)
+                        .with_gas_usage(effects.gas_cost_summary().gas_used()),
+                    &stats_tracker.clone(),
+                )
+                .await;
+            // The transaction is successful, the confirmation should be sent to the
+            // user. But if the confirmation fails, we log the error and continue.
+            if let Err(err) = confirmation_result {
+                error!("Error while confirming transaction in AC: {:?}", err);
+            }
+
             (StatusCode::OK, Json(ExecuteTxResponse::new_ok(effects)))
         }
         Err(err) => {
             error!("Failed to execute transaction: {:?}", err);
+
+            let confirmation_result = access_controller
+                .confirm_transaction(
+                    TransactionExecutionResult::new(transaction_digest),
+                    &stats_tracker,
+                )
+                .await;
+            if let Err(err) = confirmation_result {
+                error!("Error while canceling transaction in AC: {:?}", err);
+            }
+
             metrics.num_failed_execute_tx_requests.inc();
             (
                 StatusCode::INTERNAL_SERVER_ERROR,

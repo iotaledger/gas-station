@@ -173,6 +173,7 @@ impl StatsTrackerStorage for MockedStatsTrackerStorage {
         &self,
         _key_meta: &[(String, Value)],
         _update: &stats_tracker_storage::Aggregate,
+        _value: f64,
     ) -> anyhow::Result<f64> {
         Ok(0.0)
     }

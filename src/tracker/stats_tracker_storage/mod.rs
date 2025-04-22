@@ -14,7 +14,12 @@ pub mod redis;
 
 #[async_trait]
 pub trait StatsTrackerStorage: Sync + Send {
-    async fn update_aggr(&self, key_meta: &[(String, Value)], update: &Aggregate) -> Result<f64>;
+    async fn update_aggr(
+        &self,
+        key_meta: &[(String, Value)],
+        update: &Aggregate,
+        value: f64,
+    ) -> Result<f64>;
 }
 
 #[derive(Debug, Clone, Default)]
@@ -22,7 +27,6 @@ pub struct Aggregate {
     pub name: String,
     pub window: Duration,
     pub aggr_type: AggregateType,
-    pub value: f64,
 }
 
 impl Aggregate {
@@ -38,10 +42,6 @@ impl Aggregate {
     }
     pub fn with_aggr_type(mut self, aggr_function: AggregateType) -> Self {
         self.aggr_type = aggr_function;
-        self
-    }
-    pub fn with_value(mut self, value: f64) -> Self {
-        self.value = value;
         self
     }
 }

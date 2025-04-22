@@ -1,13 +1,15 @@
 // Copyright (c) 2024 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::{bail, Context};
+use anyhow::Context;
 use iota_types::{
     base_types::IotaAddress,
+    digests::TransactionDigest,
     signature::GenericSignature,
     transaction::{TransactionData, TransactionDataAPI, TransactionDataV1, TransactionKind},
 };
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use serde_with::skip_serializing_none;
 
 use crate::tracker::{
@@ -110,6 +112,13 @@ pub struct AccessRule {
     pub action: Action,
 }
 
+#[derive(Clone, Default)]
+pub struct GasUsageConfirmationRequest {
+    pub rule_meta: Map<String, Value>,
+    pub aggregate: Aggregate,
+    pub gas_usage: u64,
+}
+
 impl AccessRule {
     /// Checks if the rule matches the transaction data.
     pub async fn matches(&self, data: &TransactionContext) -> Result<bool, anyhow::Error> {
@@ -123,31 +132,68 @@ impl AccessRule {
             // Move Call Package Address
             && self
                 .move_call_package_address.as_ref().map(|address| address.includes_any(&data.move_call_package_addresses)).unwrap_or(true)
-            && self.ptb_command_count_matches_or_not_applicable(data)
-            // Match gas limit
-            && self.match_gas_limit(data).await?)
+            && self.ptb_command_count_matches_or_not_applicable(data))
     }
 
-    pub async fn match_gas_limit(&self, ctx: &TransactionContext) -> Result<bool, anyhow::Error> {
+    /// Match checking for global limits. Global limits use a persistent storage to track their values
+    pub async fn match_global_limits(
+        &self,
+        ctx: &TransactionContext,
+    ) -> Result<(bool, Vec<GasUsageConfirmationRequest>), anyhow::Error> {
+        let mut confirmation_requests = vec![];
+        let gas_limit_result = self
+            .match_gas_limit(ctx)
+            .await
+            .context("failed to match gas limit")?;
+        if let Some(confirmation_request) = gas_limit_result.1 {
+            confirmation_requests.push(confirmation_request);
+        }
+        let result = (gas_limit_result.0, confirmation_requests);
+        Ok(result)
+    }
+
+    /// Returns the rule meta data as a JSON object. The rule meta is used to calculate the hash of the rule.
+    fn get_rule_meta(&self) -> Result<Map<String, Value>, anyhow::Error> {
+        let json_rule =
+            serde_json::to_value(self.clone()).context("Failed to serialize rule to JSON")?;
+        let rule_to_hash = json_rule.as_object().context("The rule isn't a map")?;
+        // TODO include the group_by in calculation
+
+        Ok(rule_to_hash.to_owned())
+    }
+
+    async fn match_gas_limit(
+        &self,
+        ctx: &TransactionContext,
+    ) -> Result<(bool, Option<GasUsageConfirmationRequest>), anyhow::Error> {
         if let Some(gas_limit) = self.gas_limit.as_ref() {
-            let json_rule =
-                serde_json::to_value(self.clone()).context("Failed to serialize rule to JSON")?;
-            let rule_to_hash = json_rule.as_object().context("The rule isn't a map")?;
-            let aggr_request = Aggregate::with_name("gas_limit")
-                .with_value(ctx.transaction_budget as f64)
+            let rule_meta = self
+                .get_rule_meta()
+                .context("Failed to calculate rule meta")?;
+
+            let aggr = Aggregate::with_name("gas_limit")
                 .with_aggr_type(AggregateType::Sum)
                 .with_window(gas_limit.window);
 
             let total_gas_claim = ctx
                 .stats_tracker
-                .update_aggr(rule_to_hash.to_owned(), &aggr_request)
+                .update_aggr(rule_meta.clone(), &aggr, ctx.transaction_budget as f64)
                 .await
                 .context("Updating aggregate failed")?;
 
-            return Ok(gas_limit.limit.matches(total_gas_claim as u64));
+            let confirmation_request = GasUsageConfirmationRequest {
+                rule_meta,
+                aggregate: aggr,
+                gas_usage: ctx.transaction_budget,
+            };
+
+            return Ok((
+                gas_limit.limit.matches(total_gas_claim as u64),
+                Some(confirmation_request),
+            ));
         } else {
             // If the gas limit is not defined then the rule matches
-            return Ok(true);
+            return Ok((true, None));
         }
     }
 }
@@ -164,6 +210,7 @@ impl AccessRule {
 // This input is used to check the access policy.
 #[derive(Clone)]
 pub struct TransactionContext {
+    pub transaction_digest: TransactionDigest,
     pub sender_address: IotaAddress,
     pub transaction_budget: u64,
     pub move_call_package_addresses: Vec<IotaAddress>,
@@ -181,6 +228,7 @@ impl Default for TransactionContext {
             move_call_package_addresses: vec![],
             ptb_command_count: None,
             stats_tracker: crate::test_env::mocked_stats_tracker(),
+            transaction_digest: TransactionDigest::default(),
         }
     }
 }
@@ -199,6 +247,7 @@ impl TransactionContext {
             TransactionData::V1(TransactionDataV1 { kind: _, .. }) => None,
         };
         Self {
+            transaction_digest: transaction_data.digest(),
             sender_address: transaction_data.sender().clone(),
             transaction_budget: transaction_data.gas_budget(),
             move_call_package_addresses: get_move_call_package_addresses(transaction_data),

@@ -9,14 +9,18 @@ pub mod policy;
 pub mod predicates;
 pub mod rule;
 
-use std::fmt::Formatter;
+use std::{collections::HashMap, fmt::Formatter, sync::Arc};
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use decision::Decision;
+use iota_types::digests::TransactionDigest;
 use policy::AccessPolicy;
-use predicates::Action;
-use rule::{AccessRule, TransactionContext};
+use rule::{AccessRule, GasUsageConfirmationRequest, TransactionContext};
 use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
+use tracing::debug;
+
+use crate::tracker::StatsTracker;
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
@@ -24,6 +28,9 @@ pub struct AccessController {
     access_policy: AccessPolicy,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     rules: Vec<AccessRule>,
+
+    #[serde(skip)]
+    confirmation_requests: Arc<Mutex<HashMap<TransactionDigest, Vec<GasUsageConfirmationRequest>>>>,
 }
 
 impl std::fmt::Debug for AccessController {
@@ -41,23 +48,37 @@ impl AccessController {
         Self {
             access_policy,
             rules: rules.into_iter().collect(),
+            confirmation_requests: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     /// Checks if the transaction can be executed based on the access controller's rules.
     // If a rule matches, the corresponding action is applied. If no rule matches, the next rule is checked.
     // If none match, the default policy is applied.
-    pub async fn check_access(
-        &self,
-        transaction_description: &TransactionContext,
-    ) -> Result<Decision> {
+    pub async fn check_access(&self, ctx: &TransactionContext) -> Result<Decision> {
         if self.is_disabled() {
             return Ok(Decision::Allow);
         }
 
         for (i, rule) in self.rules.iter().enumerate() {
-            match rule.matches(&transaction_description).await {
-                Ok(true) => return Ok(rule.action.into()),
+            match rule.matches(&ctx).await {
+                Ok(true) => {
+                    // Validate the counters if the rule partially matches
+                    let matching_result = rule.match_global_limits(ctx).await?;
+                    if !matching_result.1.is_empty() {
+                        self.confirmation_requests
+                            .lock()
+                            .await
+                            .insert(ctx.transaction_digest, matching_result.1);
+                    }
+                    // if the rule matches and also matches the global limits, invoke the action
+                    if matching_result.0 {
+                        return Ok(rule.action.into());
+                    } else {
+                        continue;
+                    }
+                }
+                // we don't need to check the global_limits if the rule doesn't match
                 Ok(false) => continue,
                 Err(e) => return Err(anyhow!("Error evaluating rule #{}: {}", i + 1, e)),
             }
@@ -68,6 +89,34 @@ impl AccessController {
             AccessPolicy::DenyAll => Ok(Decision::Deny),
             AccessPolicy::Disabled => Ok(Decision::Allow),
         }
+    }
+
+    pub async fn confirm_transaction(
+        &self,
+        result: TransactionExecutionResult,
+        stats_tracker: &StatsTracker,
+    ) -> Result<()> {
+        let mut confirmation_requests = self.confirmation_requests.lock().await;
+        let transaction_digest = result.transaction_digest;
+        let maybe_requests = confirmation_requests.remove(&transaction_digest);
+        if let Some(requests) = maybe_requests {
+            for req in requests {
+                let diff = if let Some(real_gas_usage) = result.gas_usage {
+                    let reserved_gas_usage = req.gas_usage;
+                    let diff = reserved_gas_usage - real_gas_usage;
+                    debug!("Transaction with id: {transaction_digest} confirmed, reserved gas usage: {reserved_gas_usage}, real gas usage: {real_gas_usage}, diff: {diff}");
+                    diff
+                } else {
+                    debug!("Transaction with id: {transaction_digest} confirmed, but no gas usage was provided");
+                    req.gas_usage
+                };
+                stats_tracker
+                    .update_aggr(req.rule_meta, &req.aggregate, diff as f64 * -1.)
+                    .await
+                    .context("Failed to update aggregate while when confirming transactions")?;
+            }
+        }
+        Ok(())
     }
 
     /// Adds a new rule to the access controller.
@@ -83,6 +132,23 @@ impl AccessController {
     /// Returns true if the access controller is disabled.
     pub fn is_disabled(&self) -> bool {
         self.access_policy == AccessPolicy::Disabled
+    }
+}
+
+pub struct TransactionExecutionResult {
+    pub transaction_digest: TransactionDigest,
+    pub gas_usage: Option<u64>,
+}
+impl TransactionExecutionResult {
+    pub fn new(transaction_digest: TransactionDigest) -> Self {
+        Self {
+            transaction_digest,
+            gas_usage: None,
+        }
+    }
+    pub fn with_gas_usage(mut self, gas_used: u64) -> Self {
+        self.gas_usage = Some(gas_used);
+        self
     }
 }
 

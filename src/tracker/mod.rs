@@ -22,9 +22,10 @@ impl StatsTracker {
     pub async fn update_aggr<'a>(
         &self,
         key_meta: impl IntoIterator<Item = (String, Value)> + Send,
-        update: &stats_tracker_storage::Aggregate,
+        aggregate: &stats_tracker_storage::Aggregate,
+        value: f64,
     ) -> Result<f64> {
         let key_meta = key_meta.into_iter().collect::<Vec<_>>();
-        self.store.update_aggr(&key_meta, update).await
+        self.store.update_aggr(&key_meta, aggregate, value).await
     }
 }
