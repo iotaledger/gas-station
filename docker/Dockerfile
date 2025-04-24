@@ -1,4 +1,14 @@
+FROM --platform=$BUILDPLATFORM tonistiigi/xx AS xx
+
 FROM --platform=$BUILDPLATFORM  rust:1.85-bullseye AS chef
+
+# setup xx
+# copy xx scripts to your build stage
+COPY --from=xx / /
+# export TARGETPLATFORM (or other TARGET*)
+ARG TARGETPLATFORM
+# you can now call xx-* commands
+RUN xx-info env
 
 WORKDIR /iota
 
@@ -8,30 +18,27 @@ ENV GIT_REVISION=$GIT_REVISION
 # This is a workaround for the following the issue related to the libc-bin package
 RUN rm /var/lib/dpkg/info/libc-bin.*
 
-RUN apt-get clean
-RUN apt-get update && apt-get install -y cmake clang lld
-
+RUN apt-get update && apt-get install -y clang lld
 
 # Build and cache all dependencies.
 FROM chef AS builder
 WORKDIR /iota
 
-# Configure Rust to use clang and lld as the linker
-RUN mkdir -p ./.cargo && \
-  echo "[target.x86_64-unknown-linux-gnu]\nlinker = \"clang\"\nrustflags = [\"-C\", \"link-arg=-fuse-ld=lld\"]" > ./.cargo/config.toml
-
 COPY Cargo.toml ./
 COPY src ./src
+ARG ENTRY_BINARY=iota-gas-station
 
-RUN cargo build --release
+RUN xx-cargo build --release --target-dir ./build
+RUN xx-verify "./build/$(xx-cargo --print-target-triple)/release/${ENTRY_BINARY}"
 
+# move binary to a location we can access it more easily in `FROM` command
+RUN mv "./build/$(xx-cargo --print-target-triple)/release/${ENTRY_BINARY}" ./build/entrypoint
 
 # Production Image
 FROM debian:bullseye-slim AS runtime
 RUN apt-get update && apt-get install -y libjemalloc-dev ca-certificates
 
-ARG ENTRY_BINARY=iota-gas-station
-COPY --from=builder /iota/target/release/${ENTRY_BINARY} /usr/local/bin/entrypoint
+COPY --from=builder "/iota/build/entrypoint" /usr/local/bin/entrypoint
 
 ARG BUILD_DATE
 ARG GIT_REVISION
