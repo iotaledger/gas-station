@@ -66,7 +66,7 @@ async fn main() {
 
     // Build the TransactionData.
     // TransactionData is unsigned version of Transaction. The maximum gas budget is 0.01 IOTA.
-    let mut tx_data = TransactionData::new(tx_kind, user, gas_coins[0], 10000000, ref_gas_price);
+    let mut tx_data = TransactionData::new(tx_kind, user, gas_coins[0], 3000000, ref_gas_price);
     // Set the gas object and gas-station sponsor account fetched from the gas station
     tx_data.gas_data_mut().payment = gas_coins;
     tx_data.gas_data_mut().owner = sponsor_account;
