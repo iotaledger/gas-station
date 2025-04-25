@@ -104,9 +104,10 @@ Below is a revised version of the documentation with improved grammar and clarit
 The **Gas Usage Limit** feature enables you to track gas consumption based on predefined parameters. When enabled, the gas tracking applies to the entire rule. The configuration syntax is:
 
 ```yaml
-gas_usage:
-  limit: [range_of_numbers]
-  duration: [duration]
+gas-usage:
+  value: [range_of_numbers]
+  window: [duration]
+  count-by: [ sender-address ] # optional
 ```
 
 > **Note:** The syntax of `duration` follows the specification used in the [`humantime`](https://docs.rs/humantime/latest/humantime/index.html) crate
@@ -123,7 +124,27 @@ This configuration sets a daily gas usage limit for a specific address. In the e
 
 The time window is reset not on a daily reset time, but 24 hours (as configured below) after the first transaction of sender at address `0x0101...`, allowing to have flexible usage based scheduling across different time zones.
 
-Note that gas usage for other addresses remains unconstrained.
+> Note that gas usage for other addresses remains unconstrained.
+
+```yaml
+access-controller:
+  access-policy: deny-all
+  rules:
+    - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
+      gas-usage:
+        value: '>1000000'
+        window: 1 day
+      action: 'deny'
+
+    - sender-address: '*'
+      action: 'allow'
+```
+
+---
+
+**2. Limit Gas Usage per Address and Module**
+
+In this example, the configuration restricts the daily gas usage for a specific address when calling a designated module. The sender at address `0x0101...` is limited to a maximum daily usage of `10000000` gas units when accessing package `0x0202...`. For all other interactions, gas usage is **blocked**.
 
 ```yaml
 access-controller:
@@ -132,28 +153,25 @@ access-controller:
     - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
       move-call-package-address: "0x0202020202020202020202020202020202020202020202020202020202020202"
       gas-usage:
-        limit: '<1000000'
-        duration: 1 day
+        value: '<1000000'
+        window: 1 day
       action: 'allow'
 ```
 
----
 
-**2. Limit Gas Usage per Address and Module**
+**3. Limit Gas Usage per Address**
 
-In this example, the configuration restricts the daily gas usage for a specific address when calling a designated module. The sender at address `0x0101...` is limited to a maximum daily usage of `10000000` gas units when accessing package `0x0202...`. For all other interactions, gas usage is blocked.
+In this example, each user is limited to `10000000` gas units per day. The additional property `count-by` allows you to maintain individual counters for each `sender-address`. Without `count-by`, **all** users would share a daily limit of `1000000` gas units.
 
 ```yaml
 access-controller:
   access-policy: deny-all
   rules:
-    - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
+    - sender-address: "*"
       gas-usage:
-        limit: '>1000000'
-        duration: 1 day
-      action: 'deny'
-  
-    - sender-address: '*'
+        value: '<1000000'
+        window: 1 day
+        count-by: [ sender-address ]
       action: 'allow'
 ```
 

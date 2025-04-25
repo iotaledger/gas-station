@@ -94,7 +94,7 @@ impl AccessRuleBuilder {
     }
 
     pub fn gas_limit(mut self, gas_limit: ValueAggregate) -> Self {
-        self.rule.gas_limit = Some(gas_limit);
+        self.rule.gas_usage = Some(gas_limit);
         self
     }
 }
@@ -107,7 +107,7 @@ pub struct AccessRule {
     pub transaction_gas_budget: Option<ValueNumber<u64>>,
     pub move_call_package_address: Option<ValueIotaAddress>,
     pub ptb_command_count: Option<ValueNumber<usize>>,
-    pub gas_limit: Option<ValueAggregate>,
+    pub gas_usage: Option<ValueAggregate>,
 
     pub action: Action,
 }
@@ -161,12 +161,12 @@ impl AccessRule {
             .context("The rule isn't a map")?
             .to_owned();
 
-        if let Some(gas_limit) = self.gas_limit.as_ref() {
-            for limit_by in gas_limit.limit_by.iter() {
-                let limit_by_value = match limit_by {
+        if let Some(gas_limit) = self.gas_usage.as_ref() {
+            for count_by in gas_limit.count_by.iter() {
+                let count_by_value = match count_by {
                     LimitBy::SenderAddress => ctx.sender_address.to_string(),
                 };
-                (&mut rule_to_hash).insert(limit_by.to_string(), Value::String(limit_by_value));
+                (&mut rule_to_hash).insert(count_by.to_string(), Value::String(count_by_value));
             }
         }
         Ok(rule_to_hash)
@@ -176,12 +176,12 @@ impl AccessRule {
         &self,
         ctx: &TransactionContext,
     ) -> Result<(bool, Option<GasUsageConfirmationRequest>), anyhow::Error> {
-        if let Some(gas_limit) = self.gas_limit.as_ref() {
+        if let Some(gas_limit) = self.gas_usage.as_ref() {
             let rule_meta = self
                 .get_rule_meta(ctx)
                 .context("Failed to calculate rule meta")?;
 
-            let aggr = Aggregate::with_name("gas_limit")
+            let aggr = Aggregate::with_name("gas_usage")
                 .with_aggr_type(AggregateType::Sum)
                 .with_window(gas_limit.window);
 
@@ -198,7 +198,7 @@ impl AccessRule {
             };
 
             return Ok((
-                gas_limit.limit.matches(total_gas_claim as u64),
+                gas_limit.value.matches(total_gas_claim as u64),
                 Some(confirmation_request),
             ));
         } else {
@@ -459,7 +459,7 @@ mod test {
                     std::time::Duration::from_secs(10),
                     ValueNumber::GreaterThanOrEqual(300),
                 )
-                .with_limit_by(vec![LimitBy::SenderAddress]),
+                .with_count_by(vec![LimitBy::SenderAddress]),
             )
             .deny()
             .build();

@@ -11,22 +11,22 @@ use super::ValueNumber;
 pub struct ValueAggregate {
     #[serde(with = "serde_duration")]
     pub window: Duration,
-    pub limit: ValueNumber<u64>,
+    pub value: ValueNumber<u64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub limit_by: Vec<LimitBy>,
+    pub count_by: Vec<LimitBy>,
 }
 
 impl ValueAggregate {
     pub fn new(window: Duration, limit: ValueNumber<u64>) -> Self {
         ValueAggregate {
             window,
-            limit,
-            limit_by: vec![],
+            value: limit,
+            count_by: vec![],
         }
     }
 
-    pub fn with_limit_by(mut self, group_by: Vec<LimitBy>) -> Self {
-        self.limit_by = group_by;
+    pub fn with_count_by(mut self, group_by: Vec<LimitBy>) -> Self {
+        self.count_by = group_by;
         self
     }
 }
@@ -80,7 +80,7 @@ mod test {
 
         assert_eq!(value_aggregate.window.as_secs(), 5400);
         assert!(matches!(
-            value_aggregate.limit,
+            value_aggregate.value,
             ValueNumber::GreaterThan(100),
         ));
     }
