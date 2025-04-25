@@ -308,7 +308,6 @@ fn get_move_call_package_addresses(transaction_data: &TransactionData) -> Vec<Io
 mod test {
 
     use iota_types::base_types::IotaAddress;
-    use itertools::GroupBy;
 
     use crate::{
         access_controller::{

@@ -75,7 +75,7 @@ mod test {
 
     #[test]
     fn test_deserialize_value_aggregate() {
-        let json = r#"{"window":"1h 30 min","limit": ">100"}"#;
+        let json = r#"{"window":"1h 30 min","value": ">100"}"#;
         let value_aggregate: ValueAggregate = serde_json::from_str(json).unwrap();
 
         assert_eq!(value_aggregate.window.as_secs(), 5400);
@@ -92,6 +92,6 @@ mod test {
             ValueNumber::GreaterThan(100),
         );
         let json = serde_json::to_string(&value_aggregate).unwrap();
-        assert_eq!(json, r#"{"window":"1h 30m","limit":">100"}"#);
+        assert_eq!(json, r#"{"window":"1h 30m","value":">100"}"#);
     }
 }
