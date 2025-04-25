@@ -7,14 +7,20 @@ local amount = tonumber(ARGV[3])
 local ttl = tonumber(ARGV[4])
 
 
+local MAX_I64 = 9223372036854775807
 local key = sponsor_address .. ':' .. key_name
 
 if redis.call('EXISTS', key) == 0 then
-    redis.call('SET', key, 0)
-    redis.call('EXPIRE', key, ttl)
+   redis.call('SET', key, '0', 'EX', ttl)
 end
 
-local new_value =  redis.call('INCRBY', key, amount)
-return new_value
+local ok, new_val = pcall(redis.call, 'INCRBY', key, amount)
+if ok then
+  return new_val
+end
+
+-- overflow handling
+redis.call('SET', key, MAX_I64)
+return MAX_I64
 
 
