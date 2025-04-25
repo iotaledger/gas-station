@@ -7,6 +7,7 @@ use super::ValueNumber;
 /// ValueAggregate is a struct that represents an aggregate value with a specified window and limit.
 /// It must use persistent storage [`Tracker`] to store the aggregate value.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct ValueAggregate {
     #[serde(with = "serde_duration")]
     pub window: Duration,
@@ -31,7 +32,7 @@ impl ValueAggregate {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "kebab-case")]
 pub enum LimitBy {
     SenderAddress,
 }
@@ -39,7 +40,7 @@ pub enum LimitBy {
 impl ToString for LimitBy {
     fn to_string(&self) -> String {
         match self {
-            LimitBy::SenderAddress => "sender_address".to_string(),
+            LimitBy::SenderAddress => "sender-address".to_string(),
         }
     }
 }
