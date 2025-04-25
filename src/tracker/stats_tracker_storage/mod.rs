@@ -18,8 +18,8 @@ pub trait StatsTrackerStorage: Sync + Send {
         &self,
         key_meta: &[(String, Value)],
         update: &Aggregate,
-        value: f64,
-    ) -> Result<f64>;
+        value: i64,
+    ) -> Result<i64>;
 }
 
 #[derive(Debug, Clone, Default)]

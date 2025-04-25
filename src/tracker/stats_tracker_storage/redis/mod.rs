@@ -49,8 +49,8 @@ impl StatsTrackerStorage for RedisStatsTrackerStorage {
         &self,
         key: &[(String, Value)],
         aggr: &Aggregate,
-        value: f64,
-    ) -> Result<f64> {
+        value: i64,
+    ) -> Result<i64> {
         let hash = generate_hash_from_key(key);
         let key = format!("{}:{}:{}", aggr.name, aggr.aggr_type, hash);
 
@@ -65,7 +65,7 @@ impl StatsTrackerStorage for RedisStatsTrackerStorage {
                     .arg(aggr.window.as_secs())
                     .invoke_async(&mut conn)
                     .await?;
-                Ok(new_value as f64)
+                Ok(new_value)
             }
         }
     }
@@ -126,23 +126,23 @@ mod test {
         .collect::<Vec<_>>();
 
         let result = storage
-            .update_aggr(&key_meta, &aggregate, 1.0)
+            .update_aggr(&key_meta, &aggregate, 1)
             .await
             .unwrap();
-        assert_eq!(result, 1.0);
+        assert_eq!(result, 1);
 
         let result = storage
-            .update_aggr(&key_meta, &aggregate, 2.0)
+            .update_aggr(&key_meta, &aggregate, 2)
             .await
             .unwrap();
-        assert_eq!(result, 3.0);
+        assert_eq!(result, 3);
 
         time::sleep(window_size + Duration::from_secs(1)).await;
         let result = storage
-            .update_aggr(&key_meta, &aggregate, 2.0)
+            .update_aggr(&key_meta, &aggregate, 2)
             .await
             .unwrap();
-        assert_eq!(result, 2.0);
+        assert_eq!(result, 2);
     }
 
     #[test]

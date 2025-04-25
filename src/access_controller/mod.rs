@@ -109,9 +109,9 @@ impl AccessController {
                 } else {
                     debug!("Transaction with id: {transaction_digest} confirmed, but no gas usage was provided");
                     req.gas_usage
-                };
+                } as i64;
                 stats_tracker
-                    .update_aggr(req.rule_meta, &req.aggregate, diff as f64 * -1.)
+                    .update_aggr(req.rule_meta, &req.aggregate, diff * -1)
                     .await
                     .context("Failed to update aggregate while when confirming transactions")?;
             }

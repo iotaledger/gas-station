@@ -187,7 +187,7 @@ impl AccessRule {
 
             let total_gas_claim = ctx
                 .stats_tracker
-                .update_aggr(rule_meta.clone(), &aggr, ctx.transaction_budget as f64)
+                .update_aggr(rule_meta.clone(), &aggr, ctx.transaction_budget as i64)
                 .await
                 .context("Updating aggregate failed")?;
 
