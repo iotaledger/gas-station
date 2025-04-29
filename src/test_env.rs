@@ -1,17 +1,20 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::access_controller::policy::AccessPolicy;
 use crate::access_controller::AccessController;
-use crate::config::{CoinInitConfig, DEFAULT_DAILY_GAS_USAGE_CAP};
+use crate::config::{CoinInitConfig, GasStationStorageConfig, DEFAULT_DAILY_GAS_USAGE_CAP};
 use crate::gas_station::gas_station_core::GasStationContainer;
 use crate::gas_station_initializer::GasStationInitializer;
 use crate::iota_client::IotaClient;
 use crate::metrics::{GasStationCoreMetrics, GasStationRpcMetrics};
 use crate::rpc::GasStationServer;
 use crate::storage::connect_storage_for_testing;
+use crate::tracker::stats_tracker_storage::redis::connect_stats_storage;
+use crate::tracker::stats_tracker_storage::{self, StatsTrackerStorage};
+use crate::tracker::StatsTracker;
 use crate::tx_signer::{TestTxSigner, TxSigner};
 use crate::AUTH_ENV_NAME;
+use async_trait::async_trait;
 use iota_config::local_ip_utils::{get_available_port, localhost_for_testing};
 use iota_swarm_config::genesis_config::AccountConfig;
 use iota_types::base_types::{IotaAddress, ObjectRef};
@@ -19,6 +22,7 @@ use iota_types::crypto::get_account_key_pair;
 use iota_types::gas_coin::NANOS_PER_IOTA;
 use iota_types::signature::GenericSignature;
 use iota_types::transaction::{TransactionData, TransactionDataAPI};
+use serde_json::Value;
 use std::sync::Arc;
 use test_cluster::{TestCluster, TestClusterBuilder};
 use tracing::debug;
@@ -80,31 +84,38 @@ pub async fn start_rpc_server_for_testing(
 ) -> (TestCluster, GasStationContainer, GasStationServer) {
     let (test_cluster, container) = start_gas_station(init_gas_amounts, target_init_balance).await;
     let localhost = localhost_for_testing();
+    let signer_address = container.get_signer_address();
     std::env::set_var(AUTH_ENV_NAME, "some secret");
+
     let server = GasStationServer::new(
         container.get_gas_station_arc(),
         localhost.parse().unwrap(),
         get_available_port(&localhost),
         GasStationRpcMetrics::new_for_testing(),
         Arc::new(AccessController::default()),
+        new_stats_tracker_for_testing(signer_address).await,
     )
     .await;
     (test_cluster, container, server)
 }
 
-pub async fn start_rpc_server_for_testing_with_access_ctrl_deny_all(
+pub async fn start_rpc_server_for_testing_with_access_controller(
     init_gas_amounts: Vec<u64>,
     target_init_balance: u64,
+    access_controller: AccessController,
 ) -> (TestCluster, GasStationContainer, GasStationServer) {
     let (test_cluster, container) = start_gas_station(init_gas_amounts, target_init_balance).await;
     let localhost = localhost_for_testing();
+    let signer_address = container.get_signer_address();
     std::env::set_var(AUTH_ENV_NAME, "some secret");
+
     let server = GasStationServer::new(
         container.get_gas_station_arc(),
         localhost.parse().unwrap(),
         get_available_port(&localhost),
         GasStationRpcMetrics::new_for_testing(),
-        Arc::new(AccessController::new(AccessPolicy::DenyAll, [])),
+        Arc::new(access_controller),
+        new_stats_tracker_for_testing(signer_address).await,
     )
     .await;
     (test_cluster, container, server)
@@ -141,4 +152,33 @@ pub async fn create_test_transaction(
         .pop()
         .unwrap();
     (tx_data, user_sig)
+}
+
+pub async fn new_stats_tracker_for_testing(sponsor_address: IotaAddress) -> StatsTracker {
+    StatsTracker::new(Arc::new(
+        connect_stats_storage(&GasStationStorageConfig::default(), sponsor_address).await,
+    ))
+}
+
+pub fn random_address() -> IotaAddress {
+    let random_bytes = rand::random::<[u8; 32]>();
+    IotaAddress::new(random_bytes)
+}
+
+struct MockedStatsTrackerStorage;
+
+#[async_trait]
+impl StatsTrackerStorage for MockedStatsTrackerStorage {
+    async fn update_aggr(
+        &self,
+        _key_meta: &[(String, Value)],
+        _update: &stats_tracker_storage::Aggregate,
+        _value: i64,
+    ) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+}
+
+pub fn mocked_stats_tracker() -> StatsTracker {
+    StatsTracker::new(Arc::new(MockedStatsTrackerStorage {}))
 }

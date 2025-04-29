@@ -5,13 +5,22 @@ use std::ops::{BitAnd, BitOr};
 
 use serde::{Deserialize, Serialize};
 
-use super::policy::AccessPolicy;
+use super::{policy::AccessPolicy, predicates::Action};
 
 /// The Decision enum represents the decision of the access controller.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Decision {
     Allow,
     Deny,
+}
+
+impl From<Action> for Decision {
+    fn from(action: Action) -> Self {
+        match action {
+            Action::Allow => Decision::Allow,
+            Action::Deny => Decision::Deny,
+        }
+    }
 }
 
 impl BitAnd for Decision {

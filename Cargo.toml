@@ -34,7 +34,7 @@ itertools = "0.14.0"
 once_cell = "1.19.0"
 parking_lot = "0.12.1"
 prometheus = "0.13.3"
-rand = "0.8.5"
+rand = { version = "0.8.5", features = ["small_rng"] }
 redis = { version = "0.24.0", features = [
   "default",
   "async-std-comp",
@@ -50,8 +50,10 @@ tracing = "0.1.40"
 tokio = { version = "1.39.2", features = ["full"] }
 tokio-retry = "0.3.0"
 serde_json = "1.0.108"
+serde_json_canonicalizer = { version = "0.3.0" }
 serde_yaml = "0.9.33"
 lazy_static = "1.5.0"
+humantime = "2.2.0"
 
 
 [dev-dependencies]

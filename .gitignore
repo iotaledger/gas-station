@@ -20,3 +20,4 @@ config.yaml
 
 # Ignore at the moment. In case developers want to use a different linker
 .cargo/config.toml
+.vscode

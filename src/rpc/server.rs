@@ -1,8 +1,9 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::access_controller::rule::TransactionDescription;
-use crate::access_controller::AccessController;
+use crate::access_controller::decision::Decision;
+use crate::access_controller::rule::TransactionContext;
+use crate::access_controller::{AccessController, TransactionExecutionResult};
 use crate::gas_station::gas_station_core::GasStation;
 use crate::logging::TxLogMessage;
 use crate::metrics::GasStationRpcMetrics;
@@ -10,6 +11,7 @@ use crate::rpc::client::GasStationRpcClient;
 use crate::rpc::rpc_types::{
     ExecuteTxRequest, ExecuteTxResponse, ReserveGasRequest, ReserveGasResponse,
 };
+use crate::tracker::StatsTracker;
 use crate::{read_auth_env, VERSION};
 use axum::headers::authorization::Bearer;
 use axum::headers::Authorization;
@@ -40,8 +42,9 @@ impl GasStationServer {
         rpc_port: u16,
         metrics: Arc<GasStationRpcMetrics>,
         access_controller: Arc<AccessController>,
+        stats_tracker: StatsTracker,
     ) -> Self {
-        let state = ServerState::new(station, metrics, access_controller);
+        let state = ServerState::new(station, metrics, access_controller, stats_tracker);
         let app = Router::new()
             .route("/", get(health))
             .route("/version", get(version))
@@ -71,6 +74,7 @@ struct ServerState {
     secret: Arc<String>,
     metrics: Arc<GasStationRpcMetrics>,
     access_controller: Arc<AccessController>,
+    stats_tracker: StatsTracker,
 }
 
 impl ServerState {
@@ -78,6 +82,7 @@ impl ServerState {
         gas_station: Arc<GasStation>,
         metrics: Arc<GasStationRpcMetrics>,
         access_controller: Arc<AccessController>,
+        stats_tracker: StatsTracker,
     ) -> Self {
         let secret = Arc::new(read_auth_env());
         Self {
@@ -85,6 +90,7 @@ impl ServerState {
             secret,
             metrics,
             access_controller,
+            stats_tracker,
         }
     }
 }
@@ -215,6 +221,7 @@ async fn execute_tx(
             ))),
         );
     }
+
     server.metrics.num_authorized_execute_tx_requests.inc();
 
     debug!("Received v1 execute_tx request: {:?}", payload);
@@ -232,16 +239,6 @@ async fn execute_tx(
         );
     };
 
-    // Check the access control policy.
-    if let Err(err) = server
-        .access_controller
-        .check_access(&TransactionDescription::new(&user_sig, &tx_data))
-    {
-        server.metrics.num_blocked_execute_tx_requests.inc();
-        return (StatusCode::FORBIDDEN, Json(ExecuteTxResponse::new_err(err)));
-    }
-    server.metrics.num_allowed_execute_tx_requests.inc();
-
     // Spawn a thread to process the request so that it will finish even when client drops the connection.
     tokio::task::spawn(execute_tx_impl(
         server.gas_station.clone(),
@@ -249,6 +246,8 @@ async fn execute_tx(
         reservation_id,
         tx_data,
         user_sig,
+        server.access_controller.clone(),
+        server.stats_tracker.clone(),
     ))
     .await
     .unwrap_or_else(|err| {
@@ -268,7 +267,39 @@ async fn execute_tx_impl(
     reservation_id: u64,
     tx_data: TransactionData,
     user_sig: GenericSignature,
+    access_controller: Arc<AccessController>,
+    stats_tracker: StatsTracker,
 ) -> (StatusCode, Json<ExecuteTxResponse>) {
+    match access_controller
+        .check_access(&TransactionContext::new(
+            &user_sig,
+            &tx_data,
+            stats_tracker.clone(),
+        ))
+        .await
+    {
+        Ok(Decision::Allow) => {
+            metrics.num_allowed_execute_tx_requests.inc();
+        }
+        Ok(Decision::Deny) => {
+            metrics.num_failed_execute_tx_requests.inc();
+            return (
+                StatusCode::FORBIDDEN,
+                Json(ExecuteTxResponse::new_err(anyhow::anyhow!(
+                    "Access denied by access controller"
+                ))),
+            );
+        }
+        Err(err) => {
+            error!("Error while checking access: {:?}", err);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ExecuteTxResponse::new_err(err)),
+            );
+        }
+    }
+
+    let transaction_digest = tx_data.digest();
     match gas_station
         .execute_transaction(reservation_id, tx_data, user_sig)
         .await
@@ -283,10 +314,34 @@ async fn execute_tx_impl(
             trace!(target: "transactions", "{}", TxLogMessage::new(&effects));
 
             metrics.num_successful_execute_tx_requests.inc();
+            let confirmation_result = access_controller
+                .confirm_transaction(
+                    TransactionExecutionResult::new(transaction_digest)
+                        .with_gas_usage(effects.gas_cost_summary().gas_used()),
+                    &stats_tracker.clone(),
+                )
+                .await;
+            // When then confirmation fails, the error shouldn't prevent the user from
+            // receiving the successful response.
+            if let Err(err) = confirmation_result {
+                error!("Error while confirming transaction in AC: {:?}", err);
+            }
+
             (StatusCode::OK, Json(ExecuteTxResponse::new_ok(effects)))
         }
         Err(err) => {
             error!("Failed to execute transaction: {:?}", err);
+
+            let confirmation_result = access_controller
+                .confirm_transaction(
+                    TransactionExecutionResult::new(transaction_digest),
+                    &stats_tracker,
+                )
+                .await;
+            if let Err(err) = confirmation_result {
+                error!("Error while canceling transaction in AC: {:?}", err);
+            }
+
             metrics.num_failed_execute_tx_requests.inc();
             (
                 StatusCode::INTERNAL_SERVER_ERROR,

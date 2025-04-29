@@ -14,6 +14,8 @@ pub mod logging;
 pub mod metrics;
 pub mod rpc;
 pub mod storage;
+pub mod tracker;
+
 #[cfg(test)]
 pub mod test_env;
 pub mod tx_signer;

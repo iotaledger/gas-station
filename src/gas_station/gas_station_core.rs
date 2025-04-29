@@ -56,6 +56,7 @@ impl GasStation {
             metrics,
             gas_usage_cap,
         };
+
         Arc::new(pool)
     }
 
@@ -362,6 +363,11 @@ impl GasStationContainer {
 
     pub fn get_gas_station_arc(&self) -> Arc<GasStation> {
         self.inner.clone()
+    }
+
+    #[cfg(test)]
+    pub fn get_signer_address(&self) -> IotaAddress {
+        self.inner.signer.get_address()
     }
 }
 
