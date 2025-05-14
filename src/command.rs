@@ -45,7 +45,7 @@ impl Command {
             metrics_port,
             coin_init_config,
             daily_gas_usage_cap,
-            access_controller,
+            mut access_controller,
         } = config;
 
         let metric_address = SocketAddr::new(IpAddr::V4(rpc_host_ip), metrics_port);
@@ -86,6 +86,11 @@ impl Command {
 
         let stats_storage = connect_stats_storage(&gas_station_config, sponsor_address).await;
         let stats_tracker = StatsTracker::new(Arc::new(stats_storage));
+        info!("Initializing the access controller");
+        access_controller
+            .initialize()
+            .await
+            .expect("Failed to initialize the access controller");
         let access_controller = Arc::new(access_controller);
 
         let container = GasStationContainer::new(

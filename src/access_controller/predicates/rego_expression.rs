@@ -1,29 +1,32 @@
 use anyhow::{bail, Context};
 use regorus::Value;
+use serde::{Deserialize, Serialize};
+use tracing::trace;
 
-use crate::access_controller::location::{LocationSource, Source};
+use super::location::{SourceLocation, SourceWithData};
 
 /// RegoExpression allows to evaluate Rego policies
 /// using the regorus engine.
+#[derive(Debug, Clone)]
 pub struct RegoExpression {
-    pub source: Source,
-    pub engine: regorus::Engine,
+    pub source: SourceWithData,
+    // probably the expression should be optional
+    pub expression: Option<regorus::Engine>,
 }
 
 impl RegoExpression {
-    /// Create a new RegoExpression from the Source
-    pub fn try_from_source(source: Source) -> Result<Self, anyhow::Error> {
-        let mut engine = regorus::Engine::new();
-        let source_data = source
-            .get_data_string()
-            .with_context(|| format!("Source data is empty for {}", source.location.to_string()))?;
-        engine
-            .add_policy(source.location.to_string(), source_data)
-            .with_context(|| {
-                format!("error while loading policy {}", source.location.to_string())
-            })?;
-
-        Ok(RegoExpression { source, engine })
+    pub fn try_from_source(source: SourceWithData) -> Result<Self, anyhow::Error> {
+        let expression = if let Some(data) = source.get_data_string() {
+            let mut expression = regorus::Engine::new();
+            expression
+                .add_policy(source.location.to_string(), data)
+                .with_context(|| format!("failed to add policy {}", source.location.to_string()))?;
+            Some(expression)
+        } else {
+            trace!("Source data is empty for {}. Please make use 'reload()' to initialize the expression", source.location.to_string());
+            None
+        };
+        Ok(RegoExpression { source, expression })
     }
 
     /// Reload the policy from the source.
@@ -35,8 +38,8 @@ impl RegoExpression {
                 self.source.location.to_string()
             )
         })?;
-        let mut engine = regorus::Engine::new();
-        engine
+        let mut expression = regorus::Engine::new();
+        expression
             .add_policy(self.source.location.to_string(), source_data)
             .with_context(|| {
                 format!(
@@ -44,14 +47,17 @@ impl RegoExpression {
                     self.source.location.to_string()
                 )
             })?;
-        self.engine = engine;
+        self.expression = Some(expression);
         Ok(())
     }
 
     /// Evaluate the policy with the given input data.
-    pub fn matches(&mut self, input_data: &str) -> Result<bool, anyhow::Error> {
+    pub fn matches(&self, input_data: &str) -> Result<bool, anyhow::Error> {
         let rego_rule_name = self.source.location.get_rego_rule_name().to_string();
-        let mut engine = self.engine.clone();
+        if self.expression.is_none() {
+            bail!("Rego expression is not initialized");
+        }
+        let mut engine = self.expression.clone().unwrap();
         let value = Value::from_json_str(input_data)
             .with_context(|| format!("error while converting input data to json {}", input_data))?;
         engine.set_input(value);
@@ -68,20 +74,41 @@ impl RegoExpression {
     }
 }
 
+impl Serialize for RegoExpression {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.source
+            .location
+            .serialize(serializer)
+            .map_err(serde::ser::Error::custom)
+    }
+}
+
+impl<'de> Deserialize<'de> for RegoExpression {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let location = SourceLocation::deserialize(deserializer)?;
+        let source_with_data = SourceWithData::new(location);
+        RegoExpression::try_from_source(source_with_data).map_err(serde::de::Error::custom)
+    }
+}
+
 #[cfg(test)]
 mod test {
-    use std::result;
-
     use super::*;
 
     #[tokio::test]
     async fn test_rego_expression_smoke_test() {
         let rego_rule_name = "data.test.allow";
-        let source_location = LocationSource::new_file(
+        let source_location = SourceLocation::new_file(
             "/home/rayven/code/iota/iota-gas-station/test.rego",
             rego_rule_name,
         );
-        let mut source = Source::new(source_location);
+        let mut source = SourceWithData::new(source_location);
         source.fetch().await.unwrap();
 
         let mut rego_expression = RegoExpression::try_from_source(source).unwrap();

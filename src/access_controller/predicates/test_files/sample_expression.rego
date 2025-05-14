@@ -2,8 +2,10 @@ package test
 
 import rego.v1
 
-default allow := false
+default some_match := false
 
-allow if {
+some_match if {
 	input.method == "GET"
 }
+
+

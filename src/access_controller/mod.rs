@@ -5,7 +5,6 @@
 //! It provides a way to control the constraints for executing transactions, ensuring that only authorized addresses can perform specific actions.
 
 pub mod decision;
-pub mod location;
 pub mod policy;
 pub mod predicates;
 pub mod rule;
@@ -51,6 +50,14 @@ impl AccessController {
             rules: rules.into_iter().collect(),
             confirmation_requests: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Initializes the access controller by loading the rules from the external sources
+    pub async fn initialize(&mut self) -> Result<()> {
+        for rule in &mut self.rules {
+            rule.initialize().await?;
+        }
+        Ok(())
     }
 
     /// Checks if the transaction can be executed based on the access controller's rules.

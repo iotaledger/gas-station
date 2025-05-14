@@ -11,8 +11,9 @@ use iota_types::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use serde_with::skip_serializing_none;
+use tracing::debug;
 
-use super::location::Source;
+use super::predicates::RegoExpression;
 use super::predicates::{Action, LimitBy, ValueAggregate, ValueIotaAddress, ValueNumber};
 use crate::tracker::{
     stats_tracker_storage::{Aggregate, AggregateType},
@@ -108,7 +109,7 @@ pub struct AccessRule {
     pub move_call_package_address: Option<ValueIotaAddress>,
     pub ptb_command_count: Option<ValueNumber<usize>>,
     pub gas_usage: Option<ValueAggregate>,
-    pub rego_policy: Option<Source>,
+    pub rego_expression: Option<RegoExpression>,
 
     pub action: Action,
 }
@@ -121,6 +122,15 @@ pub struct GasUsageConfirmationRequest {
 }
 
 impl AccessRule {
+    pub async fn initialize(&mut self) -> Result<(), anyhow::Error> {
+        debug!("Initializing rule: {:?}", self);
+        if let Some(rego_expression) = self.rego_expression.as_mut() {
+            rego_expression.reload().await?;
+        }
+        Ok(())
+    }
+    /// Returns the action of the rule.
+
     /// Checks if the rule matches the transaction data.
     pub async fn matches(&self, data: &TransactionContext) -> Result<bool, anyhow::Error> {
         Ok(self.sender_address.includes(&data.sender_address)
@@ -133,7 +143,9 @@ impl AccessRule {
             // Move Call Package Address
             && self
                 .move_call_package_address.as_ref().map(|address| address.includes_any(&data.move_call_package_addresses)).unwrap_or(true)
-            && self.ptb_command_count_matches_or_not_applicable(data))
+            && self.ptb_command_count_matches_or_not_applicable(data)
+            // Rego expression
+            && self.match_rego_expression(data)?)
     }
 
     /// Match checking for global limits. Global limits use a persistent storage to track their values
@@ -207,6 +219,22 @@ impl AccessRule {
             return Ok((true, None));
         }
     }
+
+    fn match_rego_expression(&self, ctx: &TransactionContext) -> Result<bool, anyhow::Error> {
+        if let Some(rego_expression) = self.rego_expression.as_ref() {
+            let input_payload = RegoInputPayload::from_context(ctx);
+            let input_string = serde_json::to_string_pretty(&input_payload)
+                .context("Failed to serialize input payload to JSON")?;
+
+            debug!("Input string: {}", input_string);
+            let result = rego_expression
+                .matches(&input_string)
+                .context("Failed to match rego expression")?;
+            return Ok(result);
+        }
+        // If the rego expression is not defined then the rule matches. Every payload is allowed
+        Ok(true)
+    }
 }
 
 impl AccessRule {
@@ -216,9 +244,21 @@ impl AccessRule {
             _ => true,
         }
     }
-
-    // pub fn compile()
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RegoInputPayload {
+    pub transaction_data: Value,
+}
+
+impl RegoInputPayload {
+    pub fn from_context(ctx: &TransactionContext) -> Self {
+        Self {
+            transaction_data: ctx.transaction_data.clone(),
+        }
+    }
+}
+impl RegoInputPayload {}
 
 // This input is used to check the access policy.
 #[derive(Clone)]
@@ -228,6 +268,7 @@ pub struct TransactionContext {
     pub transaction_budget: u64,
     pub move_call_package_addresses: Vec<IotaAddress>,
     pub ptb_command_count: Option<usize>,
+    pub transaction_data: Value,
 
     pub stats_tracker: StatsTracker,
 }
@@ -242,6 +283,7 @@ impl Default for TransactionContext {
             ptb_command_count: None,
             stats_tracker: crate::test_env::mocked_stats_tracker(),
             transaction_digest: TransactionDigest::default(),
+            transaction_data: Value::Null,
         }
     }
 }
@@ -266,6 +308,8 @@ impl TransactionContext {
             move_call_package_addresses: get_move_call_package_addresses(transaction_data),
             ptb_command_count,
             stats_tracker,
+            transaction_data: serde_json::to_value(transaction_data)
+                .expect("Failed to serialize transaction data"),
         }
     }
 
@@ -294,6 +338,11 @@ impl TransactionContext {
 
     pub fn with_stats_tracker(mut self, stats_tracker: StatsTracker) -> Self {
         self.stats_tracker = stats_tracker;
+        self
+    }
+
+    pub fn with_transaction_data(mut self, transaction_data: Value) -> Self {
+        self.transaction_data = transaction_data;
         self
     }
 }
