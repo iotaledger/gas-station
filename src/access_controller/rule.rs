@@ -250,8 +250,6 @@ impl AccessRule {
             _ => true,
         }
     }
-
-    // pub fn compile()
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
