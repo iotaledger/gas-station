@@ -46,8 +46,8 @@ impl RegoExpression {
                 self.source.location.to_string()
             )
         })?;
-        let mut engine = regorus::Engine::new();
-        engine
+        let mut expression = regorus::Engine::new();
+        expression
             .add_policy(self.source.location.to_string(), source_data)
             .with_context(|| {
                 format!(
@@ -55,14 +55,17 @@ impl RegoExpression {
                     self.source.location.to_string()
                 )
             })?;
-        self.engine = engine;
+        self.expression = Some(expression);
         Ok(())
     }
 
     /// Evaluate the policy with the given input data.
-    pub fn matches(&mut self, input_data: &str) -> Result<bool, anyhow::Error> {
+    pub fn matches(&self, input_data: &str) -> Result<bool, anyhow::Error> {
         let rego_rule_name = self.source.location.get_rego_rule_name().to_string();
-        let mut engine = self.engine.clone();
+        if self.expression.is_none() {
+            bail!("Rego expression is not initialized");
+        }
+        let mut engine = self.expression.clone().unwrap();
         let value = Value::from_json_str(input_data)
             .with_context(|| format!("error while converting input data to json {}", input_data))?;
         engine.set_input(value);
