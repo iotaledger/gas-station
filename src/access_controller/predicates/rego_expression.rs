@@ -61,7 +61,7 @@ impl RegoExpression {
 
     /// Evaluate the policy with the given input data.
     pub fn matches(&self, input_data: &str) -> Result<bool, anyhow::Error> {
-        let rego_rule_name = self.source.location.get_rego_rule_name().to_string();
+        let rego_rule_name = self.source.location.get_rego_rule_path().to_string();
         if self.expression.is_none() {
             bail!("Rego expression is not initialized");
         }
