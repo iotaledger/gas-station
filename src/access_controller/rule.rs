@@ -98,6 +98,11 @@ impl AccessRuleBuilder {
         self.rule.gas_usage = Some(gas_limit);
         self
     }
+
+    pub fn rego_expression(mut self, rego_expression: RegoExpression) -> Self {
+        self.rule.rego_expression = Some(rego_expression);
+        self
+    }
 }
 
 #[skip_serializing_none]
@@ -125,7 +130,7 @@ impl AccessRule {
     pub async fn initialize(&mut self) -> Result<(), anyhow::Error> {
         debug!("Initializing rule: {:?}", self);
         if let Some(rego_expression) = self.rego_expression.as_mut() {
-            rego_expression.reload().await?;
+            rego_expression.reload_source().await?;
         }
         Ok(())
     }
@@ -225,8 +230,6 @@ impl AccessRule {
             let input_payload = RegoInputPayload::from_context(ctx);
             let input_string = serde_json::to_string_pretty(&input_payload)
                 .context("Failed to serialize input payload to JSON")?;
-
-            debug!("Input string: {}", input_string);
             let result = rego_expression
                 .matches(&input_string)
                 .context("Failed to match rego expression")?;
@@ -359,11 +362,23 @@ fn get_move_call_package_addresses(transaction_data: &TransactionData) -> Vec<Io
 #[cfg(test)]
 mod test {
 
-    use iota_types::base_types::IotaAddress;
+    use std::vec;
+
+    use iota_types::{
+        base_types::IotaAddress,
+        storage::RestStateReader,
+        transaction::{
+            GasData, ProgrammableTransaction, TransactionData, TransactionDataAPI,
+            TransactionDataV1, TransactionExpiration, TransactionKind,
+        },
+    };
 
     use crate::{
         access_controller::{
-            predicates::{Action, LimitBy, ValueAggregate, ValueIotaAddress, ValueNumber},
+            predicates::{
+                Action, LimitBy, Location, RegoExpression, SourceWithData, ValueAggregate,
+                ValueIotaAddress, ValueNumber,
+            },
             rule::{AccessRule, AccessRuleBuilder, TransactionContext},
         },
         test_env::{new_stats_tracker_for_testing, random_address},
@@ -531,5 +546,53 @@ mod test {
         assert!(!rule.match_global_limits(&matched_data).await.unwrap().0);
         assert!(rule.match_global_limits(&matched_data).await.unwrap().0);
         assert!(!rule.match_global_limits(&unmatched_data).await.unwrap().0);
+    }
+
+    #[tokio::test]
+    async fn test_constraint_rego_expression() {
+        let rego_content = r#"
+            package test
+
+            default allow_sender = false
+            allow_sender if {
+                input.transaction_data.V1.sender == "0x1212121212121212121212121212121212121212121212121212121212121212"
+            }
+        "#;
+        let mut transaction_data = TransactionData::V1(TransactionDataV1 {
+            kind: TransactionKind::ProgrammableTransaction(ProgrammableTransaction {
+                commands: vec![],
+                inputs: vec![],
+            }),
+            expiration: TransactionExpiration::None,
+            gas_data: GasData {
+                payment: vec![],
+                owner: IotaAddress::default(),
+                budget: 0,
+                price: 0,
+            },
+            sender: IotaAddress::new([0x12; 32]),
+        });
+        let location = Location::new_memory(rego_content, "data.test.allow_sender");
+        let mut source = SourceWithData::new(location.clone());
+        source.fetch().await.unwrap();
+        let rego_expression =
+            RegoExpression::from_source(source).expect("Failed to create Rego expression");
+
+        let rule = AccessRuleBuilder::new()
+            .rego_expression(rego_expression)
+            .allow()
+            .build();
+        let matched_data = TransactionContext::default()
+            .with_transaction_data(serde_json::to_value(&transaction_data).unwrap());
+        assert!(matches!(rule.matches(&matched_data).await, Ok(true)));
+
+        // Test with unmatched sender address
+        *transaction_data.sender_mut_for_testing() = IotaAddress::new([0x13; 32]);
+        let unmatched_data = TransactionContext::default()
+            .with_transaction_data(serde_json::to_value(&transaction_data).unwrap());
+        assert!(matches!(
+            rule.match_rego_expression(&unmatched_data),
+            Ok(false)
+        ));
     }
 }

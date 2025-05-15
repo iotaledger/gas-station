@@ -2,6 +2,18 @@
 
 The **Gas Station Server** includes an **Access Controller** mechanism to manage access to the `/execute_tx` endpoint. This feature allows you to implement filtering logic based on properties derived from transactions. Currently, the Access Controller supports filtering based on the sender's address, enabling you to block or allow specific addresses.
 
+## Access Controller Rule syntax
+
+|  parameter                  | mandatory  | possible values                                                |
+|-----------------------------| -----------|----------------------------------------------------------------|
+| `sender-address`            |  yes       | `'0x0000...'`, `[0x0000.., 0x1111...]`, `'*'`                  |
+| `gas-budget`                |  no        | `'=100'`, `'<100'`,  `'<=100'`, `'>100'`, `'>=100'`, `'!=100'` |
+| `move-call-package-address` |  no        | `'0x0000...'`, `[0x0000..., 0x1111...]`, `'*'`                 |
+| `ptb-command-count`         |  no        | `'=10'`, `'<10'`,  `'<=10'`, `'>10'`, `'>=10'`, `'!=10'`       |
+| `action`                    |  yes       | `'allow'`,  `'deny'`                                           |
+| `gas_usage`                 |  no        | See [Gas Usage Filter](#gas-usage-filter)                |
+| `rego_expression`           |  no        | See [Gas Rego Expression](#rego-expression-filter)             |
+
 ## Access Controller Examples
 
 - Disable All Requests and Allow Only a Specific Address
@@ -84,22 +96,189 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
 
 ---
 
-### Access Controller Rule syntax
+## Rego Expression Filter
 
-|  parameter                  | mandatory  | possible values                                                |
-|-----------------------------| -----------|----------------------------------------------------------------|
-| `sender-address`            |  yes       | `'0x0000...'`, `[0x0000.., 0x1111...]`, `'*'`                  |
-| `gas-budget`                |  no        | `'=100'`, `'<100'`,  `'<=100'`, `'>100'`, `'>=100'`, `'!=100'` |
-| `move-call-package-address` |  no        | `'0x0000...'`, `[0x0000..., 0x1111...]`, `'*'`                 |
-| `ptb-command-count`         |  no        | `'=10'`, `'<10'`,  `'<=10'`, `'>10'`, `'>=10'`, `'!=10'`       |
-| `action`                    |  yes       | `'allow'`,  `'deny'`                                           |
-| `gas_usage`                 |  no        | See [Gas Usage Limit](#gas-usage-limit-feature)                |
+The Rego Expression Filter allows you to evaluate incoming transaction payloads against custom logic by using the Rego language. This gives you the flexibility to check properties like the sender address or any other field available in the transaction data.
 
-Below is a revised version of the documentation with improved grammar and clarity:
+### Rego Expression Input Payload
 
----
+Below is an example JSON payload against which a Rego rule is evaluated:
 
-### Gas Usage Limit Feature
+```json
+{
+  "transaction_data": {
+    "V1": {
+      "kind": {
+        "ProgrammableTransaction": {
+          "inputs": [
+            {
+              "Pure": [
+                162,
+                225,
+                126,
+                32,
+                249,
+                115,
+                85,
+                175,
+                100,
+                145,
+                88,
+                15,
+                245,
+                193,
+                30,
+                206,
+                252,
+                220,
+                247,
+                110,
+                162,
+                36,
+                209,
+                99,
+                229,
+                203,
+                146,
+                56,
+                154,
+                223,
+                35,
+                17
+              ]
+            },
+            {
+              "Object": {
+                "ImmOrOwnedObject": [
+                  "0x03ea0313a97c75f2526839742883566d3dc48c43967a1cc73a1cb7cc27c527ad",
+                  116899037,
+                  "AL8isXnVECWJX6V2S29HqeRfXR4GSDfefGXWbAv9TCqR"
+                ]
+              }
+            }
+          ],
+          "commands": [
+            {
+              "TransferObjects": [
+                [
+                  {
+                    "Input": 1
+                  }
+                ],
+                {
+                  "Input": 0
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "sender": "0xa2e17e20f97355af6491580ff5c11ecefcdcf76ea224d163e5cb92389adf2311",
+      "gas_data": {
+        "payment": [
+          [
+            "0xbfa24cd746dcd19853c8ba18bb40608548534d0eee7f7efd685934c7cf7bfbeb",
+            9511748,
+            "BpmGcSGwxjW9Rw7W6SYLGdBfaPYoN2ovueWHohDvutiw"
+          ],
+          [
+            "0xbfe89eb1a6b8e2589c0226de40fd3319ce9cbf4c25f8567fa1c8184e2c340af4",
+            9511752,
+            "BbjrEihLL3TtQ1yDtyrYvwSJtPV75SBwTsBqj9axAFia"
+          ],
+          [
+            "0xc03b0dcd0fcfd67a1467db23b469678c4a354f1ce83cb4380b6e169b6db46e56",
+            9511753,
+            "81T1q56gZ73GvmKjQLNZa5bBVUAU4vM31mhwgLwpNhfF"
+          ],
+          [
+            "0xc051d0b7b2f1025287dd84f057f3e051581e75f2afbac5b49b62b24281492752",
+            9511751,
+            "8hiMawGXbZTugCP9g4aY7oa3XZpru9PPGbZfi3FnfmfW"
+          ],
+          [
+            "0xc08908166ea55f45b743a0fe53cddc5f5102b5296de041e57e535757a0307698",
+            9511748,
+            "MCt4JfF72w2VruuWUXZ8HMQHsLR7ciw2kkkAisxFCjm"
+          ]
+        ],
+        "owner": "0x27147325dafdae103c7e8f09a82654ae7a4654c3042e1e278187013065be47b7",
+        "price": 1000,
+        "budget": 3000000
+      },
+      "expiration": "None"
+    }
+  }
+}
+```
+
+### Rego Code Example
+
+The following Go code demonstrates how to use a Rego expression to check the sender address:
+
+```go
+package sample_rego
+
+import rego.v1
+
+default sender_matches := false
+
+sender_matches if {
+    input.transaction_data.V1.sender = "0xa2e17e20f97355af6491580ff5c11ecefcdcf76ea224d163e5cb92389adf2311"
+}
+```
+
+> **Note:** All field addresses in the Rego expression should begin with `input`. For full syntax details, please see the [Reference](https://link_do_rego_reference).
+
+### Rego Expression Sources
+
+The Rego expressions may come from different sources:
+
+- **File:** Example configuration to load a rule from a file.
+- **Redis:** Example configuration loading a rule from Redis.
+- **HTTP:** Example configuration loading a rule via HTTP.
+
+#### Rego from File
+
+```yaml
+access-controller:
+  access-policy: allow-all
+  rules:
+    - rego-expression:
+        location-type: file
+        url: file://./source_file.rego
+        rego-rule-name: data.sample_rego.sender_matches
+      action: 'deny'
+```
+
+#### Rego from Redis
+
+```yaml
+access-controller:
+  access-policy: allow-all
+  rules:
+    - rego-expression:
+        location-type: redis
+        url: "redis://localhost"
+        redis-key: key_with_sample_rego
+        rego-rule-name: data.sample_rego.sender_matches
+      action: 'deny'
+```
+
+#### Rego from HTTP
+
+```yaml
+access-controller:
+  access-policy: allow-all
+  rules:
+    - rego-expression:
+        location-type: http
+        url: "http://localhost:8080"
+        rego-rule-name: data.sample_rego.sender_matches
+      action: 'deny'
+```
+
+## Gas Usage Filter
 
 The **Gas Usage Limit** feature enables you to track gas consumption based on predefined parameters. When enabled, the gas tracking applies to the entire rule. The configuration syntax is:
 
@@ -112,7 +291,7 @@ gas-usage:
 
 > **Note:** The syntax of `duration` follows the specification used in the [`humantime`](https://docs.rs/humantime/latest/humantime/index.html) crate
 
-#### Gas Usage Examples
+### Gas Usage Examples
 
 Below are two examples that demonstrate how to enforce gas usage limits.
 

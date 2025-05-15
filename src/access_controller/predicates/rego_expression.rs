@@ -1,21 +1,26 @@
+// Copyright (c) 2024 IOTA Stiftung
+// SPDX-License-Identifier: Apache-2.0
+
 use anyhow::{bail, Context};
 use regorus::Value;
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
-use super::location::{SourceLocation, SourceWithData};
+use super::source::{Location, SourceWithData};
 
 /// RegoExpression allows to evaluate Rego policies
 /// using the regorus engine.
 #[derive(Debug, Clone)]
 pub struct RegoExpression {
     pub source: SourceWithData,
-    // probably the expression should be optional
     pub expression: Option<regorus::Engine>,
 }
 
 impl RegoExpression {
-    pub fn try_from_source(source: SourceWithData) -> Result<Self, anyhow::Error> {
+    /// Create a new RegoExpression from the given source. Please make sure the source
+    /// is already fetched and contains the data. If the source is not fetched, the `reload_source()` method
+    /// should be called to fetch the data.
+    pub fn from_source(source: SourceWithData) -> Result<Self, anyhow::Error> {
         let expression = if let Some(data) = source.get_data_string() {
             let mut expression = regorus::Engine::new();
             expression
@@ -30,7 +35,7 @@ impl RegoExpression {
     }
 
     /// Reload the policy from the source.
-    pub async fn reload(&mut self) -> Result<(), anyhow::Error> {
+    pub async fn reload_source(&mut self) -> Result<(), anyhow::Error> {
         self.source.fetch().await?;
         let source_data = self.source.get_data_string().with_context(|| {
             format!(
@@ -53,7 +58,7 @@ impl RegoExpression {
 
     /// Evaluate the policy with the given input data.
     pub fn matches(&self, input_data: &str) -> Result<bool, anyhow::Error> {
-        let rego_rule_name = self.source.location.get_rego_rule_name().to_string();
+        let rego_rule_name = self.source.location.get_rego_rule_path().to_string();
         if self.expression.is_none() {
             bail!("Rego expression is not initialized");
         }
@@ -91,32 +96,60 @@ impl<'de> Deserialize<'de> for RegoExpression {
     where
         D: serde::Deserializer<'de>,
     {
-        let location = SourceLocation::deserialize(deserializer)?;
+        let location = Location::deserialize(deserializer)?;
         let source_with_data = SourceWithData::new(location);
-        RegoExpression::try_from_source(source_with_data).map_err(serde::de::Error::custom)
+        RegoExpression::from_source(source_with_data).map_err(serde::de::Error::custom)
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+    const TEST_REGO_FILE_CONTENT: &str = include_str!("./test_files/sample_expression.rego");
+    const TEST_REGO_RULE_NAME: &str = "data.test.some_match";
 
     #[tokio::test]
-    async fn test_rego_expression_smoke_test() {
-        let rego_rule_name = "data.test.allow";
-        let source_location = SourceLocation::new_file(
-            "/home/rayven/code/iota/iota-gas-station/test.rego",
-            rego_rule_name,
-        );
-        let mut source = SourceWithData::new(source_location);
+    async fn test_rego_expression_matching() {
+        let location = Location::new_memory(TEST_REGO_FILE_CONTENT, TEST_REGO_RULE_NAME);
+        let mut source = SourceWithData::new(location);
+        source.fetch().await.unwrap();
+        let rego_expression = RegoExpression::from_source(source).unwrap();
+
+        let matched_input = r#"{"method": "GET"}"#;
+        let result = rego_expression.matches(matched_input).unwrap();
+        assert_eq!(result, true);
+
+        let unmatched_input = r#"{"method": "POST"}"#;
+        let result = rego_expression.matches(unmatched_input).unwrap();
+        assert_eq!(result, false);
+    }
+
+    #[tokio::test]
+    async fn test_rego_expression_source_reload() {
+        let location = Location::new_memory(TEST_REGO_FILE_CONTENT, TEST_REGO_RULE_NAME);
+        let source = SourceWithData::new(location);
+        let mut rego_expression = RegoExpression::from_source(source).unwrap();
+
+        let input_data = r#"{"method": "GET"}"#;
+        let result = rego_expression.matches(input_data);
+        assert!(result.is_err());
+
+        rego_expression
+            .reload_source()
+            .await
+            .expect("Failed to reload source");
+        let result = rego_expression.matches(input_data).unwrap();
+        assert_eq!(result, true);
+    }
+
+    #[tokio::test]
+    async fn test_rego_expression_invalid_data_rego_file() {
+        let invalid_rego_file = r#"######'####}"#;
+        let location = Location::new_memory(invalid_rego_file, TEST_REGO_RULE_NAME);
+        let mut source = SourceWithData::new(location);
         source.fetch().await.unwrap();
 
-        let mut rego_expression = RegoExpression::try_from_source(source).unwrap();
-
-        let matched_input_data = r#"{"method": "GET", "path": "data"}"#;
-        assert!(rego_expression.matches(matched_input_data).unwrap());
-
-        let unmatched_input_data = r#"{"method": "POST", "path": "data"}"#;
-        assert!(!rego_expression.matches(unmatched_input_data).unwrap())
+        let result = RegoExpression::from_source(source);
+        assert!(result.is_err());
     }
 }
