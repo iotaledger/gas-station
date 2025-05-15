@@ -4,7 +4,6 @@
 mod action;
 mod aggregate;
 mod iota_address;
-mod location;
 mod number;
 mod rego_expression;
 mod source;
