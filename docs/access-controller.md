@@ -26,7 +26,7 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
       rules:
          - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
            move-call-package-address: "0x0202020202020202020202020202020202020202020202020202020202020202"
-           action: 'allow' # allowed actions: 'allow', 'deny'
+           action: allow # allowed actions: 'allow', 'deny'
    ```
 
 ---
@@ -40,7 +40,7 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
       access-policy: deny-all
       rules:
          - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
-           action: 'deny'
+           action: deny
    ```
 
 ---
@@ -54,8 +54,8 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
       access-policy: deny-all
       rules:
          - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
-           transaction-gas-budget: '<1000000' # allowed operators: =, !=, <, >, <=, >=
-           action: 'allow'
+           transaction-gas-budget: <1000000 # allowed operators: =, !=, <, >, <=, >=
+           action: allow
    ```
 
 ---
@@ -69,12 +69,12 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
       access-policy: deny-all
       rules:
          - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
-           transaction-gas-budget: '<=10000000'
-           action: 'allow'
+           transaction-gas-budget: <=10000000
+           action: allow
 
          - sender-address: '*'
-           transaction-gas-budget: '<500000'
-           action: 'allow'
+           transaction-gas-budget: <500000
+           action: allow
    ```
 
 ---
@@ -91,7 +91,7 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
       rules:
          - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
            ptb-command-count: <=1 # allowed operators: =, !=, <, >, <=, >=
-           action: 'allow'
+           action: allow
    ```
 
 ---
@@ -113,62 +113,28 @@ Below is an example JSON payload against which a Rego rule is evaluated:
           "inputs": [
             {
               "Pure": [
-                162,
-                225,
-                126,
-                32,
-                249,
-                115,
-                85,
-                175,
-                100,
-                145,
-                88,
-                15,
-                245,
-                193,
-                30,
-                206,
-                252,
-                220,
-                247,
-                110,
-                162,
-                36,
-                209,
-                99,
-                229,
-                203,
-                146,
-                56,
-                154,
-                223,
-                35,
-                17
+                5,
+                104,
+                101,
+                108,
+                108,
+                111
               ]
-            },
-            {
-              "Object": {
-                "ImmOrOwnedObject": [
-                  "0x03ea0313a97c75f2526839742883566d3dc48c43967a1cc73a1cb7cc27c527ad",
-                  116899037,
-                  "AL8isXnVECWJX6V2S29HqeRfXR4GSDfefGXWbAv9TCqR"
-                ]
-              }
             }
           ],
           "commands": [
             {
-              "TransferObjects": [
-                [
+              "MoveCall": {
+                "package": "0xb674e2ed79db3c25fa4c00d5c7d62a9c18089e1fc4c2de5b5ee8b2836a85ae26",
+                "module": "allowed_module_name",
+                "function": "allowed_module_function",
+                "type_arguments": [],
+                "arguments": [
                   {
-                    "Input": 1
+                    "Input": 0
                   }
-                ],
-                {
-                  "Input": 0
-                }
-              ]
+                ]
+              }
             }
           ]
         }
@@ -177,29 +143,54 @@ Below is an example JSON payload against which a Rego rule is evaluated:
       "gas_data": {
         "payment": [
           [
-            "0xbfa24cd746dcd19853c8ba18bb40608548534d0eee7f7efd685934c7cf7bfbeb",
-            9511748,
-            "BpmGcSGwxjW9Rw7W6SYLGdBfaPYoN2ovueWHohDvutiw"
+            "0x1369ab7cca1c229d093060d66666db7c0db1edf43310d5e56acec2dafa492ffb",
+            9521034,
+            "9knpRtwCc9LK1BCJ222KZwgr9ZVHDyZhiLUTPt82FtmV"
           ],
           [
-            "0xbfe89eb1a6b8e2589c0226de40fd3319ce9cbf4c25f8567fa1c8184e2c340af4",
-            9511752,
-            "BbjrEihLL3TtQ1yDtyrYvwSJtPV75SBwTsBqj9axAFia"
+            "0x1932fbdf314cb263f4d2a00656144e0951edd99fe5489b07b799b7087f8de20d",
+            9521055,
+            "BAubkJuEwD1PRGL1CLBRjv3GCP83p93J7ZAdSsdVtifk"
           ],
           [
-            "0xc03b0dcd0fcfd67a1467db23b469678c4a354f1ce83cb4380b6e169b6db46e56",
-            9511753,
-            "81T1q56gZ73GvmKjQLNZa5bBVUAU4vM31mhwgLwpNhfF"
+            "0x19d732e1b95c8b6af724ba026f8f61e4b72b9931777a0e1d0b8d3054de1b2ef4",
+            9521050,
+            "GRyLJcRSepVk3r9Fjdmv9MxauX6mrzYVptAhPwzVRu61"
           ],
           [
-            "0xc051d0b7b2f1025287dd84f057f3e051581e75f2afbac5b49b62b24281492752",
-            9511751,
-            "8hiMawGXbZTugCP9g4aY7oa3XZpru9PPGbZfi3FnfmfW"
+            "0x1a5f7fc0f977a3020f8c5bd30c635fadab9b1ea0003e8255d90ec9ee48ff09ea",
+            9521042,
+            "BbrFR6tykrnKzskVJRcBJbWfDRcCeBqMweotE4bXVXLo"
           ],
           [
-            "0xc08908166ea55f45b743a0fe53cddc5f5102b5296de041e57e535757a0307698",
-            9511748,
-            "MCt4JfF72w2VruuWUXZ8HMQHsLR7ciw2kkkAisxFCjm"
+            "0x1d02df222b5149497a4d722514bf33a8bf755011724cdd3ced7ecb174d833690",
+            9521046,
+            "DcwkhBh2sdw8yJW1SH4tv5mVq6Ec7z4EmAaRL2H3AS27"
+          ],
+          [
+            "0x1d8bf3742256d434ae9f1305eab214c5af458539c293ee51a25af8826b692589",
+            9521046,
+            "GG9mzv9JpXvAMeAC2FWPMXSqWqyTJiqeFepwLAzEpKgL"
+          ],
+          [
+            "0x1e878332e7fa2e6fa6120a395bc8ad207ba5f5fa7cc8359ae4b56da20b50ff54",
+            9521056,
+            "GrK2met5oxjdVP3qJuXtNAs7hkajFFUwbe512LVxBBmW"
+          ],
+          [
+            "0x1ed6d2105135371d901d24e4acd6fd9025b24d4d3d75277f2ad059825a5e5b38",
+            9521040,
+            "DJurdiKP82LVADxNrxsYnYJW9aCcDP1bxLbNbdcvdMHV"
+          ],
+          [
+            "0x1f551af1739e258b5ed17c48e348c494de7598dc2a42aa2d5c0f284589de61e7",
+            9521037,
+            "4rpZtAY2eC2YyAJiDcDfq1BbCnV4sPKQQBU9rGCyTpmD"
+          ],
+          [
+            "0x1fcf200bc9b970c9c877ddadddf28cdff19165c246914444b2968c7287587e8a",
+            9521056,
+            "5DDvPhXHRzmjdT9FRNqYe5T5LwkBpov2XKRpnNevhMJf"
           ]
         ],
         "owner": "0x27147325dafdae103c7e8f09a82654ae7a4654c3042e1e278187013065be47b7",
@@ -212,23 +203,38 @@ Below is an example JSON payload against which a Rego rule is evaluated:
 }
 ```
 
-### Rego Code Example
+### Rego Filtering Code Example
 
-The following Go code demonstrates how to use a Rego expression to check the sender address:
+The payload above is evaluated against a Rego expression. Suppose we want to ensure that only specific move-call can be sponsored by the Gas Station. To enforce this, we can write the following expression:
+
+1. **Extract the Commands Array:**
+   Retrieve the array of commands from the payload.
+
+2. **Restrict to a Single Command:**
+   Ensure that only one command is allowed to prevent piggybacking, where the sender might attach an additional unauthorized move-call to another contract.
+
+3. **Verify Expected Fields:**
+   Confirm that the package, module, and function fields match the expected values.
 
 ```go
-package sample_rego
+package matchers
 
-import rego.v1
+default allowed_move_call = false
 
-default sender_matches := false
+allowed_move_call if {
+    cmds := input.transaction_data.V1.kind.ProgrammableTransaction.commands
+    count(cmds) == 1
 
-sender_matches if {
-    input.transaction_data.V1.sender = "0xa2e17e20f97355af6491580ff5c11ecefcdcf76ea224d163e5cb92389adf2311"
+    mc := cmds[0].MoveCall
+    mc["package"]  == "0xb674e2ed79db3c25fa4c00d5c7d62a9c18089e1fc4c2de5b5ee8b2836a85ae26"
+    mc.module   == "allowed_module_name"
+    mc.function == "allowed_function_name"
 }
 ```
 
-> **Note:** All field addresses in the Rego expression should begin with `input`. For full syntax details, please see the [Reference](https://link_do_rego_reference).
+> **Note:** All field addresses in the Rego expression should begin with `input`.
+
+> **Note:** For full Rego syntax details please see the [Reference](https://www.openpolicyagent.org/docs/policy-language).
 
 ### Rego Expression Sources
 
@@ -242,13 +248,13 @@ The Rego expressions may come from different sources:
 
 ```yaml
 access-controller:
-  access-policy: allow-all
+  access-policy: deny-all
   rules:
     - rego-expression:
         location-type: file
-        url: file://./source_file.rego
-        rego-rule-name: data.sample_rego.sender_matches
-      action: 'deny'
+        url: "file://./source_file.rego"
+        rego-rule-path: data.matchers.allowed_move_call
+      action: allow
 ```
 
 #### Rego from Redis
@@ -260,9 +266,9 @@ access-controller:
     - rego-expression:
         location-type: redis
         url: "redis://localhost"
-        redis-key: key_with_sample_rego
-        rego-rule-name: data.sample_rego.sender_matches
-      action: 'deny'
+        redis-key: source.rego
+        rego-rule-path: data.matchers.allowed_move_call
+      action: allow
 ```
 
 #### Rego from HTTP
@@ -273,9 +279,9 @@ access-controller:
   rules:
     - rego-expression:
         location-type: http
-        url: "http://localhost:8080"
-        rego-rule-name: data.sample_rego.sender_matches
-      action: 'deny'
+        url: "http://localhost:8080/source.rego"
+        rego-rule-path: data.matchers.allowed_move_call
+      action: deny
 ```
 
 ## Gas Usage Filter
@@ -311,12 +317,12 @@ access-controller:
   rules:
     - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
       gas-usage:
-        value: '>1000000'
         window: 1 day
-      action: 'deny'
+        value: ">1000000"
+      action: deny
 
     - sender-address: '*'
-      action: 'allow'
+      action: allow
 ```
 
 ---
@@ -332,9 +338,9 @@ access-controller:
     - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
       move-call-package-address: "0x0202020202020202020202020202020202020202020202020202020202020202"
       gas-usage:
-        value: '<1000000'
+        value: <1000000
         window: 1 day
-      action: 'allow'
+      action: allow
 ```
 
 
@@ -348,10 +354,10 @@ access-controller:
   rules:
     - sender-address: "*"
       gas-usage:
-        value: '<1000000'
+        value: <1000000
         window: 1 day
         count-by: [ sender-address ]
-      action: 'allow'
+      action: allow
 ```
 
 ## Learn More

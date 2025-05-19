@@ -228,8 +228,11 @@ impl AccessRule {
     fn match_rego_expression(&self, ctx: &TransactionContext) -> Result<bool, anyhow::Error> {
         if let Some(rego_expression) = self.rego_expression.as_ref() {
             let input_payload = RegoInputPayload::from_context(ctx);
+
             let input_string = serde_json::to_string_pretty(&input_payload)
                 .context("Failed to serialize input payload to JSON")?;
+            println!("\n\n Input string: {} ##", input_string);
+
             let result = rego_expression
                 .matches(&input_string)
                 .context("Failed to match rego expression")?;
