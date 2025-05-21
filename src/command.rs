@@ -12,6 +12,7 @@ use crate::storage::connect_storage;
 use crate::tracker::stats_tracker_storage::redis::connect_stats_storage;
 use crate::tracker::StatsTracker;
 use crate::{TRANSACTION_LOGGING_ENV_NAME, TRANSACTION_LOGGING_TARGET_NAME, VERSION};
+use arc_swap::ArcSwap;
 use clap::*;
 use iota_config::Config;
 use std::net::{IpAddr, SocketAddr};
@@ -33,7 +34,7 @@ pub struct Command {
 
 impl Command {
     pub async fn execute(self) {
-        let config = GasStationConfig::load(self.config_path).expect("Failed to load config file");
+        let config = GasStationConfig::load(&self.config_path).expect("Failed to load config file");
 
         let GasStationConfig {
             signer_config,
@@ -81,18 +82,9 @@ impl Command {
         } else {
             None
         };
-
         let core_metrics = GasStationCoreMetrics::new(&prometheus_registry);
-
         let stats_storage = connect_stats_storage(&gas_station_config, sponsor_address).await;
         let stats_tracker = StatsTracker::new(Arc::new(stats_storage));
-        info!("Initializing the access controller");
-        access_controller
-            .initialize()
-            .await
-            .expect("Failed to initialize the access controller");
-        let access_controller = Arc::new(access_controller);
-
         let container = GasStationContainer::new(
             signer,
             storage,
@@ -101,8 +93,16 @@ impl Command {
             core_metrics,
         )
         .await;
-
         let rpc_metrics = GasStationRpcMetrics::new(&prometheus_registry);
+        access_controller
+            .initialize()
+            .await
+            .expect("Failed to initialize the access controller");
+        info!(
+            "Access controller initialized with {} rules",
+            access_controller.rules.len()
+        );
+        let access_controller = Arc::new(ArcSwap::new(Arc::new(access_controller)));
 
         let server = GasStationServer::new(
             container.get_gas_station_arc(),
@@ -111,6 +111,7 @@ impl Command {
             rpc_metrics,
             access_controller,
             stats_tracker,
+            self.config_path.clone(),
         )
         .await;
         server.handle.await.unwrap();

@@ -4918,6 +4918,7 @@ name = "iota-gas-station"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "async-trait",
  "axum 0.6.20",
  "bcs",

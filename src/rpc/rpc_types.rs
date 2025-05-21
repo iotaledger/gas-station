@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::types::ReservationID;
+use const_str::join;
 use fastcrypto::encoding::Base64;
 use iota_json_rpc_types::{IotaObjectRef, IotaTransactionBlockEffects};
 use iota_types::base_types::{IotaAddress, ObjectRef};
@@ -103,6 +104,37 @@ impl ExecuteTxResponse {
         Self {
             effects: None,
             error: Some(error.to_string()),
+        }
+    }
+}
+
+#[derive(Debug, JsonSchema, Serialize, Deserialize)]
+pub struct GasStationResponse<D = ()> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<D>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl<D> GasStationResponse<D> {
+    pub fn new_ok(d: D) -> GasStationResponse<D> {
+        Self {
+            result: Some(d),
+            error: None,
+        }
+    }
+
+    pub fn new_err(error: anyhow::Error) -> Self {
+        Self {
+            result: None,
+            error: Some(error.to_string()),
+        }
+    }
+
+    pub fn new_err_from_str(error: impl AsRef<str>) -> Self {
+        Self {
+            result: None,
+            error: Some(error.as_ref().to_string()),
         }
     }
 }
