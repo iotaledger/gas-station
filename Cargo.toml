@@ -71,3 +71,7 @@ panic = "abort"
 [[example]]
 name = "sponsored_transaction"
 path = "examples/rust/sponsored_transaction.rs"
+
+[[example]]
+name = "call_package"
+path = "examples/rust/call_package.rs"
