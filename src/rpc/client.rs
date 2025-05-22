@@ -15,6 +15,8 @@ use iota_types::transaction::TransactionData;
 use reqwest::header::{HeaderMap, AUTHORIZATION};
 use reqwest::Client;
 
+use super::rpc_types::GasStationResponse;
+
 #[derive(Clone)]
 pub struct GasStationRpcClient {
     client: Client,

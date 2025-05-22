@@ -3,13 +3,16 @@
 
 use crate::access_controller::AccessController;
 use crate::tx_signer::{SidecarTxSigner, TestTxSigner, TxSigner};
+use anyhow::Context;
+use arc_swap::ArcSwap;
 use iota_config::Config;
 use iota_types::crypto::{get_account_key_pair, IotaKeyPair};
 use iota_types::gas_coin::NANOS_PER_IOTA;
 use serde::{Deserialize, Serialize};
-use serde_with::serde_as;
+use serde_with::{de, serde_as};
 use std::net::Ipv4Addr;
 use std::sync::Arc;
+use tracing::debug;
 
 pub const DEFAULT_RPC_PORT: u16 = 9527;
 pub const DEFAULT_METRICS_PORT: u16 = 9184;
@@ -67,7 +70,7 @@ impl Default for GasStationConfig {
 
 #[serde_as]
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", untagged)]
 pub enum GasStationStorageConfig {
     Redis { redis_url: String },
 }
@@ -82,7 +85,7 @@ impl Default for GasStationStorageConfig {
 
 #[serde_as]
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", untagged)]
 pub enum TxSignerConfig {
     Local { keypair: IotaKeyPair },
     Sidecar { sidecar_url: String },
