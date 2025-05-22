@@ -410,7 +410,6 @@ async fn reload_access_controller(
         "Access controller reloaded successfully with {} rules",
         server.access_controller.load().rules.len()
     );
-
     return (StatusCode::OK, Json(GasStationResponse::new_ok("success")));
 }
 

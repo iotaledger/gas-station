@@ -15,6 +15,8 @@ use iota_types::transaction::TransactionData;
 use reqwest::header::{HeaderMap, AUTHORIZATION};
 use reqwest::Client;
 
+use super::rpc_types::GasStationResponse;
+
 #[derive(Clone)]
 pub struct GasStationRpcClient {
     client: Client,
@@ -152,5 +154,26 @@ impl GasStationRpcClient {
                 .error
                 .unwrap_or_else(|| "Unknown error".to_string()))
         })
+    }
+
+    pub async fn reload_access_controller(&self) -> anyhow::Result<()> {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTHORIZATION,
+            format!("Bearer {}", read_auth_env()).parse().unwrap(),
+        );
+        let response = self
+            .client
+            .get(format!(
+                "{}/v1/reload_access_controller",
+                self.server_address
+            ))
+            .headers(headers)
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            bail!("Reload access controller failed: {:?}", response);
+        };
+        Ok(())
     }
 }

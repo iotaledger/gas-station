@@ -30,6 +30,8 @@ use std::sync::Arc;
 use test_cluster::{TestCluster, TestClusterBuilder};
 use tracing::debug;
 
+pub const DEFAULT_TEST_CONFIG_PATH: &str = "./test-env-config.yaml";
+
 pub async fn start_iota_cluster(init_gas_amounts: Vec<u64>) -> (TestCluster, Arc<dyn TxSigner>) {
     let (sponsor, keypair) = get_account_key_pair();
     let cluster = TestClusterBuilder::new()
@@ -97,7 +99,7 @@ pub async fn start_rpc_server_for_testing(
         GasStationRpcMetrics::new_for_testing(),
         Arc::new(ArcSwap::new(Arc::new(AccessController::default()))),
         new_stats_tracker_for_testing(signer_address).await,
-        PathBuf::from_str("config.yaml").unwrap(),
+        PathBuf::from_str(DEFAULT_TEST_CONFIG_PATH).unwrap(),
     )
     .await;
     (test_cluster, container, server)
@@ -120,7 +122,7 @@ pub async fn start_rpc_server_for_testing_with_access_controller(
         GasStationRpcMetrics::new_for_testing(),
         Arc::new(ArcSwap::new(Arc::new(access_controller))),
         new_stats_tracker_for_testing(signer_address).await,
-        PathBuf::from_str("config.yaml").unwrap(),
+        PathBuf::from_str(DEFAULT_TEST_CONFIG_PATH).unwrap(),
     )
     .await;
     (test_cluster, container, server)
