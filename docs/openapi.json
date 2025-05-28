@@ -1,0 +1,158 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "hook",
+        "description": "",
+        "contact": {
+            "name": "IOTA Stiftung"
+        },
+        "license": {
+            "name": "Apache-2.0",
+            "identifier": "Apache-2.0"
+        },
+        "version": "0.1.0"
+    },
+    "paths": {
+        "/": {
+            "post": {
+                "summary": "Check if a transaction should be executed.",
+                "description": "This is done when gas was already reserved and a caller now wants to initiate\nthe actual transaction execution.\n\nImplementation here always returns `deny` and has to be adjusted depending on requirements.",
+                "operationId": "execute_tx",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ExecuteTxHookRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ExecuteTxOkResponse"
+                                }
+                            }
+                        }
+                    },
+                    "4XX": {
+                        "description": "issues related to request arguments",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "5XX": {
+                        "description": "issues during request processing",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "ErrorResponse": {
+                "type": "object",
+                "description": "Response for failed requests.",
+                "required": [
+                    "error"
+                ],
+                "properties": {
+                    "error": {
+                        "type": "string",
+                        "description": "Technical error description."
+                    },
+                    "userMessage": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "description": "Message intended to be forwarded to caller."
+                    }
+                }
+            },
+            "ExecuteTxHookRequest": {
+                "type": "object",
+                "description": "Input for hook to check if transaction should be executed.\nContains original request for Gas Stations `execute_tx` endpoint.",
+                "required": [
+                    "executeTxRequest"
+                ],
+                "properties": {
+                    "executeTxRequest": {
+                        "$ref": "#/components/schemas/ExecuteTxRequestPayload"
+                    }
+                }
+            },
+            "ExecuteTxOkResponse": {
+                "type": "object",
+                "description": "Result of checking if transaction should be executed.",
+                "required": [
+                    "decision"
+                ],
+                "properties": {
+                    "decision": {
+                        "$ref": "#/components/schemas/SkippableDecision",
+                        "description": "Hooks decision about transaction execution."
+                    },
+                    "userMessage": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "description": "Message intended to be forwarded to caller."
+                    }
+                }
+            },
+            "ExecuteTxRequestPayload": {
+                "type": "object",
+                "description": "Data originally sent to IOTA Gas Station.",
+                "required": [
+                    "reservationId",
+                    "txBytes",
+                    "userSig"
+                ],
+                "properties": {
+                    "reservationId": {
+                        "type": "integer",
+                        "format": "u-int64",
+                        "description": "ID used to reference a gas reservation.",
+                        "minimum": 0
+                    },
+                    "txBytes": {
+                        "type": "string",
+                        "description": "Transaction as base64 encoded BCS serialized `TransactionData`.",
+                        "contentEncoding": "base64"
+                    },
+                    "userSig": {
+                        "type": "string",
+                        "description": "Base64 encoded user signature.",
+                        "contentEncoding": "base64"
+                    }
+                }
+            },
+            "SkippableDecision": {
+                "type": "string",
+                "description": "Action that should be performed by Gas Station.\n\n\"allow\"/\"deny\" transaction or take \"noAction\" and proceed with other rules.",
+                "enum": [
+                    "allow",
+                    "deny",
+                    "noDecision"
+                ]
+            }
+        }
+    }
+}

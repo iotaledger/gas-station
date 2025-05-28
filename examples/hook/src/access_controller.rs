@@ -12,6 +12,9 @@ use crate::endpoint_types::ExecuteTxHookRequest;
 use crate::endpoint_types::ExecuteTxOkResponse;
 use crate::endpoint_types::SkippableDecision;
 
+pub const TEST_ERROR_HEADER: &str = "test-error";
+pub const TEST_RESPONSE_HEADER: &str = "test-response";
+
 /// Get router for access controller endpoint
 pub fn router() -> OpenApiRouter {
     OpenApiRouter::new().routes(routes!(execute_tx))
@@ -39,14 +42,33 @@ async fn execute_tx(
     let transaction_data = tx_data.parse_transaction_data()?;
     dbg!(&transaction_data);
 
-    // As this is an example server, this server supports a test header,
-    // that contains the response we will return from here or just deny the transaction.
-    // Don't support this header and behavior on your production system. ;)
-    if let Some(test_response) = tx_data.execute_tx_request.headers.get("test-response") {
-        let test_response_raw = test_response.first().ok_or_else(|| {
-            RequestError::new(anyhow::anyhow!("no value given for test-response header"))
+    // As this is an example server, this server supports test headers,
+    // that contains the response or errors we will return from here.
+    // Don't support these headers and behaviors on your production system. ;)
+
+    if let Some(test_error) = tx_data.execute_tx_request.headers.get(TEST_ERROR_HEADER) {
+        let test_error_message = test_error.first().ok_or_else(|| {
+            RequestError::new(anyhow::anyhow!(
+                "no value given for {TEST_ERROR_HEADER} header"
+            ))
+            .with_status(StatusCode::BAD_REQUEST)
+            .with_user_message(&format!("no value given for {TEST_ERROR_HEADER} header"))
+        })?;
+
+        return Err(
+            RequestError::new(anyhow::anyhow!("test error: {test_error_message}"))
                 .with_status(StatusCode::BAD_REQUEST)
-                .with_user_message("no value given for test-response header")
+                .with_user_message(test_error_message),
+        );
+    }
+
+    if let Some(test_response) = tx_data.execute_tx_request.headers.get(TEST_RESPONSE_HEADER) {
+        let test_response_raw = test_response.first().ok_or_else(|| {
+            RequestError::new(anyhow::anyhow!(
+                "no value given for {TEST_RESPONSE_HEADER} header"
+            ))
+            .with_status(StatusCode::BAD_REQUEST)
+            .with_user_message(&format!("no value given for {TEST_RESPONSE_HEADER} header"))
         })?;
         let test_response: ExecuteTxOkResponse =
             serde_json::from_str(test_response_raw).map_err(|err| {

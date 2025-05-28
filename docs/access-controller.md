@@ -158,6 +158,7 @@ access-controller:
       action: 'allow'
 ```
 
+---
 
 **3. Limit Gas Usage per Address**
 
@@ -174,6 +175,106 @@ access-controller:
         count-by: [ sender-address ]
       action: 'allow'
 ```
+
+### Hook Server
+
+An external server (a hook), that decides whether a transaction should be executed or not can be configured. The hook receives the same input as the gas station allowing to parse inspect the transaction the same way, as the gas station does.
+
+Hook server(s) can be configured as a term in the access controller rules, allowing to integrate hooks into existing rule sets or replacing the gas station built in access controller by a using hook only configuration.
+
+Hooks are configured as values for the "action" keyword, by setting the `action` value to a URL instead of `allow`/`deny`. 
+
+Hooks are the last thing that is called in an access controller rule (just before the gas usage check due to safety reasons). This reduces the amount of calls against a hook server and leads to a few possible scenarios as shown below.
+
+```mermaid
+flowchart TD
+    Start(rule with hook<br>is processed)
+    CallHook(call<br>hook)
+    IgnoreHook(ignore<br>hook)
+    AllowTx(allow tx)
+    DenyTx(deny tx)
+    CheckNextRule(check<br>next<br>rule)
+    CheckPreviousTerm{previous<br>term<br>applies}
+    CheckResponse{process<br>response}
+
+    Start --> CheckPreviousTerm
+    CheckPreviousTerm -->|yes| CallHook
+    CheckPreviousTerm -->|no| IgnoreHook
+
+    IgnoreHook --> CheckNextRule
+
+    CallHook --> CheckResponse
+    CheckResponse -->|allow| AllowTx
+    CheckResponse -->|deny| DenyTx
+    CheckResponse -->|noDecision| CheckNextRule
+```
+
+A hook server has to follow the api spec defined [here](./openapi.json). Also an example server that can be used as a starting point for an own hook can be found in our [examples](../examples/hook).
+
+---
+
+- Hook only configuration
+
+Having a single rule with a hook action replaces the access controller completely:
+
+```yml
+access-controller:
+  access-policy: deny-all
+  rules:
+    - sender-address: "*"
+      action: http://127.0.0.1:8080
+```
+
+or even shorter:
+
+```yml
+access-controller:
+  access-policy: deny-all
+  rules:
+    - action: http://127.0.0.1:8080
+```
+
+---
+
+As you usually might want to reduce the number of calls against the hook a bit, you can already apply access controller logic _before_ the hook is called (all other terms except `gas-usage` are checked before the hook call). To do so, add terms as documented above, for example:
+
+```yml
+   access-controller:
+      access-policy: deny-all
+      rules:
+        - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
+          transaction-gas-budget: '<1000000' # allowed operators: =, !=, <, >, <=, >=
+          action: http://127.0.0.1:8080
+```
+
+---
+
+Hook actions don't have to be used as standalone rules and can integrate seamlessly with other rules, e.g.
+
+```yml
+   access-controller:
+      access-policy: deny-all
+      rules:
+        - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
+          transaction-gas-budget: '<1000000'
+          action: allow
+        - action: http://127.0.0.1:8080
+        - sender-address: "*"
+          gas-usage:
+            value: '<1000000'
+            window: 1 day
+            count-by: [ sender-address ]
+```
+
+As this might look a bit confusing, let's break this one down:
+
+- we have a privileged address `0x0101010101010101010101010101010101010101010101010101010101010101`, that can send transaction below a certain threshold
+- other addresses or larger transaction by the privileged address have to go trough a hook check
+- the hook can then react with:
+  - allowing the transaction
+  - denying the transaction
+  - letting the next rule decide if the transaction should be executed or not
+- assuming, the hook decides not to decide about the transaction, we would now check the sender address based gas usage and decide based on this if the transaction is executed or not
 
 ## Learn More
 

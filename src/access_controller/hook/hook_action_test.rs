@@ -5,7 +5,7 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use crate::access_controller::hook::ExecuteTxOkResponse;
+use crate::access_controller::hook::{ExecuteTxOkResponse, SkippableDecision};
 use crate::access_controller::rule::TransactionContext;
 
 pub const TEST_ERROR_HEADER: &str = "test-error";
@@ -20,15 +20,6 @@ impl HookAction {
         &self,
         ctx: &TransactionContext,
     ) -> Result<ExecuteTxOkResponse, anyhow::Error> {
-        use super::SkippableDecision;
-
-        if let Some(header_value) = ctx.headers.get(TEST_RESPONSE_HEADER) {
-            let test_response_raw = String::from_utf8_lossy(header_value.as_bytes()).into_owned();
-            let test_response: ExecuteTxOkResponse = serde_json::from_str(&test_response_raw)?;
-
-            return Ok(test_response);
-        }
-
         if let Some(header_value) = ctx.headers.get(TEST_ERROR_HEADER) {
             let error_message = String::from_utf8_lossy(header_value.as_bytes()).into_owned();
 
@@ -37,6 +28,13 @@ impl HookAction {
                 StatusCode::BAD_REQUEST,
                 error_message
             );
+        }
+
+        if let Some(header_value) = ctx.headers.get(TEST_RESPONSE_HEADER) {
+            let test_response_raw = String::from_utf8_lossy(header_value.as_bytes()).into_owned();
+            let test_response: ExecuteTxOkResponse = serde_json::from_str(&test_response_raw)?;
+
+            return Ok(test_response);
         }
 
         Ok(ExecuteTxOkResponse {
