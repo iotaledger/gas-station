@@ -4868,6 +4868,7 @@ dependencies = [
  "tokio",
  "tokio-retry",
  "tracing",
+ "url",
 ]
 
 [[package]]

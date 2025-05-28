@@ -46,6 +46,7 @@ pub struct ExecuteTxRequestPayload {
 }
 
 impl ExecuteTxHookRequest {
+    /// Helper function to allow accessing transaction data easily.
     pub fn parse_transaction_data(&self) -> Result<TransactionData, RequestError> {
         BASE64_STANDARD
             .decode(&self.execute_tx_request.payload.tx_bytes)
@@ -74,6 +75,7 @@ pub enum SkippableDecision {
 #[schema(rename_all = "camelCase")]
 #[serde(rename_all = "camelCase")]
 pub struct ExecuteTxOkResponse {
+    /// Hooks decision about transaction execution.
     decision: SkippableDecision,
     /// Message intended to be forwarded to caller.
     #[serde(skip_serializing_if = "Option::is_none")]

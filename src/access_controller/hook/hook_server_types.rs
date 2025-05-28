@@ -35,6 +35,17 @@ pub struct ExecuteTxRequestPayload {
     pub user_sig: String,
 }
 
+/// Result of checking if transaction should be executed.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecuteTxOkResponse {
+    /// Hooks decision about transaction execution.
+    pub decision: SkippableDecision,
+    /// Message intended to be forwarded to caller.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_message: Option<String>,
+}
+
 /// "allow"/"deny" transaction or take "noAction" and proceed with other rules.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -42,14 +53,4 @@ pub enum SkippableDecision {
     Allow,
     Deny,
     NoDecision,
-}
-
-/// Result of checking if transaction should be executed.
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ExecuteTxOkResponse {
-    pub decision: SkippableDecision,
-    /// Message intended to be forwarded to caller.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_message: Option<String>,
 }

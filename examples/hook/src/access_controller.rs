@@ -35,6 +35,10 @@ pub fn router() -> OpenApiRouter {
 async fn execute_tx(
     Json(tx_data): Json<ExecuteTxHookRequest>,
 ) -> Result<Json<ExecuteTxOkResponse>, RequestError> {
+    // Log parsed transaction data can be used to decide if transaction should be executed or not.
+    let transaction_data = tx_data.parse_transaction_data()?;
+    dbg!(&transaction_data);
+
     // As this is an example server, this server supports a test header,
     // that contains the response we will return from here or just deny the transaction.
     // Don't support this header and behavior on your production system. ;)
@@ -54,5 +58,8 @@ async fn execute_tx(
         return Ok(Json(test_response));
     }
 
-    Ok(Json(ExecuteTxOkResponse::new(SkippableDecision::Deny)))
+    Ok(Json(
+        ExecuteTxOkResponse::new(SkippableDecision::Deny)
+            .with_message("denied transaction by default"),
+    ))
 }

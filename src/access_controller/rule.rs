@@ -13,13 +13,17 @@ use iota_types::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use serde_with::skip_serializing_none;
+use url::Url;
 
 use crate::tracker::{
     stats_tracker_storage::{Aggregate, AggregateType},
     StatsTracker,
 };
 
-use super::predicates::{Action, LimitBy, ValueAggregate, ValueIotaAddress, ValueNumber};
+use super::{
+    hook::HookAction,
+    predicates::{Action, LimitBy, ValueAggregate, ValueIotaAddress, ValueNumber},
+};
 
 /// The AccessRuleBuilder is used to build an AccessRule with fluent API.
 pub struct AccessRuleBuilder {
@@ -59,8 +63,15 @@ impl AccessRuleBuilder {
         self
     }
 
+    /// Sets the action of the AccessRule to deny.
     pub fn deny(mut self) -> Self {
         self.rule.action = Action::Deny;
+        self
+    }
+
+    /// Sets the action of the AccessRule to call hook.
+    pub fn hook(mut self, url: Url) -> Self {
+        self.rule.action = Action::HookAction(HookAction(url));
         self
     }
 
