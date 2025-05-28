@@ -92,7 +92,7 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
 | `gas-budget`                |  no        | `'=100'`, `'<100'`,  `'<=100'`, `'>100'`, `'>=100'`, `'!=100'` |
 | `move-call-package-address` |  no        | `'0x0000...'`, `[0x0000..., 0x1111...]`, `'*'`                 |
 | `ptb-command-count`         |  no        | `'=10'`, `'<10'`,  `'<=10'`, `'>10'`, `'>=10'`, `'!=10'`       |
-| `action`                    |  yes       | `'allow'`,  `'deny'`                                           |
+| `action`                    |  yes       | `'allow'`, `'deny'`, (URL, e.g. `http://127.0.0.1:8080` )      |
 | `gas_usage`                 |  no        | See [Gas Usage Limit](#gas-usage-limit-feature)                |
 
 Below is a revised version of the documentation with improved grammar and clarity:
