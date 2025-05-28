@@ -19,7 +19,6 @@ use crate::RequestError;
 #[schema(rename_all = "camelCase")]
 #[serde(rename_all = "camelCase")]
 pub struct ExecuteTxHookRequest {
-    #[schema(value_type = ExecuteTxRequestPayload)]
     pub execute_tx_request: ExecuteTxGasStationRequest,
 }
 
