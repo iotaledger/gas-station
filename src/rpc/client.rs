@@ -127,8 +127,9 @@ impl GasStationRpcClient {
         reservation_id: ReservationID,
         tx_data: &TransactionData,
         user_sig: &GenericSignature,
+        headers: Option<HeaderMap>,
     ) -> anyhow::Result<IotaTransactionBlockEffects> {
-        let mut headers = HeaderMap::new();
+        let mut headers = headers.unwrap_or_default();
         headers.insert(
             AUTHORIZATION,
             format!("Bearer {}", read_auth_env()).parse().unwrap(),

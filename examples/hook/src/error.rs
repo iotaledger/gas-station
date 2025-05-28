@@ -1,3 +1,6 @@
+// Copyright (c) 2025 IOTA Stiftung
+// SPDX-License-Identifier: Apache-2.0
+
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;

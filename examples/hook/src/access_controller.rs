@@ -1,13 +1,16 @@
+// Copyright (c) 2025 IOTA Stiftung
+// SPDX-License-Identifier: Apache-2.0
+
 use axum::Json;
 use axum::http::StatusCode;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use crate::RequestError;
-use crate::endpoint_types::Action;
 use crate::endpoint_types::ErrorResponse;
-use crate::endpoint_types::ExecuteTxCheckRequest;
+use crate::endpoint_types::ExecuteTxHookRequest;
 use crate::endpoint_types::ExecuteTxOkResponse;
+use crate::endpoint_types::SkippableDecision;
 
 /// Get router for access controller endpoint
 pub fn router() -> OpenApiRouter {
@@ -30,34 +33,26 @@ pub fn router() -> OpenApiRouter {
     )
 )]
 async fn execute_tx(
-    Json(tx_data): Json<ExecuteTxCheckRequest>,
+    Json(tx_data): Json<ExecuteTxHookRequest>,
 ) -> Result<Json<ExecuteTxOkResponse>, RequestError> {
-    let test = tx_data.parse_transaction_data()?;
-    dbg!(&test);
+    // As this is an example server, this server supports a test header,
+    // that contains the response we will return from here or just deny the transaction.
+    // Don't support this header and behavior on your production system. ;)
+    if let Some(test_response) = tx_data.execute_tx_request.headers.get("test-response") {
+        let test_response_raw = test_response.first().ok_or_else(|| {
+            RequestError::new(anyhow::anyhow!("no value given for test-response header"))
+                .with_status(StatusCode::BAD_REQUEST)
+                .with_user_message("no value given for test-response header")
+        })?;
+        let test_response: ExecuteTxOkResponse =
+            serde_json::from_str(test_response_raw).map_err(|err| {
+                RequestError::new(err.into())
+                    .with_status(StatusCode::BAD_REQUEST)
+                    .with_user_message("invalid request header")
+            })?;
 
-    match tx_data.execute_tx_request.reservation_id {
-        10 => {
-            return Ok(Json(ExecuteTxOkResponse::new(Action::Allow)));
-        }
-        20 => {
-            return Ok(Json(
-                ExecuteTxOkResponse::new(Action::Deny).with_message("rate limit exceeded"),
-            ));
-        }
-        30 => {
-            return Ok(Json(ExecuteTxOkResponse::new(Action::NoAction)));
-        }
-        40 => {
-            return Err(RequestError::new(anyhow::anyhow!("test error"))
-                .with_status(StatusCode::IM_A_TEAPOT));
-        }
-        41 => {
-            return Err(RequestError::new(anyhow::anyhow!("endpoint was a teapot"))
-                .with_status(StatusCode::IM_A_TEAPOT)
-                .with_user_message("Please stop talking to teapots. They usually don't answer."));
-        }
-        _ => (),
+        return Ok(Json(test_response));
     }
 
-    Ok(Json(ExecuteTxOkResponse::new(Action::Deny)))
+    Ok(Json(ExecuteTxOkResponse::new(SkippableDecision::Deny)))
 }

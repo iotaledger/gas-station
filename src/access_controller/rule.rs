@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::Context;
+use axum::http::HeaderMap;
+use fastcrypto::encoding::Base64;
 use iota_types::{
     base_types::IotaAddress,
     digests::TransactionDigest,
@@ -103,6 +105,7 @@ impl AccessRuleBuilder {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub struct AccessRule {
+    #[serde(default)]
     pub sender_address: ValueIotaAddress,
     pub transaction_gas_budget: Option<ValueNumber<u64>>,
     pub move_call_package_address: Option<ValueIotaAddress>,
@@ -225,8 +228,12 @@ pub struct TransactionContext {
     pub transaction_budget: u64,
     pub move_call_package_addresses: Vec<IotaAddress>,
     pub ptb_command_count: Option<usize>,
-
     pub stats_tracker: StatsTracker,
+    pub reservation_id: u64,
+    // pub user_sig: GenericSignature,
+    pub tx_bytes: Base64,
+    pub user_sig: Base64,
+    pub headers: HeaderMap,
 }
 
 #[cfg(test)]
@@ -239,6 +246,12 @@ impl Default for TransactionContext {
             ptb_command_count: None,
             stats_tracker: crate::test_env::mocked_stats_tracker(),
             transaction_digest: TransactionDigest::default(),
+            reservation_id: 0,
+            tx_bytes: Base64::try_from(String::default())
+                .expect("empty string should be valid base64"),
+            user_sig: Base64::try_from(String::default())
+                .expect("empty string should be valid base64"),
+            headers: HeaderMap::default(),
         }
     }
 }
@@ -248,6 +261,10 @@ impl TransactionContext {
         _signature: &GenericSignature,
         transaction_data: &TransactionData,
         stats_tracker: StatsTracker,
+        reservation_id: u64,
+        tx_bytes: Base64,
+        user_sig: Base64,
+        headers: HeaderMap,
     ) -> Self {
         let ptb_command_count = match transaction_data {
             TransactionData::V1(TransactionDataV1 {
@@ -263,6 +280,10 @@ impl TransactionContext {
             move_call_package_addresses: get_move_call_package_addresses(transaction_data),
             ptb_command_count,
             stats_tracker,
+            reservation_id,
+            tx_bytes,
+            user_sig,
+            headers,
         }
     }
 
@@ -291,6 +312,26 @@ impl TransactionContext {
 
     pub fn with_stats_tracker(mut self, stats_tracker: StatsTracker) -> Self {
         self.stats_tracker = stats_tracker;
+        self
+    }
+
+    pub fn with_reservation_id(mut self, reservation_id: u64) -> Self {
+        self.reservation_id = reservation_id;
+        self
+    }
+
+    pub fn with_tx_bytes(mut self, tx_bytes: Base64) -> Self {
+        self.tx_bytes = tx_bytes;
+        self
+    }
+
+    pub fn with_user_sig(mut self, user_sig: Base64) -> Self {
+        self.user_sig = user_sig;
+        self
+    }
+
+    pub fn with_headers(mut self, headers: HeaderMap) -> Self {
+        self.headers = headers;
         self
     }
 }

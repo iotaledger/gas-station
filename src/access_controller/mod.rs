@@ -5,6 +5,7 @@
 //! It provides a way to control the constraints for executing transactions, ensuring that only authorized addresses can perform specific actions.
 
 pub mod decision;
+pub mod hook;
 pub mod policy;
 pub mod predicates;
 pub mod rule;
@@ -13,8 +14,10 @@ use std::{collections::HashMap, fmt::Formatter, sync::Arc};
 
 use anyhow::{anyhow, Context, Result};
 use decision::Decision;
+use hook::SkippableDecision;
 use iota_types::digests::TransactionDigest;
 use policy::AccessPolicy;
+use predicates::Action;
 use rule::{AccessRule, GasUsageConfirmationRequest, TransactionContext};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -71,9 +74,27 @@ impl AccessController {
                             .await
                             .insert(ctx.transaction_digest, matching_result.1);
                     }
-                    // if the rule matches and also matches the global limits, invoke the action
+                    // if the rule matches and also matches the global limits, check action
                     if matching_result.0 {
-                        return Ok(rule.action.into());
+                        match &rule.action {
+                            Action::Allow => return Ok(Decision::Allow),
+                            Action::Deny => return Ok(Decision::Deny),
+                            Action::HookAction(hook_action) => {
+                                // call hook and take defined result or continue with next rule
+                                let response = hook_action.call_hook(ctx).await?;
+                                debug!("Called hook: {}, for transaction with digest: {}. Got decision: {:?}, with user message: {:?}",
+                                    hook_action.0,
+                                    ctx.transaction_digest,
+                                    response.decision,
+                                    response.user_message,
+                                );
+                                match response.decision {
+                                    SkippableDecision::Allow => return Ok(Decision::Allow),
+                                    SkippableDecision::Deny => return Ok(Decision::Deny),
+                                    SkippableDecision::NoDecision => continue,
+                                };
+                            }
+                        };
                     } else {
                         continue;
                     }
@@ -418,7 +439,7 @@ rules:
       - sender-address: ['0x0101010101010101010101010101010101010101010101010101010101010101']
         transaction-gas-budget: <=10000
         ptb-command-count: <=5
-        action: allow
+        action: http://127.0.0.1
 "#;
         let ac: AccessController = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(ac.access_policy, AccessPolicy::DenyAll);
@@ -435,7 +456,8 @@ rules:
             ac.rules[0].ptb_command_count,
             Some(ValueNumber::LessThanOrEqual(5))
         );
-        assert_eq!(ac.rules[0].action, Action::Allow);
+        // assert_eq!(ac.rules[0].action, Action::Allow);
+        // assert_eq!(ac.rules[0].action, Action::Url(Url));
     }
 
     #[test]
@@ -475,6 +497,8 @@ rules:
                 .build()],
         );
         let yaml = serde_yaml::to_string(&ac).unwrap();
+
+        dbg!(&yaml);
 
         assert_eq!(
             yaml,

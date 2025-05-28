@@ -2,6 +2,8 @@
 name = "hook"
 version = "0.1.0"
 edition = "2024"
+authors = ["IOTA Stiftung"]
+license = "Apache-2.0"
 
 [dependencies]
 anyhow = "1.0.98"

@@ -1,3 +1,8 @@
+// Copyright (c) 2025 IOTA Stiftung
+// SPDX-License-Identifier: Apache-2.0
+
+use std::collections::HashMap;
+
 use anyhow::Context as _;
 use axum::http::StatusCode;
 use base64::prelude::*;
@@ -12,14 +17,23 @@ use crate::RequestError;
 /// Contains original request for Gas Stations `execute_tx` endpoint.
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 #[schema(rename_all = "camelCase")]
-pub struct ExecuteTxCheckRequest {
+#[serde(rename_all = "camelCase")]
+pub struct ExecuteTxHookRequest {
     #[schema(value_type = ExecuteTxRequestPayload)]
-    pub execute_tx_request: ExecuteTxRequestPayload,
+    pub execute_tx_request: ExecuteTxGasStationRequest,
+}
+
+/// Original request data and headers sent to Gas Stations `execute_tx` endpoint.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct ExecuteTxGasStationRequest {
+    pub payload: ExecuteTxRequestPayload,
+    pub headers: HashMap<String, Vec<String>>,
 }
 
 /// Data originally sent to IOTA Gas Station.
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 #[schema(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 pub struct ExecuteTxRequestPayload {
     /// ID used to reference a gas reservation.
     pub reservation_id: u64,
@@ -31,10 +45,10 @@ pub struct ExecuteTxRequestPayload {
     pub user_sig: String,
 }
 
-impl ExecuteTxCheckRequest {
+impl ExecuteTxHookRequest {
     pub fn parse_transaction_data(&self) -> Result<TransactionData, RequestError> {
         BASE64_STANDARD
-            .decode(&self.execute_tx_request.tx_bytes)
+            .decode(&self.execute_tx_request.payload.tx_bytes)
             .context("failed to decode base64 string with transaction data")
             .and_then(|bytes| {
                 bcs::from_bytes(&bytes).context("failed to parse BCS bytes to `TransactionData`")
@@ -48,26 +62,28 @@ impl ExecuteTxCheckRequest {
 /// "allow"/"deny" transaction or take "noAction" and proceed with other rules.
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 #[schema(rename_all = "camelCase")]
-pub enum Action {
+#[serde(rename_all = "camelCase")]
+pub enum SkippableDecision {
     Allow,
     Deny,
-    NoAction,
+    NoDecision,
 }
 
 /// Result of checking if transaction should be executed.
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 #[schema(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 pub struct ExecuteTxOkResponse {
-    action: Action,
+    decision: SkippableDecision,
     /// Message intended to be forwarded to caller.
     #[serde(skip_serializing_if = "Option::is_none")]
     user_message: Option<String>,
 }
 
 impl ExecuteTxOkResponse {
-    pub fn new(action: Action) -> Self {
+    pub fn new(decision: SkippableDecision) -> Self {
         Self {
-            action,
+            decision,
             user_message: None,
         }
     }
