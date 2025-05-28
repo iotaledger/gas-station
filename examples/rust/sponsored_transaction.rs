@@ -78,7 +78,7 @@ async fn main() {
     // Send the TransactionData together with the signature to the Gas Station.
     // The Gas Station will execute the Transaction and returns the effects.
     let effects = gas_station_client
-        .execute_tx(reservation_id, &tx_data, &signature)
+        .execute_tx(reservation_id, &tx_data, &signature, None)
         .await
         .expect("transaction should be sent");
 
