@@ -14,7 +14,7 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
       rules:
          - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
            move-call-package-address: "0x0202020202020202020202020202020202020202020202020202020202020202"
-           action: 'allow' # allowed actions: 'allow', 'deny'
+           action: 'allow' # allowed actions: 'allow', 'deny', a hook url (see "Hook Server" section)
    ```
 
 ---
