@@ -8,15 +8,15 @@ repository = "https://github.com/iotaledger/gas-station"
 
 [dependencies]
 
-fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "5f2c63266a065996d53f98156f0412782b468597" }
+fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "2f502fd8570fe4e9cff36eea5bbd6fef22002898" }
 
-iota-metrics = { git = "https://github.com/iotaledger/iota", tag = "v0.10.0-alpha", package = "iota-metrics" }
-iota-config = { git = "https://github.com/iotaledger/iota", tag = "v0.10.0-alpha", package = "iota-config" }
-iota-json-rpc-types = { git = "https://github.com/iotaledger/iota", tag = "v0.10.0-alpha", package = "iota-json-rpc-types" }
-iota-sdk = { git = "https://github.com/iotaledger/iota", tag = "v0.10.0-alpha", package = "iota-sdk" }
-iota-types = { git = "https://github.com/iotaledger/iota", tag = "v0.10.0-alpha", package = "iota-types" }
-shared-crypto = { git = "https://github.com/iotaledger/iota", tag = "v0.10.0-alpha", package = "shared-crypto" }
-telemetry-subscribers = { git = "https://github.com/iotaledger/iota", tag = "v0.10.0-alpha", package = "telemetry-subscribers" }
+iota-metrics = { git = "https://github.com/iotaledger/iota", tag = "v1.1.0", package = "iota-metrics" }
+iota-config = { git = "https://github.com/iotaledger/iota", tag = "v1.1.0", package = "iota-config" }
+iota-json-rpc-types = { git = "https://github.com/iotaledger/iota", tag = "v1.1.0", package = "iota-json-rpc-types" }
+iota-sdk = { git = "https://github.com/iotaledger/iota", tag = "v1.1.0", package = "iota-sdk" }
+iota-types = { git = "https://github.com/iotaledger/iota", tag = "v1.1.0", package = "iota-types" }
+shared-crypto = { git = "https://github.com/iotaledger/iota", tag = "v1.1.0", package = "shared-crypto" }
+telemetry-subscribers = { git = "https://github.com/iotaledger/iota", tag = "v1.1.0", package = "telemetry-subscribers" }
 
 
 anyhow = "1.0.75"
@@ -48,7 +48,7 @@ schemars = "0.8.16"
 tap = "1.0.1"
 tempfile = "3.2.0"
 tracing = "0.1.40"
-tokio = { version = "1.39.2", features = ["full"] }
+tokio = { version = "1.43.0", features = ["full"] }
 tokio-retry = "0.3.0"
 serde_json = "1.0.108"
 serde_json_canonicalizer = { version = "0.3.0" }
@@ -63,8 +63,8 @@ url = { version = "2.5.4", features = ["serde"] }
 [dev-dependencies]
 rand = "0.8.5"
 
-iota-swarm-config = { git = "https://github.com/iotaledger/iota", tag = "v0.10.0-alpha", package = "iota-swarm-config" }
-test-cluster = { git = "https://github.com/iotaledger/iota", tag = "v0.10.0-alpha", package = "test-cluster" }
+iota-swarm-config = { git = "https://github.com/iotaledger/iota", tag = "v1.1.0", package = "iota-swarm-config" }
+test-cluster = { git = "https://github.com/iotaledger/iota", tag = "v1.1.0", package = "test-cluster" }
 
 [profile.release]
 panic = "abort"
