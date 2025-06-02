@@ -38,7 +38,7 @@ pub fn router() -> OpenApiRouter {
 async fn execute_tx(
     Json(tx_data): Json<ExecuteTxHookRequest>,
 ) -> Result<Json<ExecuteTxOkResponse>, RequestError> {
-    // Log parsed transaction data can be used to decide if transaction should be executed or not.
+    // Parsed transaction data can be used to decide if transaction should be executed or not.
     let transaction_data = tx_data.parse_transaction_data()?;
     dbg!(&transaction_data);
 
