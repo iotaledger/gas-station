@@ -70,7 +70,7 @@ impl Default for GasStationConfig {
 
 #[serde_as]
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case", untagged)]
+#[serde(rename_all = "kebab-case")]
 pub enum GasStationStorageConfig {
     Redis { redis_url: String },
 }
@@ -85,7 +85,7 @@ impl Default for GasStationStorageConfig {
 
 #[serde_as]
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case", untagged)]
+#[serde(rename_all = "kebab-case")]
 pub enum TxSignerConfig {
     Local { keypair: IotaKeyPair },
     Sidecar { sidecar_url: String },

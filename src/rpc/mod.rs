@@ -90,56 +90,29 @@ mod tests {
     }
 
     #[tokio::test]
-<<<<<<< HEAD
     async fn test_access_allow_after_ac_reload() {
         let reservation_time_secs = 5;
-=======
-    async fn test_access_denied_from_ac_after_reload() {
-        let rules = [AccessRuleBuilder::new()
-            .gas_limit(ValueAggregate::new(
-                Duration::from_secs(60),
-                ValueNumber::GreaterThanOrEqual(10000),
-            ))
-            .allow()
-            .build()];
-
->>>>>>> 3e37bd0 (test: add e2e test for ac reload)
         let (test_cluster, _container, server) =
             start_rpc_server_for_testing_with_access_controller(
                 vec![NANOS_PER_IOTA; 10],
                 NANOS_PER_IOTA,
-<<<<<<< HEAD
                 AccessController::new(AccessPolicy::DenyAll, []),
-=======
-                AccessController::new(AccessPolicy::AllowAll, rules),
->>>>>>> 3e37bd0 (test: add e2e test for ac reload)
             )
             .await;
 
         let client = server.get_local_client();
         client.health().await.unwrap();
 
-<<<<<<< HEAD
         let (sponsor, reservation_id, gas_coins) = client
             .reserve_gas(NANOS_PER_IOTA, reservation_time_secs)
             .await
             .unwrap();
         assert_eq!(gas_coins.len(), 1);
 
-=======
-        let (sponsor, reservation_id, gas_coins) =
-            client.reserve_gas(NANOS_PER_IOTA, 10).await.unwrap();
-        assert_eq!(gas_coins.len(), 1);
-
-        // We can no longer request all balance given one is loaned out above.
-        assert!(client.reserve_gas(NANOS_PER_IOTA * 10, 10).await.is_err());
-
->>>>>>> 3e37bd0 (test: add e2e test for ac reload)
         let (tx_data, user_sig) = create_test_transaction(&test_cluster, sponsor, gas_coins).await;
         assert!(client
             .execute_tx(reservation_id, &tx_data, &user_sig)
             .await
-<<<<<<< HEAD
             .is_err());
 
         let mut gas_station_config = GasStationConfig::default();
@@ -161,25 +134,6 @@ mod tests {
             .await
             .is_ok());
 
-=======
-            .is_ok());
-
-        let mut gas_station_config = GasStationConfig::default();
-        let new_access_controller = AccessController::new(AccessPolicy::DenyAll, []);
-        gas_station_config.access_controller = new_access_controller;
-
-        let config_file = std::fs::File::create(DEFAULT_TEST_CONFIG_PATH).unwrap();
-        serde_yaml::to_writer(config_file, &gas_station_config).unwrap();
-
-        client.reload_access_controller().await.unwrap();
-
-        // After the reload, the access controller should deny all transactions
-        assert!(client
-            .execute_tx(reservation_id, &tx_data, &user_sig)
-            .await
-            .is_err());
-
->>>>>>> 3e37bd0 (test: add e2e test for ac reload)
         std::fs::remove_file(DEFAULT_TEST_CONFIG_PATH).unwrap();
     }
 
