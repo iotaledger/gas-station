@@ -70,8 +70,12 @@ impl AccessController {
         }
 
         for (i, rule) in self.rules.iter().enumerate() {
-            match rule.matches(&ctx).await {
-                Ok(true) => {
+            match rule
+                .matches(&ctx)
+                .await
+                .with_context(|| anyhow!("Error evaluating rule #{}", i + 1))?
+            {
+                true => {
                     // Validate the counters if the rule partially matches
                     let matching_result = rule.match_global_limits(ctx).await?;
                     if !matching_result.1.is_empty() {
@@ -88,8 +92,7 @@ impl AccessController {
                     }
                 }
                 // we don't need to check the global_limits if the rule doesn't match
-                Ok(false) => continue,
-                Err(e) => return Err(anyhow!("Error evaluating rule #{}: {}", i + 1, e)),
+                false => continue,
             }
         }
 

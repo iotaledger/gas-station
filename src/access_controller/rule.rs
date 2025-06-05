@@ -2,18 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::{Context, Ok};
-use const_str::convert_ascii_case;
-use iota_sdk::json;
 use iota_types::{
     base_types::IotaAddress,
     digests::TransactionDigest,
     signature::GenericSignature,
-    transaction::{
-        CallArg, TransactionData, TransactionDataAPI, TransactionDataV1, TransactionKind,
-    },
+    transaction::{TransactionData, TransactionDataAPI, TransactionDataV1, TransactionKind},
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value};
 use serde_with::skip_serializing_none;
 use tracing::trace;
 
@@ -240,6 +236,7 @@ impl AccessRule {
             let result = rego_expression
                 .matches(&input_string)
                 .context("Failed to match rego expression")?;
+
             return Ok(result);
         }
         // If the rego expression is not defined then the rule matches. Every payload is allowed
@@ -311,8 +308,8 @@ impl TransactionContext {
             TransactionData::V1(TransactionDataV1 { kind: _, .. }) => None,
         };
         // TODO handle the error properly
-        let converted_transaction_data = convert_transaction_data_to_value(transaction_data)
-            .expect("Failed to convert transaction data to value");
+        let transaction_value = serde_json::to_value(&transaction_data)
+            .expect("Failed to convert transaction data to JSON value");
         Self {
             transaction_digest: transaction_data.digest(),
             sender_address: transaction_data.sender().clone(),
@@ -320,7 +317,7 @@ impl TransactionContext {
             move_call_package_addresses: get_move_call_package_addresses(transaction_data),
             ptb_command_count,
             stats_tracker,
-            transaction_data: converted_transaction_data,
+            transaction_data: transaction_value,
         }
     }
 
@@ -367,70 +364,70 @@ fn get_move_call_package_addresses(transaction_data: &TransactionData) -> Vec<Io
         .collect()
 }
 
-pub fn convert_transaction_data_to_value(
-    transaction_data: &TransactionData,
-) -> Result<Value, anyhow::Error> {
-    let mut converted_data = serde_json::to_value(&transaction_data)?;
-    if is_programmable_transaction(transaction_data) {
-        let inputs = decode_inputs_from_transaction_data(transaction_data)?;
-        converted_data["V1"]["inputs"] = json!(inputs);
-    }
-    Ok(converted_data)
-}
+// pub fn convert_transaction_data_to_value(
+//     transaction_data: &TransactionData,
+// ) -> Result<Value, anyhow::Error> {
+//     let mut converted_data = serde_json::to_value(&transaction_data)?;
+//     if is_programmable_transaction(transaction_data) {
+//         let inputs = decode_inputs_from_transaction_data(transaction_data)?;
+//         converted_data["V1"]["inputs"] = json!(inputs);
+//     }
+//     Ok(converted_data)
+// }
 
-pub fn is_programmable_transaction(transaction_data: &TransactionData) -> bool {
-    matches!(
-        transaction_data,
-        TransactionData::V1(TransactionDataV1 {
-            kind: TransactionKind::ProgrammableTransaction(_),
-            ..
-        })
-    )
-}
+// pub fn is_programmable_transaction(transaction_data: &TransactionData) -> bool {
+//     matches!(
+//         transaction_data,
+//         TransactionData::V1(TransactionDataV1 {
+//             kind: TransactionKind::ProgrammableTransaction(_),
+//             ..
+//         })
+//     )
+// }
 
-pub fn decode_inputs_from_transaction_data(
-    transaction_data: &TransactionData,
-) -> Result<Vec<Value>, anyhow::Error> {
-    let TransactionData::V1(TransactionDataV1 {
-        kind: TransactionKind::ProgrammableTransaction(pt),
-        ..
-    }) = transaction_data
-    else {
-        return Ok(vec![]);
-    };
+// pub fn decode_inputs_from_transaction_data(
+//     transaction_data: &TransactionData,
+// ) -> Result<Vec<Value>, anyhow::Error> {
+//     let TransactionData::V1(TransactionDataV1 {
+//         kind: TransactionKind::ProgrammableTransaction(pt),
+//         ..
+//     }) = transaction_data
+//     else {
+//         return Ok(vec![]);
+//     };
 
-    let mut decoded_inputs = vec![];
-    for input in pt.inputs.iter() {
-        match input {
-            CallArg::Pure(bytes) => {
-                bcs::from_bytes::<Value>(bytes)
-                    .map(|value| {
-                        decoded_inputs.push(json!({
-                            "pure" : value
-                        }))
-                    })
-                    .unwrap_or_else(|e| {
-                        warn!(
-                            "Failed to deserialize bytes into structure, leaving bytes: {:?}  Error: {}",
-                            bytes, e
-                        );
-                        // If deserialization fails, we can push the raw bytes as Vec<u8>
-                        decoded_inputs.push(json!({
-                            "pure": Value::from(bytes.clone())
-                        }));
-                    });
-            }
-            CallArg::Object(obj) => {
-                let obj_value = serde_json::to_value(obj)
-                    .unwrap_or_else(|_| Value::String("Failed to serialize object".to_string()));
-                decoded_inputs.push(json!({
-                    "object": obj_value,
-                }));
-            }
-        }
-    }
-    Ok(decoded_inputs)
-}
+//     let mut decoded_inputs = vec![];
+//     for input in pt.inputs.iter() {
+//         match input {
+//             CallArg::Pure(bytes) => {
+//                 bcs::from_bytes::<Value>(bytes)
+//                     .map(|value| {
+//                         decoded_inputs.push(json!({
+//                             "pure" : value
+//                         }))
+//                     })
+//                     .unwrap_or_else(|e| {
+//                         warn!(
+//                             "Failed to deserialize bytes into structure, leaving bytes: {:?}  Error: {}",
+//                             bytes, e
+//                         );
+//                         // If deserialization fails, we can push the raw bytes as Vec<u8>
+//                         decoded_inputs.push(json!({
+//                             "pure": Value::from(bytes.clone())
+//                         }));
+//                     });
+//             }
+//             CallArg::Object(obj) => {
+//                 let obj_value = serde_json::to_value(obj)
+//                     .unwrap_or_else(|_| Value::String("Failed to serialize object".to_string()));
+//                 decoded_inputs.push(json!({
+//                     "object": obj_value,
+//                 }));
+//             }
+//         }
+//     }
+// Ok(decoded_inputs)
+// }
 
 #[cfg(test)]
 mod test {
