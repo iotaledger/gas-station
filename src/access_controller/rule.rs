@@ -231,7 +231,7 @@ impl AccessRule {
 
             let input_string = serde_json::to_string_pretty(&input_payload)
                 .context("Failed to serialize input payload to JSON")?;
-            println!("\n\n Input string: {} ##", input_string);
+            debug!("\n\n Input string: {} ##", input_string);
 
             let result = rego_expression
                 .matches(&input_string)
