@@ -264,7 +264,6 @@ impl RegoInputPayload {
         }
     }
 }
-impl RegoInputPayload {}
 
 // This input is used to check the access policy.
 #[derive(Clone)]
