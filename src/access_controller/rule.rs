@@ -134,8 +134,9 @@ impl AccessRule {
         }
         Ok(())
     }
+    
     /// Returns the action of the rule.
-
+    ///
     /// Checks if the rule matches the transaction data.
     pub async fn matches(&self, data: &TransactionContext) -> Result<bool, anyhow::Error> {
         Ok(self.sender_address.includes(&data.sender_address)
