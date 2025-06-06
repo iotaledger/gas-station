@@ -205,7 +205,9 @@ Below is an example JSON payload against which a Rego rule is evaluated:
 
 ### Rego Filtering Code Example
 
-The payload above is evaluated against a Rego expression. Suppose we want to ensure that only specific move-call can be sponsored by the Gas Station. To enforce this, we can write the following expression:
+The following Rego expression validates that only a specific move call can be sponsored by the Gas Station.
+
+The expression does the following:
 
 1. **Extract the Commands Array:**
    Retrieve the array of commands from the payload.
@@ -216,6 +218,8 @@ The payload above is evaluated against a Rego expression. Suppose we want to ens
 3. **Verify Expected Fields:**
    Confirm that the package, module, and function fields match the expected values.
 
+4. **Decodes the First Argument:** Checks that the first argument of the move-call, when decoded as a string using `bcs.decode_typed`, equals `"hello"`.
+
 ```go
 package matchers
 
@@ -225,10 +229,14 @@ move_call_matches if {
     cmds := input.transaction_data.V1.kind.ProgrammableTransaction.commands
     count(cmds) == 1
 
+
     mc := cmds[0].MoveCall
     mc["package"]  == "0xb674e2ed79db3c25fa4c00d5c7d62a9c18089e1fc4c2de5b5ee8b2836a85ae26"
     mc.module   == "allowed_module_name"
     mc.function == "allowed_function_name"
+
+    argv_1 := input.transaction_data.V1.kind.ProgrammableTransaction.inputs[0].Pure
+    bcs.decode_typed(argv_1, "string") == "hello"
 }
 ```
 
@@ -236,13 +244,36 @@ move_call_matches if {
 
 > **Note:** For full Rego syntax details please see the [Reference](https://www.openpolicyagent.org/docs/policy-language).
 
+### Rego extensions
+
+### bcs.decode_typed
+
+The helper function `bcs.decode_typed` enables decoding of bytes from BCS-serialized data. This function is particularly useful when you need to evaluate input parameters that are provided in byte format. Since BCS-encoded data cannot always be reliably reversed without knowing the precise type, you must specify the type to decode before invoking the function.
+
+**Usage Example:**
+
+```go
+output := bcs.decode(data_bytes, data_type)
+```
+
+**Supported Data Types:**
+
+| Data Type         |
+|-------------------|
+| `string`          |
+| `u64`             |
+| `address`         |
+| `bool`            |
+| `vector_string`   |
+| `vector_u64`      |
+| `vector_address`  |
+| `vector_bool`     |
+
+
+
 ### Rego Expression Sources
 
-The Rego expressions may come from different sources:
-
-- **File:** Example configuration to load a rule from a file.
-- **Redis:** Example configuration loading a rule from Redis.
-- **HTTP:** Example configuration loading a rule via HTTP.
+The Rego expressions may come from different sources: `file`, `redis` and `http`.
 
 #### Rego from File
 
