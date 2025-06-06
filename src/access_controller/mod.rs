@@ -472,12 +472,13 @@ rules:
 
         assert_eq!(
             yaml,
-            r#"access-policy: deny-all
+            r#"---
+access-policy: deny-all
 rules:
-- sender-address: 0x0101010101010101010101010101010101010101010101010101010101010101
-  transaction-gas-budget: <=10000
-  ptb-command-count: <=5
-  action: allow
+  - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
+    transaction-gas-budget: "<=10000"
+    ptb-command-count: "<=5"
+    action: allow
 "#
         );
     }
@@ -496,11 +497,12 @@ rules:
 
         assert_eq!(
             yaml,
-            r#"access-policy: deny-all
+            r#"---
+access-policy: deny-all
 rules:
-- sender-address: 0x0101010101010101010101010101010101010101010101010101010101010101
-  move-call-package-address: 0x0202020202020202020202020202020202020202020202020202020202020202
-  action: allow
+  - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
+    move-call-package-address: "0x0202020202020202020202020202020202020202020202020202020202020202"
+    action: allow
 "#
         );
     }
