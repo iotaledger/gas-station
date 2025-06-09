@@ -250,7 +250,8 @@ The Rego expressions may come from different sources:
 access-controller:
   access-policy: deny-all
   rules:
-    - rego-expression:
+    - sender-address: "*"
+      rego-expression:
         location-type: file
         path: "./source_file.rego"
         rego-rule-path: data.matchers.allowed_move_call
@@ -263,7 +264,8 @@ access-controller:
 access-controller:
   access-policy: allow-all
   rules:
-    - rego-expression:
+    - sender-address: "*"
+    rego-expression:
         location-type: redis
         url: "redis://localhost"
         redis-key: source.rego
@@ -277,7 +279,8 @@ access-controller:
 access-controller:
   access-policy: allow-all
   rules:
-    - rego-expression:
+    - sender-address: "*"
+      rego-expression:
         location-type: http
         url: "http://localhost:8080/source.rego"
         rego-rule-path: data.matchers.allowed_move_call
