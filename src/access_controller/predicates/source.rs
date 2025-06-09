@@ -64,7 +64,7 @@ pub struct LocationPathMemory {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct LocationPathFile {
-    url: String,
+    path: String,
     rego_rule_path: String,
 }
 
@@ -87,7 +87,7 @@ impl ToString for Location {
     fn to_string(&self) -> String {
         match self {
             Location::LocationPathFile(path) => {
-                format!("url: {} rule_path: {}", path.url, path.rego_rule_path)
+                format!("path: {} rule_path: {}", path.path, path.rego_rule_path)
             }
             Location::LocationPathRedis(path) => {
                 format!(
@@ -110,7 +110,7 @@ impl Location {
     /// Create a new location with the given file path.
     pub fn new_file(url: impl AsRef<str>, rego_rule_name: impl AsRef<str>) -> Self {
         Location::LocationPathFile(LocationPathFile {
-            url: url.as_ref().to_string(),
+            path: url.as_ref().to_string(),
             rego_rule_path: rego_rule_name.as_ref().to_string(),
         })
     }
@@ -159,10 +159,10 @@ impl Location {
     pub async fn fetch_string(&self) -> Result<String, anyhow::Error> {
         match self {
             Location::LocationPathFile(location) => {
-                trace!("Fetching data from file path: {}", location.url);
-                let data = tokio::fs::read_to_string(&location.url)
+                trace!("Fetching data from file path: {}", location.path);
+                let data = tokio::fs::read_to_string(&location.path)
                     .await
-                    .with_context(|| format!("unable to load data from path: {}", location.url))?;
+                    .with_context(|| format!("unable to load data from path: {}", location.path))?;
                 Ok(data)
             }
             Location::LocationPathHttp(location) => {
@@ -204,10 +204,10 @@ impl Location {
     pub async fn fetch_bytes(&self) -> Result<Vec<u8>, anyhow::Error> {
         match self {
             Location::LocationPathFile(location) => {
-                trace!("Fetching data from file path: {}", location.url);
-                let data = tokio::fs::read(&location.url)
+                trace!("Fetching data from file path: {}", location.path);
+                let data = tokio::fs::read(&location.path)
                     .await
-                    .with_context(|| format!("unable to load data from path: {}", location.url))?;
+                    .with_context(|| format!("unable to load data from path: {}", location.path))?;
                 Ok(data)
             }
             Location::LocationPathHttp(location) => {

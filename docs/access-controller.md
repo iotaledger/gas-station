@@ -252,7 +252,7 @@ access-controller:
   rules:
     - rego-expression:
         location-type: file
-        url: "file://./source_file.rego"
+        path: "./source_file.rego"
         rego-rule-path: data.matchers.allowed_move_call
       action: allow
 ```
