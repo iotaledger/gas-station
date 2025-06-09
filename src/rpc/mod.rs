@@ -21,6 +21,7 @@ mod tests {
         start_rpc_server_for_testing_with_access_controller, DEFAULT_TEST_CONFIG_PATH,
     };
     use crate::AUTH_ENV_NAME;
+    use iota_config::Config;
     use iota_json_rpc_types::IotaTransactionBlockEffectsAPI;
     use iota_types::gas_coin::NANOS_PER_IOTA;
 
@@ -117,9 +118,7 @@ mod tests {
         let mut gas_station_config = GasStationConfig::default();
         let new_access_controller = AccessController::new(AccessPolicy::AllowAll, []);
         gas_station_config.access_controller = new_access_controller;
-
-        let config_file = std::fs::File::create(DEFAULT_TEST_CONFIG_PATH).unwrap();
-        serde_yaml::to_writer(config_file, &gas_station_config).unwrap();
+        gas_station_config.save(DEFAULT_TEST_CONFIG_PATH).unwrap();
 
         client.reload_access_controller().await.unwrap();
 

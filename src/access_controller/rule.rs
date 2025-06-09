@@ -11,7 +11,7 @@ use iota_types::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use serde_with::skip_serializing_none;
-use tracing::{debug, trace};
+use tracing::trace;
 
 use super::predicates::RegoExpression;
 use super::predicates::{Action, LimitBy, ValueAggregate, ValueIotaAddress, ValueNumber};

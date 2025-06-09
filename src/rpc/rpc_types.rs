@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::types::ReservationID;
-use const_str::join;
 use fastcrypto::encoding::Base64;
 use iota_json_rpc_types::{IotaObjectRef, IotaTransactionBlockEffects};
 use iota_types::base_types::{IotaAddress, ObjectRef};
