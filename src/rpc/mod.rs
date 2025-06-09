@@ -89,41 +89,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_access_denied_from_ac_after_reload() {
-        let rules = [AccessRuleBuilder::new()
-            .gas_limit(ValueAggregate::new(
-                Duration::from_secs(60),
-                ValueNumber::GreaterThanOrEqual(10000),
-            ))
-            .allow()
-            .build()];
-
+    async fn test_access_allow_after_ac_reload() {
+        let reservation_time_secs = 5;
         let (test_cluster, _container, server) =
             start_rpc_server_for_testing_with_access_controller(
                 vec![NANOS_PER_IOTA; 10],
                 NANOS_PER_IOTA,
-                AccessController::new(AccessPolicy::AllowAll, rules),
+                AccessController::new(AccessPolicy::DenyAll, []),
             )
             .await;
 
         let client = server.get_local_client();
         client.health().await.unwrap();
 
-        let (sponsor, reservation_id, gas_coins) =
-            client.reserve_gas(NANOS_PER_IOTA, 10).await.unwrap();
+        let (sponsor, reservation_id, gas_coins) = client
+            .reserve_gas(NANOS_PER_IOTA, reservation_time_secs)
+            .await
+            .unwrap();
         assert_eq!(gas_coins.len(), 1);
-
-        // We can no longer request all balance given one is loaned out above.
-        assert!(client.reserve_gas(NANOS_PER_IOTA * 10, 10).await.is_err());
 
         let (tx_data, user_sig) = create_test_transaction(&test_cluster, sponsor, gas_coins).await;
         assert!(client
             .execute_tx(reservation_id, &tx_data, &user_sig)
             .await
-            .is_ok());
+            .is_err());
 
         let mut gas_station_config = GasStationConfig::default();
-        let new_access_controller = AccessController::new(AccessPolicy::DenyAll, []);
+        let new_access_controller = AccessController::new(AccessPolicy::AllowAll, []);
         gas_station_config.access_controller = new_access_controller;
 
         let config_file = std::fs::File::create(DEFAULT_TEST_CONFIG_PATH).unwrap();
@@ -131,11 +123,17 @@ mod tests {
 
         client.reload_access_controller().await.unwrap();
 
-        // After the reload, the access controller should deny all transactions
+        let (sponsor, reservation_id, gas_coins) = client
+            .reserve_gas(NANOS_PER_IOTA, reservation_time_secs)
+            .await
+            .unwrap();
+        let (tx_data, user_sig) = create_test_transaction(&test_cluster, sponsor, gas_coins).await;
+
+        // After the reload, the access controller should accept all transactions
         assert!(client
             .execute_tx(reservation_id, &tx_data, &user_sig)
             .await
-            .is_err());
+            .is_ok());
 
         std::fs::remove_file(DEFAULT_TEST_CONFIG_PATH).unwrap();
     }
