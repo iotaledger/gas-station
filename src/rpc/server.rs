@@ -386,17 +386,18 @@ async fn reload_access_controller(
             )),
         );
     }
-    let new_config = GasStationConfig::load(&server.config_path);
-    if let Err(err) = new_config {
-        error!("Failed to load config file: {:?}", err);
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(GasStationResponse::new_err_from_str(
-                "Failed to load config file",
-            )),
-        );
+    let mut access_controller = match GasStationConfig::load(&server.config_path) {
+        Ok(new_config) => new_config.access_controller,
+        Err(err) => {
+            error!("Failed to load config file: {:?}", err);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(GasStationResponse::new_err_from_str(
+                    "Failed to load config file",
+                )),
+            );
+        }
     };
-    let mut access_controller = new_config.unwrap().access_controller;
     let result = access_controller.initialize().await;
     if let Err(err) = result {
         error!("Failed to initialize access controller: {:?}", err);
