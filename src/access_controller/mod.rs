@@ -52,6 +52,14 @@ impl AccessController {
         }
     }
 
+    /// Initializes the access controller by loading the rules from the external sources
+    pub async fn initialize(&mut self) -> Result<()> {
+        for rule in &mut self.rules {
+            rule.initialize().await?;
+        }
+        Ok(())
+    }
+
     /// Checks if the transaction can be executed based on the access controller's rules.
     // If a rule matches, the corresponding action is applied. If no rule matches, the next rule is checked.
     // If none match, the default policy is applied.
