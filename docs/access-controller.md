@@ -88,7 +88,7 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
 
 |  parameter                  | mandatory  | possible values                                                |
 |-----------------------------| -----------|----------------------------------------------------------------|
-| `sender-address`            |  yes       | `'0x0000...'`, `[0x0000.., 0x1111...]`, `'*'`                  |
+| `sender-address`            |  no        | `'0x0000...'`, `[0x0000.., 0x1111...]`, `'*'`                  |
 | `gas-budget`                |  no        | `'=100'`, `'<100'`,  `'<=100'`, `'>100'`, `'>=100'`, `'!=100'` |
 | `move-call-package-address` |  no        | `'0x0000...'`, `[0x0000..., 0x1111...]`, `'*'`                 |
 | `ptb-command-count`         |  no        | `'=10'`, `'<10'`,  `'<=10'`, `'>10'`, `'>=10'`, `'!=10'`       |
@@ -209,7 +209,7 @@ flowchart TD
     CheckResponse -->|noDecision| CheckNextRule
 ```
 
-A hook server has to follow the api spec defined [here](./openapi.json). Also an example server that can be used as a starting point for an own hook can be found in our [examples](../examples/hook).
+A hook server has to follow the api spec defined [here](./hook-openapi.json). Also an example server that can be used as a starting point for an own hook can be found in our [examples](../examples/hook).
 
 ---
 

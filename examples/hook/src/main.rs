@@ -18,7 +18,7 @@ use crate::error::RequestError;
 const HOST: Ipv4Addr = Ipv4Addr::LOCALHOST;
 const PORT: u16 = 8080;
 const SWAGGER_UI_PATH: &str = "/swagger-ui";
-const SWAGGER_FILE_PATH: &str = "/apidoc/openapi.json";
+const SWAGGER_FILE_PATH: &str = "/apidoc/hook-openapi.json";
 
 #[derive(OpenApi)]
 struct ApiDoc;

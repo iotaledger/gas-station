@@ -35,6 +35,7 @@ pub struct ExecuteTxGasStationRequest {
 #[serde(rename_all = "camelCase")]
 pub struct ExecuteTxRequestPayload {
     /// ID used to reference a gas reservation.
+    #[schema(format = "uint64")]
     pub reservation_id: u64,
     /// Transaction as base64 encoded BCS serialized `TransactionData`.
     #[schema(content_encoding = "base64")]
@@ -59,7 +60,7 @@ impl ExecuteTxHookRequest {
 
 /// Action that should be performed by Gas Station.
 ///
-/// "allow"/"deny" transaction or take "noAction" and proceed with other rules.
+/// "allow"/"deny" transaction or take "noDecision" and proceed with other rules.
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 #[schema(rename_all = "camelCase")]
 #[serde(rename_all = "camelCase")]

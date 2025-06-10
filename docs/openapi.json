@@ -146,7 +146,7 @@
             },
             "SkippableDecision": {
                 "type": "string",
-                "description": "Action that should be performed by Gas Station.\n\n\"allow\"/\"deny\" transaction or take \"noAction\" and proceed with other rules.",
+                "description": "Action that should be performed by Gas Station.\n\n\"allow\"/\"deny\" transaction or take \"noDecision\" and proceed with other rules.",
                 "enum": [
                     "allow",
                     "deny",

@@ -1,6 +1,6 @@
 # Example Hook Server
 
-This is an example server for the [hook integration](../../docs/access-controller.md#hook-server) and is also used to generate the [openapi spec](../../docs/openapi.json) and its [endpoint types](./src/endpoint_types.rs) are reflected in the gas stations [hook server types](../../src/access_controller/hook/hook_server_types.rs).
+This is an example server for the [hook integration](../../docs/access-controller.md#hook-server) and is also used to generate the [openapi spec](../../docs/hook-openapi.json) and its [endpoint types](./src/endpoint_types.rs) are reflected in the gas stations [hook server types](../../src/access_controller/hook/hook_server_types.rs).
 
 ## Starting the server
 
@@ -15,7 +15,7 @@ By default these addresses are bound:
 ```raw
 hook listening on:              http://127.0.0.1:8080
 OpenAPI UI served on:           http://127.0.0.1:8080/swagger-ui
-OpenAPI API spec file on:       http://127.0.0.1:8080/apidoc/openapi.json
+OpenAPI API spec file on:       http://127.0.0.1:8080/apidoc/hook-openapi.json
 ```
 
 As you can see, a Swagger UI interface is started alongside the actual hook endpoint and can be used for analysis and debugging. If you want to opt out of this, you can disable the `swagger-ui` feature, which is included in the default features:
