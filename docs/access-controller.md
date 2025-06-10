@@ -269,7 +269,7 @@ Hook actions don't have to be used as standalone rules and can integrate seamles
 As this might look a bit confusing, let's break this one down:
 
 - we have a privileged address `0x0101010101010101010101010101010101010101010101010101010101010101`, that can send transaction below a certain threshold
-- other addresses or larger transaction by the privileged address have to go trough a hook check
+- other addresses or larger transactions by the privileged address have to go through a hook check
 - the hook can then react with:
   - allowing the transaction
   - denying the transaction

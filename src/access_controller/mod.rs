@@ -497,7 +497,6 @@ rules:
         );
         let yaml = serde_yaml::to_string(&ac).unwrap();
 
-        dbg!(&yaml);
 
         assert_eq!(
             yaml,

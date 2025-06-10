@@ -47,7 +47,6 @@ mod test {
 
         for serialized in values {
             assert!(serde_json::from_str::<Action>(serialized).is_err());
-            assert!(serde_json::from_str::<Action>(serialized).is_err());
         }
     }
 

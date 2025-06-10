@@ -241,7 +241,6 @@ pub struct TransactionContext {
     pub ptb_command_count: Option<usize>,
     pub stats_tracker: StatsTracker,
     pub reservation_id: u64,
-    // pub user_sig: GenericSignature,
     pub tx_bytes: Base64,
     pub user_sig: Base64,
     pub headers: HeaderMap,
