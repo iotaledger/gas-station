@@ -28,7 +28,10 @@ impl RegoExpression {
                 .with_context(|| format!("failed to add policy {}", source.location.to_string()))?;
             Some(expression)
         } else {
-            trace!("Source data is empty for {}. Use 'reload_source()' to initialize the expression", source.location.to_string());
+            trace!(
+                "Source data is empty for {}. Use 'reload_source()' to initialize the expression",
+                source.location.to_string()
+            );
             None
         };
         Ok(RegoExpression { source, expression })

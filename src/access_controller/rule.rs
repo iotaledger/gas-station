@@ -11,7 +11,7 @@ use iota_types::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use serde_with::skip_serializing_none;
-use tracing::debug;
+use tracing::trace;
 
 use super::predicates::RegoExpression;
 use super::predicates::{Action, LimitBy, ValueAggregate, ValueIotaAddress, ValueNumber};
@@ -128,13 +128,13 @@ pub struct GasUsageConfirmationRequest {
 
 impl AccessRule {
     pub async fn initialize(&mut self) -> Result<(), anyhow::Error> {
-        debug!("Initializing rule: {:?}", self);
+        trace!("Initializing rule: {:?}", self);
         if let Some(rego_expression) = self.rego_expression.as_mut() {
             rego_expression.reload_source().await?;
         }
         Ok(())
     }
-    
+
     /// Returns the action of the rule.
     ///
     /// Checks if the rule matches the transaction data.
@@ -229,10 +229,9 @@ impl AccessRule {
     fn match_rego_expression(&self, ctx: &TransactionContext) -> Result<bool, anyhow::Error> {
         if let Some(rego_expression) = self.rego_expression.as_ref() {
             let input_payload = RegoInputPayload::from_context(ctx);
-
             let input_string = serde_json::to_string_pretty(&input_payload)
                 .context("Failed to serialize input payload to JSON")?;
-            debug!("\n\n Input string: {} ##", input_string);
+            trace!("\n\n Input string: {}", input_string);
 
             let result = rego_expression
                 .matches(&input_string)
@@ -369,7 +368,6 @@ mod test {
 
     use iota_types::{
         base_types::IotaAddress,
-        storage::RestStateReader,
         transaction::{
             GasData, ProgrammableTransaction, TransactionData, TransactionDataAPI,
             TransactionDataV1, TransactionExpiration, TransactionKind,

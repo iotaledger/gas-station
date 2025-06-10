@@ -15,11 +15,13 @@ mod tests {
     use crate::access_controller::predicates::{ValueAggregate, ValueNumber};
     use crate::access_controller::rule::AccessRuleBuilder;
     use crate::access_controller::AccessController;
+    use crate::config::GasStationConfig;
     use crate::test_env::{
         create_test_transaction, start_rpc_server_for_testing,
-        start_rpc_server_for_testing_with_access_controller,
+        start_rpc_server_for_testing_with_access_controller, DEFAULT_TEST_CONFIG_PATH,
     };
     use crate::AUTH_ENV_NAME;
+    use iota_config::Config;
     use iota_json_rpc_types::IotaTransactionBlockEffectsAPI;
     use iota_types::gas_coin::NANOS_PER_IOTA;
 
@@ -85,6 +87,54 @@ mod tests {
             .execute_tx(reservation_id, &tx_data, &user_sig)
             .await
             .is_err());
+    }
+
+    #[tokio::test]
+    async fn test_access_allow_after_ac_reload() {
+        let reservation_time_secs = 5;
+        let (test_cluster, _container, server) =
+            start_rpc_server_for_testing_with_access_controller(
+                vec![NANOS_PER_IOTA; 10],
+                NANOS_PER_IOTA,
+                AccessController::new(AccessPolicy::DenyAll, []),
+            )
+            .await;
+
+        let client = server.get_local_client();
+        client.health().await.unwrap();
+
+        let (sponsor, reservation_id, gas_coins) = client
+            .reserve_gas(NANOS_PER_IOTA, reservation_time_secs)
+            .await
+            .unwrap();
+        assert_eq!(gas_coins.len(), 1);
+
+        let (tx_data, user_sig) = create_test_transaction(&test_cluster, sponsor, gas_coins).await;
+        assert!(client
+            .execute_tx(reservation_id, &tx_data, &user_sig)
+            .await
+            .is_err());
+
+        let mut gas_station_config = GasStationConfig::default();
+        let new_access_controller = AccessController::new(AccessPolicy::AllowAll, []);
+        gas_station_config.access_controller = new_access_controller;
+        gas_station_config.save(DEFAULT_TEST_CONFIG_PATH).unwrap();
+
+        client.reload_access_controller().await.unwrap();
+
+        let (sponsor, reservation_id, gas_coins) = client
+            .reserve_gas(NANOS_PER_IOTA, reservation_time_secs)
+            .await
+            .unwrap();
+        let (tx_data, user_sig) = create_test_transaction(&test_cluster, sponsor, gas_coins).await;
+
+        // After the reload, the access controller should accept all transactions
+        assert!(client
+            .execute_tx(reservation_id, &tx_data, &user_sig)
+            .await
+            .is_ok());
+
+        std::fs::remove_file(DEFAULT_TEST_CONFIG_PATH).unwrap();
     }
 
     #[tokio::test]

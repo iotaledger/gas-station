@@ -14,6 +14,7 @@ use crate::tracker::stats_tracker_storage::{self, StatsTrackerStorage};
 use crate::tracker::StatsTracker;
 use crate::tx_signer::{TestTxSigner, TxSigner};
 use crate::AUTH_ENV_NAME;
+use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use iota_config::local_ip_utils::{get_available_port, localhost_for_testing};
 use iota_swarm_config::genesis_config::AccountConfig;
@@ -23,9 +24,13 @@ use iota_types::gas_coin::NANOS_PER_IOTA;
 use iota_types::signature::GenericSignature;
 use iota_types::transaction::{TransactionData, TransactionDataAPI};
 use serde_json::Value;
+use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 use test_cluster::{TestCluster, TestClusterBuilder};
 use tracing::debug;
+
+pub const DEFAULT_TEST_CONFIG_PATH: &str = "./test-env-config.yaml";
 
 pub async fn start_iota_cluster(init_gas_amounts: Vec<u64>) -> (TestCluster, Arc<dyn TxSigner>) {
     let (sponsor, keypair) = get_account_key_pair();
@@ -92,8 +97,9 @@ pub async fn start_rpc_server_for_testing(
         localhost.parse().unwrap(),
         get_available_port(&localhost),
         GasStationRpcMetrics::new_for_testing(),
-        Arc::new(AccessController::default()),
+        Arc::new(ArcSwap::new(Arc::new(AccessController::default()))),
         new_stats_tracker_for_testing(signer_address).await,
+        PathBuf::from_str(DEFAULT_TEST_CONFIG_PATH).unwrap(),
     )
     .await;
     (test_cluster, container, server)
@@ -114,8 +120,9 @@ pub async fn start_rpc_server_for_testing_with_access_controller(
         localhost.parse().unwrap(),
         get_available_port(&localhost),
         GasStationRpcMetrics::new_for_testing(),
-        Arc::new(access_controller),
+        Arc::new(ArcSwap::new(Arc::new(access_controller))),
         new_stats_tracker_for_testing(signer_address).await,
+        PathBuf::from_str(DEFAULT_TEST_CONFIG_PATH).unwrap(),
     )
     .await;
     (test_cluster, container, server)

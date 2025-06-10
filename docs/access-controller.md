@@ -219,9 +219,9 @@ The payload above is evaluated against a Rego expression. Suppose we want to ens
 ```go
 package matchers
 
-default allowed_move_call = false
+default move_call_matches = false
 
-allowed_move_call if {
+move_call_matches if {
     cmds := input.transaction_data.V1.kind.ProgrammableTransaction.commands
     count(cmds) == 1
 
@@ -254,7 +254,7 @@ access-controller:
       rego-expression:
         location-type: file
         path: "./source_file.rego"
-        rego-rule-path: data.matchers.allowed_move_call
+        rego-rule-path: data.matchers.move_call_matches
       action: allow
 ```
 
@@ -269,7 +269,7 @@ access-controller:
         location-type: redis
         url: "redis://localhost"
         redis-key: source.rego
-        rego-rule-path: data.matchers.allowed_move_call
+        rego-rule-path: data.matchers.move_call_matches
       action: allow
 ```
 
@@ -283,7 +283,7 @@ access-controller:
       rego-expression:
         location-type: http
         url: "http://localhost:8080/source.rego"
-        rego-rule-path: data.matchers.allowed_move_call
+        rego-rule-path: data.matchers.move_call_matches
       action: deny
 ```
 
