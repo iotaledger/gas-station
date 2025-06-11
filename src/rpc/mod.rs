@@ -41,7 +41,7 @@ mod tests {
 
         let (tx_data, user_sig) = create_test_transaction(&test_cluster, sponsor, gas_coins).await;
         let effects = client
-            .execute_tx(reservation_id, &tx_data, &user_sig)
+            .execute_tx(reservation_id, &tx_data, &user_sig, None)
             .await
             .unwrap();
         assert!(effects.status().is_ok());
@@ -84,7 +84,7 @@ mod tests {
 
         let (tx_data, user_sig) = create_test_transaction(&test_cluster, sponsor, gas_coins).await;
         assert!(client
-            .execute_tx(reservation_id, &tx_data, &user_sig)
+            .execute_tx(reservation_id, &tx_data, &user_sig, None)
             .await
             .is_err());
     }
@@ -111,7 +111,7 @@ mod tests {
 
         let (tx_data, user_sig) = create_test_transaction(&test_cluster, sponsor, gas_coins).await;
         assert!(client
-            .execute_tx(reservation_id, &tx_data, &user_sig)
+            .execute_tx(reservation_id, &tx_data, &user_sig, None)
             .await
             .is_err());
 
@@ -130,7 +130,7 @@ mod tests {
 
         // After the reload, the access controller should accept all transactions
         assert!(client
-            .execute_tx(reservation_id, &tx_data, &user_sig)
+            .execute_tx(reservation_id, &tx_data, &user_sig, None)
             .await
             .is_ok());
 
@@ -167,7 +167,7 @@ mod tests {
         let (tx_data, user_sig) = create_test_transaction(&test_cluster, sponsor, gas_coins).await;
         // The transaction sets the gas budget to 10000000, which is more than the limit set in the rule.
         assert!(client
-            .execute_tx(reservation_id, &tx_data, &user_sig)
+            .execute_tx(reservation_id, &tx_data, &user_sig, None,)
             .await
             .is_err());
     }

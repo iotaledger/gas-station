@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::Context;
+use axum::http::HeaderMap;
+use fastcrypto::encoding::Base64;
 use iota_types::{
     base_types::IotaAddress,
     digests::TransactionDigest,
@@ -12,9 +14,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use serde_with::skip_serializing_none;
 use tracing::trace;
+use url::Url;
 
-use super::predicates::RegoExpression;
-use super::predicates::{Action, LimitBy, ValueAggregate, ValueIotaAddress, ValueNumber};
+use super::{
+    hook::HookAction,
+    predicates::{Action, LimitBy, RegoExpression, ValueAggregate, ValueIotaAddress, ValueNumber},
+};
 use crate::tracker::{
     stats_tracker_storage::{Aggregate, AggregateType},
     StatsTracker,
@@ -58,8 +63,15 @@ impl AccessRuleBuilder {
         self
     }
 
+    /// Sets the action of the AccessRule to deny.
     pub fn deny(mut self) -> Self {
         self.rule.action = Action::Deny;
+        self
+    }
+
+    /// Sets the action of the AccessRule to call hook.
+    pub fn hook(mut self, url: Url) -> Self {
+        self.rule.action = Action::HookAction(HookAction(url));
         self
     }
 
@@ -109,6 +121,7 @@ impl AccessRuleBuilder {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub struct AccessRule {
+    #[serde(default)]
     pub sender_address: ValueIotaAddress,
     pub transaction_gas_budget: Option<ValueNumber<u64>>,
     pub move_call_package_address: Option<ValueIotaAddress>,
@@ -277,6 +290,10 @@ pub struct TransactionContext {
     pub transaction_data: Value,
 
     pub stats_tracker: StatsTracker,
+    pub reservation_id: u64,
+    pub tx_bytes: Base64,
+    pub user_sig: Base64,
+    pub headers: HeaderMap,
 }
 
 #[cfg(test)]
@@ -290,6 +307,12 @@ impl Default for TransactionContext {
             stats_tracker: crate::test_env::mocked_stats_tracker(),
             transaction_digest: TransactionDigest::default(),
             transaction_data: Value::Null,
+            reservation_id: 0,
+            tx_bytes: Base64::try_from(String::default())
+                .expect("empty string should be valid base64"),
+            user_sig: Base64::try_from(String::default())
+                .expect("empty string should be valid base64"),
+            headers: HeaderMap::default(),
         }
     }
 }
@@ -299,6 +322,10 @@ impl TransactionContext {
         _signature: &GenericSignature,
         transaction_data: &TransactionData,
         stats_tracker: StatsTracker,
+        reservation_id: u64,
+        tx_bytes: Base64,
+        user_sig: Base64,
+        headers: HeaderMap,
     ) -> Self {
         let ptb_command_count = match transaction_data {
             TransactionData::V1(TransactionDataV1 {
@@ -318,6 +345,10 @@ impl TransactionContext {
             ptb_command_count,
             stats_tracker,
             transaction_data: transaction_value,
+            reservation_id,
+            tx_bytes,
+            user_sig,
+            headers,
         }
     }
 
@@ -351,6 +382,26 @@ impl TransactionContext {
 
     pub fn with_transaction_data(mut self, transaction_data: Value) -> Self {
         self.transaction_data = transaction_data;
+        self
+    }
+
+    pub fn with_reservation_id(mut self, reservation_id: u64) -> Self {
+        self.reservation_id = reservation_id;
+        self
+    }
+
+    pub fn with_tx_bytes(mut self, tx_bytes: Base64) -> Self {
+        self.tx_bytes = tx_bytes;
+        self
+    }
+
+    pub fn with_user_sig(mut self, user_sig: Base64) -> Self {
+        self.user_sig = user_sig;
+        self
+    }
+
+    pub fn with_headers(mut self, headers: HeaderMap) -> Self {
+        self.headers = headers;
         self
     }
 }

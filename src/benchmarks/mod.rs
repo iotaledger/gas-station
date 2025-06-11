@@ -5,15 +5,15 @@ pub mod kms_stress;
 
 use crate::rpc::client::GasStationRpcClient;
 use clap::ValueEnum;
+use iota_config::node::DEFAULT_VALIDATOR_GAS_PRICE;
+use iota_types::crypto::{get_account_key_pair, Signature};
+use iota_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
+use iota_types::transaction::{TransactionData, TransactionKind};
 use parking_lot::RwLock;
 use rand::rngs::OsRng;
 use rand::Rng;
 use shared_crypto::intent::{Intent, IntentMessage};
 use std::sync::Arc;
-use iota_config::node::DEFAULT_VALIDATOR_GAS_PRICE;
-use iota_types::crypto::{get_account_key_pair, Signature};
-use iota_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
-use iota_types::transaction::{TransactionData, TransactionKind};
 use tokio::time::{interval, Duration, Instant};
 
 #[derive(Copy, Clone, ValueEnum)]
@@ -87,7 +87,9 @@ impl BenchmarkMode {
                     );
                     let intent_msg = IntentMessage::new(Intent::iota_transaction(), &tx_data);
                     let user_sig = Signature::new_secure(&intent_msg, &keypair).into();
-                    let result = client.execute_tx(reservation_id, &tx_data, &user_sig).await;
+                    let result = client
+                        .execute_tx(reservation_id, &tx_data, &user_sig, None)
+                        .await;
                     if let Err(err) = result {
                         stats.write().update_error();
                         println!("Error: {}", err);

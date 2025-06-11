@@ -18,7 +18,7 @@ use crate::{read_auth_env, VERSION};
 use arc_swap::ArcSwap;
 use axum::headers::authorization::Bearer;
 use axum::headers::Authorization;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router, TypedHeader};
@@ -229,6 +229,7 @@ async fn reserve_gas_impl(
 }
 
 async fn execute_tx(
+    headers: HeaderMap,
     TypedHeader(authorization): TypedHeader<Authorization<Bearer>>,
     Extension(server): Extension<ServerState>,
     Json(payload): Json<ExecuteTxRequest>,
@@ -249,9 +250,9 @@ async fn execute_tx(
     let ExecuteTxRequest {
         reservation_id,
         tx_bytes,
-        user_sig,
+        user_sig: user_sig_raw,
     } = payload;
-    let Ok((tx_data, user_sig)) = convert_tx_and_sig(tx_bytes, user_sig) else {
+    let Ok((tx_data, user_sig)) = convert_tx_and_sig(tx_bytes.clone(), user_sig_raw.clone()) else {
         return (
             StatusCode::BAD_REQUEST,
             Json(ExecuteTxResponse::new_err(anyhow::anyhow!(
@@ -260,15 +261,25 @@ async fn execute_tx(
         );
     };
 
+    // collect information about request and transaction
+    let ctx = TransactionContext::new(
+        &user_sig,
+        &tx_data,
+        server.stats_tracker.clone(),
+        reservation_id,
+        tx_bytes,
+        user_sig_raw,
+        headers,
+    );
+
     // Spawn a thread to process the request so that it will finish even when client drops the connection.
     tokio::task::spawn(execute_tx_impl(
         server.gas_station.clone(),
         server.metrics.clone(),
-        reservation_id,
         tx_data,
         user_sig,
         server.access_controller.clone(),
-        server.stats_tracker.clone(),
+        ctx,
     ))
     .await
     .unwrap_or_else(|err| {
@@ -285,21 +296,12 @@ async fn execute_tx(
 async fn execute_tx_impl(
     gas_station: Arc<GasStation>,
     metrics: Arc<GasStationRpcMetrics>,
-    reservation_id: u64,
     tx_data: TransactionData,
     user_sig: GenericSignature,
     access_controller: Arc<ArcSwap<AccessController>>,
-    stats_tracker: StatsTracker,
+    ctx: TransactionContext,
 ) -> (StatusCode, Json<ExecuteTxResponse>) {
-    match access_controller
-        .load()
-        .check_access(&TransactionContext::new(
-            &user_sig,
-            &tx_data,
-            stats_tracker.clone(),
-        ))
-        .await
-    {
+    match access_controller.load().check_access(&ctx).await {
         Ok(Decision::Allow) => {
             metrics.num_allowed_execute_tx_requests.inc();
         }
@@ -330,12 +332,12 @@ async fn execute_tx_impl(
 
     let transaction_digest = tx_data.digest();
     match gas_station
-        .execute_transaction(reservation_id, tx_data, user_sig)
+        .execute_transaction(ctx.reservation_id, tx_data, user_sig)
         .await
     {
         Ok(effects) => {
             info!(
-                ?reservation_id,
+                ?ctx.reservation_id,
                 "Successfully executed transaction {:?} with status: {:?}",
                 effects.transaction_digest(),
                 effects.status()
@@ -348,7 +350,7 @@ async fn execute_tx_impl(
                 .confirm_transaction(
                     TransactionExecutionResult::new(transaction_digest)
                         .with_gas_usage(effects.gas_cost_summary().gas_used()),
-                    &stats_tracker.clone(),
+                    &ctx.stats_tracker.clone(),
                 )
                 .await;
             // When then confirmation fails, the error shouldn't prevent the user from
@@ -366,7 +368,7 @@ async fn execute_tx_impl(
                 .load()
                 .confirm_transaction(
                     TransactionExecutionResult::new(transaction_digest),
-                    &stats_tracker,
+                    &ctx.stats_tracker,
                 )
                 .await;
             if let Err(err) = confirmation_result {
