@@ -1,7 +1,7 @@
 // Copyright (c) 2024 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::{Context, Ok};
+use anyhow::Context;
 use iota_types::{
     base_types::IotaAddress,
     digests::TransactionDigest,
