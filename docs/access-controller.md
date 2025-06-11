@@ -261,15 +261,19 @@ output := bcs.decode(data_bytes, data_type)
 | Data Type         |
 |-------------------|
 | `string`          |
+| `u8`              |
+| `u16`             |
+| `u32`             |
 | `u64`             |
 | `address`         |
 | `bool`            |
 | `vector_string`   |
+| `vector_u8`       |
+| `vector_u16`      |
+| `vector_u32`      |
 | `vector_u64`      |
 | `vector_address`  |
 | `vector_bool`     |
-
-
 
 ### Rego Expression Sources
 
