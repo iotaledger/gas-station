@@ -8,6 +8,11 @@ use tracing::trace;
 
 use super::source::{Location, SourceWithData};
 
+mod bcs_decoder;
+use bcs_decoder::bcs_decode_typed;
+
+const BCS_DECODE_EXTENSION_NAME: &str = "bcs.decode_typed";
+
 /// RegoExpression allows to evaluate Rego policies
 /// using the regorus engine.
 #[derive(Debug, Clone)]
@@ -22,11 +27,16 @@ impl RegoExpression {
     /// should be called to fetch the data.
     pub fn from_source(source: SourceWithData) -> Result<Self, anyhow::Error> {
         let expression = if let Some(data) = source.get_data_string() {
-            let mut expression = regorus::Engine::new();
-            expression
+            let mut engine = regorus::Engine::new();
+            engine
                 .add_policy(source.location.to_string(), data)
                 .with_context(|| format!("failed to add policy {}", source.location.to_string()))?;
-            Some(expression)
+            engine.add_extension(
+                BCS_DECODE_EXTENSION_NAME.to_string(),
+                2,
+                Box::new(bcs_decode_typed),
+            )?;
+            Some(engine)
         } else {
             trace!(
                 "Source data is empty for {}. Use 'reload_source()' to initialize the expression",
@@ -55,6 +65,11 @@ impl RegoExpression {
                     self.source.location.to_string()
                 )
             })?;
+        expression.add_extension(
+            BCS_DECODE_EXTENSION_NAME.to_string(),
+            2,
+            Box::new(bcs_decode_typed),
+        )?;
         self.expression = Some(expression);
         Ok(())
     }
@@ -108,7 +123,7 @@ impl<'de> Deserialize<'de> for RegoExpression {
 #[cfg(test)]
 mod test {
     use super::*;
-    const TEST_REGO_FILE_CONTENT: &str = include_str!("./test_files/sample_expression.rego");
+    const TEST_REGO_FILE_CONTENT: &str = include_str!("./../test_files/sample_expression.rego");
     const TEST_REGO_RULE_NAME: &str = "data.test.some_match";
 
     #[tokio::test]

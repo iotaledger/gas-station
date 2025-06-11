@@ -236,6 +236,7 @@ impl AccessRule {
             let result = rego_expression
                 .matches(&input_string)
                 .context("Failed to match rego expression")?;
+
             return Ok(result);
         }
         // If the rego expression is not defined then the rule matches. Every payload is allowed
@@ -306,6 +307,9 @@ impl TransactionContext {
             }) => Some(pt.commands.len()),
             TransactionData::V1(TransactionDataV1 { kind: _, .. }) => None,
         };
+        // TODO handle the error properly
+        let transaction_value = serde_json::to_value(&transaction_data)
+            .expect("Failed to convert transaction data to JSON value");
         Self {
             transaction_digest: transaction_data.digest(),
             sender_address: transaction_data.sender().clone(),
@@ -313,8 +317,7 @@ impl TransactionContext {
             move_call_package_addresses: get_move_call_package_addresses(transaction_data),
             ptb_command_count,
             stats_tracker,
-            transaction_data: serde_json::to_value(transaction_data)
-                .expect("Failed to serialize transaction data"),
+            transaction_data: transaction_value,
         }
     }
 

@@ -70,26 +70,23 @@ impl AccessController {
         }
 
         for (i, rule) in self.rules.iter().enumerate() {
-            match rule.matches(&ctx).await {
-                Ok(true) => {
-                    // Validate the counters if the rule partially matches
-                    let matching_result = rule.match_global_limits(ctx).await?;
-                    if !matching_result.1.is_empty() {
-                        self.confirmation_requests
-                            .lock()
-                            .await
-                            .insert(ctx.transaction_digest, matching_result.1);
-                    }
-                    // if the rule matches and also matches the global limits, invoke the action
-                    if matching_result.0 {
-                        return Ok(rule.action.into());
-                    } else {
-                        continue;
-                    }
+            if rule
+                .matches(&ctx)
+                .await
+                .with_context(|| anyhow!("Error evaluating rule #{}", i + 1))?
+            {
+                // Validate the counters if the rule partially matches
+                let matching_result = rule.match_global_limits(ctx).await?;
+                if !matching_result.1.is_empty() {
+                    self.confirmation_requests
+                        .lock()
+                        .await
+                        .insert(ctx.transaction_digest, matching_result.1);
                 }
-                // we don't need to check the global_limits if the rule doesn't match
-                Ok(false) => continue,
-                Err(e) => return Err(anyhow!("Error evaluating rule #{}: {}", i + 1, e)),
+                // if the rule matches and also matches the global limits, invoke the action
+                if matching_result.0 {
+                    return Ok(rule.action.into());
+                }
             }
         }
 
@@ -469,12 +466,13 @@ rules:
 
         assert_eq!(
             yaml,
-            r#"access-policy: deny-all
+            r#"---
+access-policy: deny-all
 rules:
-- sender-address: 0x0101010101010101010101010101010101010101010101010101010101010101
-  transaction-gas-budget: <=10000
-  ptb-command-count: <=5
-  action: allow
+  - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
+    transaction-gas-budget: "<=10000"
+    ptb-command-count: "<=5"
+    action: allow
 "#
         );
     }
@@ -493,11 +491,12 @@ rules:
 
         assert_eq!(
             yaml,
-            r#"access-policy: deny-all
+            r#"---
+access-policy: deny-all
 rules:
-- sender-address: 0x0101010101010101010101010101010101010101010101010101010101010101
-  move-call-package-address: 0x0202020202020202020202020202020202020202020202020202020202020202
-  action: allow
+  - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
+    move-call-package-address: "0x0202020202020202020202020202020202020202020202020202020202020202"
+    action: allow
 "#
         );
     }
