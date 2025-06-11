@@ -140,8 +140,9 @@ mod test {
         let iota_address = IotaAddress::new([1; 32]);
         let value_iota_address = ValueIotaAddress::Single(iota_address);
         let data = serde_yaml::to_string(&value_iota_address).unwrap();
+
         assert_eq!(
-            "0x0101010101010101010101010101010101010101010101010101010101010101\n",
+            "---\n\"0x0101010101010101010101010101010101010101010101010101010101010101\"\n",
             data
         );
 
@@ -156,8 +157,7 @@ mod test {
         let value_iota_address = ValueIotaAddress::List(vec![iota_address, iota_address]);
         let data = serde_yaml::to_string(&value_iota_address).unwrap();
         assert_eq!(
-            "- 0x0101010101010101010101010101010101010101010101010101010101010101
-- 0x0101010101010101010101010101010101010101010101010101010101010101\n",
+            "---\n- \"0x0101010101010101010101010101010101010101010101010101010101010101\"\n- \"0x0101010101010101010101010101010101010101010101010101010101010101\"\n",
             data
         );
 
@@ -170,7 +170,7 @@ mod test {
     fn test_serde_all_addresses() {
         let value_iota_address = ValueIotaAddress::All;
         let data = serde_yaml::to_string(&value_iota_address).unwrap();
-        assert_eq!("'*'\n", data);
+        assert_eq!("---\n\"*\"\n", data);
 
         let deserialized_value_iota_address: ValueIotaAddress =
             serde_yaml::from_str(&data).unwrap();

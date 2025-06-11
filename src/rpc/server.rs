@@ -5,6 +5,7 @@ use crate::access_controller::decision::Decision;
 use crate::access_controller::rule::TransactionContext;
 use crate::access_controller::{AccessController, TransactionExecutionResult};
 use crate::config::GasStationConfig;
+use crate::errors::generate_event_id;
 use crate::gas_station::gas_station_core::GasStation;
 use crate::logging::TxLogMessage;
 use crate::metrics::GasStationRpcMetrics;
@@ -32,7 +33,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinHandle;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, trace, warn};
 
 pub struct GasStationServer {
     pub handle: JoinHandle<()>,
@@ -314,10 +315,17 @@ async fn execute_tx_impl(
             );
         }
         Err(err) => {
-            error!("Error while checking access: {:?}", err);
+            let event_id = generate_event_id();
+            warn!(
+                "EventId={} Error while checking access: {:?}",
+                event_id, err
+            );
             return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ExecuteTxResponse::new_err(err)),
+                StatusCode::BAD_REQUEST,
+                Json(ExecuteTxResponse::new_err(anyhow::anyhow!(
+                    "Error while checking access. EventId={}",
+                    event_id
+                ))),
             );
         }
     }

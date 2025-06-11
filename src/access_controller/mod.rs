@@ -73,44 +73,41 @@ impl AccessController {
         }
 
         for (i, rule) in self.rules.iter().enumerate() {
-            match rule.matches(&ctx).await {
-                Ok(true) => {
-                    // Validate the counters if the rule partially matches
-                    let matching_result = rule.match_global_limits(ctx).await?;
-                    if !matching_result.1.is_empty() {
-                        self.confirmation_requests
-                            .lock()
-                            .await
-                            .insert(ctx.transaction_digest, matching_result.1);
-                    }
-                    // if the rule matches and also matches the global limits, check action
-                    if matching_result.0 {
-                        match &rule.action {
-                            Action::Allow => return Ok(Decision::Allow),
-                            Action::Deny => return Ok(Decision::Deny),
-                            Action::HookAction(hook_action) => {
-                                // call hook and take defined result or continue with next rule
-                                let response = hook_action.call_hook(ctx).await?;
-                                debug!("Called hook: {}, for transaction with digest: {}. Got decision: {:?}, with user message: {:?}",
+            if rule
+                .matches(&ctx)
+                .await
+                .with_context(|| anyhow!("Error evaluating rule #{}", i + 1))?
+            {
+                // Validate the counters if the rule partially matches
+                let matching_result = rule.match_global_limits(ctx).await?;
+                if !matching_result.1.is_empty() {
+                    self.confirmation_requests
+                        .lock()
+                        .await
+                        .insert(ctx.transaction_digest, matching_result.1);
+                }
+                // if the rule matches and also matches the global limits, invoke the action
+                if matching_result.0 {
+                    match &rule.action {
+                        Action::Allow => return Ok(Decision::Allow),
+                        Action::Deny => return Ok(Decision::Deny),
+                        Action::HookAction(hook_action) => {
+                            // call hook and take defined result or continue with next rule
+                            let response = hook_action.call_hook(ctx).await?;
+                            debug!("Called hook: {}, for transaction with digest: {}. Got decision: {:?}, with user message: {:?}",
                                     hook_action.0,
                                     ctx.transaction_digest,
                                     response.decision,
                                     response.user_message,
                                 );
-                                match response.decision {
-                                    SkippableDecision::Allow => return Ok(Decision::Allow),
-                                    SkippableDecision::Deny => return Ok(Decision::Deny),
-                                    SkippableDecision::NoDecision => continue,
-                                };
-                            }
-                        };
-                    } else {
-                        continue;
-                    }
+                            match response.decision {
+                                SkippableDecision::Allow => return Ok(Decision::Allow),
+                                SkippableDecision::Deny => return Ok(Decision::Deny),
+                                _ => (),
+                            };
+                        }
+                    };
                 }
-                // we don't need to check the global_limits if the rule doesn't match
-                Ok(false) => continue,
-                Err(e) => return Err(anyhow!("Error evaluating rule #{}: {}", i + 1, e)),
             }
         }
 
@@ -490,12 +487,13 @@ rules:
 
         assert_eq!(
             yaml,
-            r#"access-policy: deny-all
+            r#"---
+access-policy: deny-all
 rules:
-- sender-address: 0x0101010101010101010101010101010101010101010101010101010101010101
-  transaction-gas-budget: <=10000
-  ptb-command-count: <=5
-  action: allow
+  - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
+    transaction-gas-budget: "<=10000"
+    ptb-command-count: "<=5"
+    action: allow
 "#
         );
     }
@@ -512,14 +510,14 @@ rules:
         );
         let yaml = serde_yaml::to_string(&ac).unwrap();
 
-
         assert_eq!(
             yaml,
-            r#"access-policy: deny-all
+            r#"---
+access-policy: deny-all
 rules:
-- sender-address: 0x0101010101010101010101010101010101010101010101010101010101010101
-  move-call-package-address: 0x0202020202020202020202020202020202020202020202020202020202020202
-  action: allow
+  - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
+    move-call-package-address: "0x0202020202020202020202020202020202020202020202020202020202020202"
+    action: allow
 "#
         );
     }
