@@ -103,22 +103,22 @@ fn bcs_decode_bytes(data_bytes: &[u8], data_type: BcsDataType) -> Result<Value, 
         }
         BcsDataType::U8 => {
             let decoded: u8 = bcs::from_bytes(data_bytes)
-                .map_err(|e| anyhow::anyhow!("Failed to decode number: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("Failed to decode u8: {}", e))?;
             Ok(Value::Number((decoded as u64).into()))
         }
         BcsDataType::U16 => {
             let decoded: u16 = bcs::from_bytes(data_bytes)
-                .map_err(|e| anyhow::anyhow!("Failed to decode number: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("Failed to decode u16: {}", e))?;
             Ok(Value::Number((decoded as u64).into()))
         }
         BcsDataType::U32 => {
             let decoded: u32 = bcs::from_bytes(data_bytes)
-                .map_err(|e| anyhow::anyhow!("Failed to decode number: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("Failed to decode u32: {}", e))?;
             Ok(Value::Number((decoded as u64).into()))
         }
         BcsDataType::U64 => {
             let decoded: u64 = bcs::from_bytes(data_bytes)
-                .map_err(|e| anyhow::anyhow!("Failed to decode number: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("Failed to decode u64: {}", e))?;
             Ok(Value::Number((decoded as u64).into()))
         }
 
@@ -194,7 +194,7 @@ fn bcs_decode_bytes(data_bytes: &[u8], data_type: BcsDataType) -> Result<Value, 
         }
         BcsDataType::VectorU64 => {
             let decoded: Vec<u64> = bcs::from_bytes(data_bytes)
-                .map_err(|e| anyhow::anyhow!("Failed to decode vector of strings: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("Failed to decode vector of u64: {}", e))?;
             Ok(Value::from(
                 decoded
                     .into_iter()
