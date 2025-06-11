@@ -12,11 +12,17 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum BcsDataType {
     String,
+    U8,
+    U16,
+    U32,
     U64,
     Bool,
     Address,
     VectorAddress,
     VectorString,
+    VectorU8,
+    VectorU16,
+    VectorU32,
     VectorU64,
     VectorBool,
 }
@@ -48,9 +54,15 @@ impl TryFrom<&str> for BcsDataType {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
             "string" => Ok(BcsDataType::String),
+            "u8" => Ok(BcsDataType::U8),
+            "u16" => Ok(BcsDataType::U16),
+            "u32" => Ok(BcsDataType::U32),
             "u64" => Ok(BcsDataType::U64),
             "bool" => Ok(BcsDataType::Bool),
             "vector_string" => Ok(BcsDataType::VectorString),
+            "vector_u8" => Ok(BcsDataType::VectorU8),
+            "vector_u16" => Ok(BcsDataType::VectorU16),
+            "vector_u32" => Ok(BcsDataType::VectorU32),
             "vector_u64" => Ok(BcsDataType::VectorU64),
             "vector_bool" => Ok(BcsDataType::VectorBool),
             "vector_address" => Ok(BcsDataType::VectorAddress),
@@ -89,11 +101,27 @@ fn bcs_decode_bytes(data_bytes: &[u8], data_type: BcsDataType) -> Result<Value, 
             )?;
             Ok(Value::from(decoded.to_json_value()))
         }
+        BcsDataType::U8 => {
+            let decoded: u8 = bcs::from_bytes(data_bytes)
+                .map_err(|e| anyhow::anyhow!("Failed to decode number: {}", e))?;
+            Ok(Value::Number((decoded as u64).into()))
+        }
+        BcsDataType::U16 => {
+            let decoded: u16 = bcs::from_bytes(data_bytes)
+                .map_err(|e| anyhow::anyhow!("Failed to decode number: {}", e))?;
+            Ok(Value::Number((decoded as u64).into()))
+        }
+        BcsDataType::U32 => {
+            let decoded: u32 = bcs::from_bytes(data_bytes)
+                .map_err(|e| anyhow::anyhow!("Failed to decode number: {}", e))?;
+            Ok(Value::Number((decoded as u64).into()))
+        }
         BcsDataType::U64 => {
             let decoded: u64 = bcs::from_bytes(data_bytes)
                 .map_err(|e| anyhow::anyhow!("Failed to decode number: {}", e))?;
-            Ok(Value::Number(decoded.into()))
+            Ok(Value::Number((decoded as u64).into()))
         }
+
         BcsDataType::Bool => {
             let decoded =
                 IotaJsonValue::from_bcs_bytes(Some(&MoveTypeLayout::Bool.into()), data_bytes)?;
@@ -130,6 +158,37 @@ fn bcs_decode_bytes(data_bytes: &[u8], data_type: BcsDataType) -> Result<Value, 
                 decoded
                     .into_iter()
                     .map(|v| Value::from(v.as_str()))
+                    .collect::<Vec<_>>(),
+            ))
+        }
+        // We don't use the IotaJsonValue here, we use the BCS directly
+        BcsDataType::VectorU8 => {
+            let decoded: Vec<u8> = bcs::from_bytes(data_bytes)
+                .map_err(|e| anyhow::anyhow!("Failed to decode vector of u8: {}", e))?;
+            Ok(Value::from(
+                decoded
+                    .into_iter()
+                    .map(|v| Value::from(v as u64))
+                    .collect::<Vec<_>>(),
+            ))
+        }
+        BcsDataType::VectorU16 => {
+            let decoded: Vec<u16> = bcs::from_bytes(data_bytes)
+                .map_err(|e| anyhow::anyhow!("Failed to decode vector of u16: {}", e))?;
+            Ok(Value::from(
+                decoded
+                    .into_iter()
+                    .map(|v| Value::from(v as u64))
+                    .collect::<Vec<_>>(),
+            ))
+        }
+        BcsDataType::VectorU32 => {
+            let decoded: Vec<u32> = bcs::from_bytes(data_bytes)
+                .map_err(|e| anyhow::anyhow!("Failed to decode vector of u32: {}", e))?;
+            Ok(Value::from(
+                decoded
+                    .into_iter()
+                    .map(|v| Value::from(v as u64))
                     .collect::<Vec<_>>(),
             ))
         }
@@ -178,13 +237,19 @@ mod tests {
         let mut test_data = HashMap::new();
 
         test_data.insert(inputs_bytes[0].clone(), BcsDataType::String);
-        test_data.insert(inputs_bytes[1].clone(), BcsDataType::U64);
-        test_data.insert(inputs_bytes[2].clone(), BcsDataType::Address);
-        test_data.insert(inputs_bytes[3].clone(), BcsDataType::Bool);
-        test_data.insert(inputs_bytes[4].clone(), BcsDataType::VectorString);
-        test_data.insert(inputs_bytes[5].clone(), BcsDataType::VectorAddress);
-        test_data.insert(inputs_bytes[6].clone(), BcsDataType::VectorU64);
-        test_data.insert(inputs_bytes[7].clone(), BcsDataType::VectorBool);
+        test_data.insert(inputs_bytes[1].clone(), BcsDataType::U8);
+        test_data.insert(inputs_bytes[2].clone(), BcsDataType::U16);
+        test_data.insert(inputs_bytes[3].clone(), BcsDataType::U32);
+        test_data.insert(inputs_bytes[4].clone(), BcsDataType::U64);
+        test_data.insert(inputs_bytes[5].clone(), BcsDataType::Address);
+        test_data.insert(inputs_bytes[6].clone(), BcsDataType::Bool);
+        test_data.insert(inputs_bytes[7].clone(), BcsDataType::VectorString);
+        test_data.insert(inputs_bytes[8].clone(), BcsDataType::VectorU8);
+        test_data.insert(inputs_bytes[9].clone(), BcsDataType::VectorU16);
+        test_data.insert(inputs_bytes[10].clone(), BcsDataType::VectorU32);
+        test_data.insert(inputs_bytes[11].clone(), BcsDataType::VectorU64);
+        test_data.insert(inputs_bytes[12].clone(), BcsDataType::VectorAddress);
+        test_data.insert(inputs_bytes[13].clone(), BcsDataType::VectorBool);
         test_data
     }
 
@@ -198,9 +263,21 @@ mod tests {
                     matches!(result, Value::String(_));
                     assert_eq!(result, Value::String("hello".into()));
                 }
+                BcsDataType::U8 => {
+                    matches!(result, Value::Number(_));
+                    assert_eq!(result, Value::Number((u8::MAX as u64).into()));
+                }
+                BcsDataType::U16 => {
+                    matches!(result, Value::Number(_));
+                    assert_eq!(result, Value::Number((u16::MAX as u64).into()));
+                }
+                BcsDataType::U32 => {
+                    matches!(result, Value::Number(_));
+                    assert_eq!(result, Value::Number((u32::MAX as u64).into()));
+                }
                 BcsDataType::U64 => {
                     matches!(result, Value::Number(_));
-                    assert_eq!(result, Value::Number(123u64.into()));
+                    assert_eq!(result, Value::Number(u64::MAX.into()));
                 }
                 BcsDataType::Bool => {
                     matches!(result, Value::Bool(_));
@@ -211,7 +288,7 @@ mod tests {
                     assert_eq!(
                         result,
                         Value::String(
-                            "0xdb06dbb2fc0f61f4fc292f3dec8e3c397e8a8c8c82311a0679e8e7e0bbfc453d"
+                            "0x32699386a39f53191c4d262157d8520ca4c83fa530dd11cb9e80315aa40af77c"
                                 .into()
                         )
                     );
@@ -223,14 +300,14 @@ mod tests {
                     assert_eq!(
                         vec[0],
                         Value::String(
-                            "0xdb06dbb2fc0f61f4fc292f3dec8e3c397e8a8c8c82311a0679e8e7e0bbfc453d"
+                            "0x32699386a39f53191c4d262157d8520ca4c83fa530dd11cb9e80315aa40af77c"
                                 .into()
                         )
                     );
                     assert_eq!(
                         vec[1],
                         Value::String(
-                            "0xdb06dbb2fc0f61f4fc292f3dec8e3c397e8a8c8c82311a0679e8e7e0bbfc453d"
+                            "0x32699386a39f53191c4d262157d8520ca4c83fa530dd11cb9e80315aa40af77c"
                                 .into()
                         )
                     );
@@ -242,12 +319,33 @@ mod tests {
                     assert_eq!(vec[0], Value::String("hello".into()));
                     assert_eq!(vec[1], Value::String("world".into()));
                 }
+                BcsDataType::VectorU8 => {
+                    matches!(result, Value::Array(_));
+                    let vec = result.as_array().unwrap();
+                    assert_eq!(vec.len(), 2);
+                    assert_eq!(vec[0], Value::Number((u8::MAX as u64).into()));
+                    assert_eq!(vec[1], Value::Number((u8::MIN as u64).into()));
+                }
+                BcsDataType::VectorU16 => {
+                    matches!(result, Value::Array(_));
+                    let vec = result.as_array().unwrap();
+                    assert_eq!(vec.len(), 2);
+                    assert_eq!(vec[0], Value::Number((u16::MAX as u64).into()));
+                    assert_eq!(vec[1], Value::Number((u16::MIN as u64).into()));
+                }
+                BcsDataType::VectorU32 => {
+                    matches!(result, Value::Array(_));
+                    let vec = result.as_array().unwrap();
+                    assert_eq!(vec.len(), 2);
+                    assert_eq!(vec[0], Value::Number((u32::MAX as u64).into()));
+                    assert_eq!(vec[1], Value::Number((u32::MIN as u64).into()));
+                }
                 BcsDataType::VectorU64 => {
                     matches!(result, Value::Array(_));
                     let vec = result.as_array().unwrap();
                     assert_eq!(vec.len(), 2);
-                    assert_eq!(vec[0], Value::Number(1u64.into()));
-                    assert_eq!(vec[1], Value::Number(u64::MAX.into()));
+                    assert_eq!(vec[0], Value::Number(u64::MAX.into()));
+                    assert_eq!(vec[1], Value::Number(u64::MIN.into()));
                 }
                 BcsDataType::VectorBool => {
                     matches!(result, Value::Array(_));
@@ -264,13 +362,19 @@ mod tests {
     fn test_bcs_data_type_from_string() {
         let test_data = vec![
             ("string", BcsDataType::String),
+            ("u8", BcsDataType::U8),
+            ("u16", BcsDataType::U16),
+            ("u32", BcsDataType::U32),
             ("u64", BcsDataType::U64),
+            ("address", BcsDataType::Address),
             ("bool", BcsDataType::Bool),
             ("vector_string", BcsDataType::VectorString),
+            ("vector_u8", BcsDataType::VectorU8),
+            ("vector_u16", BcsDataType::VectorU16),
+            ("vector_u32", BcsDataType::VectorU32),
             ("vector_u64", BcsDataType::VectorU64),
-            ("vector_bool", BcsDataType::VectorBool),
             ("vector_address", BcsDataType::VectorAddress),
-            ("address", BcsDataType::Address),
+            ("vector_bool", BcsDataType::VectorBool),
         ];
 
         for (input, expected) in test_data {
