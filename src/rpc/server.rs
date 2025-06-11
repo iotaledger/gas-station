@@ -4,15 +4,17 @@
 use crate::access_controller::decision::Decision;
 use crate::access_controller::rule::TransactionContext;
 use crate::access_controller::{AccessController, TransactionExecutionResult};
+use crate::config::GasStationConfig;
 use crate::gas_station::gas_station_core::GasStation;
 use crate::logging::TxLogMessage;
 use crate::metrics::GasStationRpcMetrics;
 use crate::rpc::client::GasStationRpcClient;
 use crate::rpc::rpc_types::{
-    ExecuteTxRequest, ExecuteTxResponse, ReserveGasRequest, ReserveGasResponse,
+    ExecuteTxRequest, ExecuteTxResponse, GasStationResponse, ReserveGasRequest, ReserveGasResponse,
 };
 use crate::tracker::StatsTracker;
 use crate::{read_auth_env, VERSION};
+use arc_swap::ArcSwap;
 use axum::headers::authorization::Bearer;
 use axum::headers::Authorization;
 use axum::http::{HeaderMap, StatusCode};
@@ -20,11 +22,13 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router, TypedHeader};
 use fastcrypto::encoding::Base64;
+use iota_config::Config;
 use iota_json_rpc_types::IotaTransactionBlockEffectsAPI;
 use iota_types::crypto::ToFromBytes;
 use iota_types::signature::GenericSignature;
 use iota_types::transaction::TransactionData;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinHandle;
@@ -41,18 +45,31 @@ impl GasStationServer {
         host_ip: Ipv4Addr,
         rpc_port: u16,
         metrics: Arc<GasStationRpcMetrics>,
-        access_controller: Arc<AccessController>,
+        access_controller: Arc<ArcSwap<AccessController>>,
         stats_tracker: StatsTracker,
+        config_path: PathBuf,
     ) -> Self {
-        let state = ServerState::new(station, metrics, access_controller, stats_tracker);
+        let state = ServerState::new(
+            station,
+            metrics,
+            access_controller,
+            stats_tracker,
+            config_path,
+        );
         let app = Router::new()
             .route("/", get(health))
             .route("/version", get(version))
             .route("/debug_health_check", post(debug_health_check))
             .route("/v1/reserve_gas", post(reserve_gas))
             .route("/v1/execute_tx", post(execute_tx))
+            .route(
+                "/v1/reload_access_controller",
+                get(reload_access_controller),
+            )
             .layer(Extension(state));
+
         let address = SocketAddr::new(IpAddr::V4(host_ip), rpc_port);
+
         let handle = tokio::spawn(async move {
             info!("listening on {}", address);
             axum::Server::bind(&address)
@@ -73,16 +90,18 @@ struct ServerState {
     gas_station: Arc<GasStation>,
     secret: Arc<String>,
     metrics: Arc<GasStationRpcMetrics>,
-    access_controller: Arc<AccessController>,
+    access_controller: Arc<ArcSwap<AccessController>>,
     stats_tracker: StatsTracker,
+    config_path: PathBuf,
 }
 
 impl ServerState {
     fn new(
         gas_station: Arc<GasStation>,
         metrics: Arc<GasStationRpcMetrics>,
-        access_controller: Arc<AccessController>,
+        access_controller: Arc<ArcSwap<AccessController>>,
         stats_tracker: StatsTracker,
+        config_path: PathBuf,
     ) -> Self {
         let secret = Arc::new(read_auth_env());
         Self {
@@ -91,6 +110,7 @@ impl ServerState {
             metrics,
             access_controller,
             stats_tracker,
+            config_path,
         }
     }
 }
@@ -277,10 +297,10 @@ async fn execute_tx_impl(
     metrics: Arc<GasStationRpcMetrics>,
     tx_data: TransactionData,
     user_sig: GenericSignature,
-    access_controller: Arc<AccessController>,
+    access_controller: Arc<ArcSwap<AccessController>>,
     ctx: TransactionContext,
 ) -> (StatusCode, Json<ExecuteTxResponse>) {
-    match access_controller.check_access(&ctx).await {
+    match access_controller.load().check_access(&ctx).await {
         Ok(Decision::Allow) => {
             metrics.num_allowed_execute_tx_requests.inc();
         }
@@ -318,6 +338,7 @@ async fn execute_tx_impl(
 
             metrics.num_successful_execute_tx_requests.inc();
             let confirmation_result = access_controller
+                .load()
                 .confirm_transaction(
                     TransactionExecutionResult::new(transaction_digest)
                         .with_gas_usage(effects.gas_cost_summary().gas_used()),
@@ -336,6 +357,7 @@ async fn execute_tx_impl(
             error!("Failed to execute transaction: {:?}", err);
 
             let confirmation_result = access_controller
+                .load()
                 .confirm_transaction(
                     TransactionExecutionResult::new(transaction_digest),
                     &ctx.stats_tracker,
@@ -352,6 +374,46 @@ async fn execute_tx_impl(
             )
         }
     }
+}
+
+async fn reload_access_controller(
+    TypedHeader(authorization): TypedHeader<Authorization<Bearer>>,
+    Extension(server): Extension<ServerState>,
+) -> impl IntoResponse {
+    if authorization.token() != server.secret.as_str() {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(GasStationResponse::new_err_from_str(
+                "Invalid authorization token",
+            )),
+        );
+    }
+    let mut access_controller = match GasStationConfig::load(&server.config_path) {
+        Ok(new_config) => new_config.access_controller,
+        Err(err) => {
+            error!("Failed to load config file: {:?}", err);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(GasStationResponse::new_err_from_str(
+                    "Failed to load config file",
+                )),
+            );
+        }
+    };
+    let result = access_controller.initialize().await;
+    if let Err(err) = result {
+        error!("Failed to initialize access controller: {:?}", err);
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(GasStationResponse::new_err(err)),
+        );
+    }
+    server.access_controller.store(Arc::new(access_controller));
+    info!(
+        "Access controller reloaded successfully with {} rules",
+        server.access_controller.load().rules.len()
+    );
+    return (StatusCode::OK, Json(GasStationResponse::new_ok("success")));
 }
 
 fn convert_tx_and_sig(

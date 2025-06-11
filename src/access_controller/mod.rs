@@ -28,9 +28,9 @@ use crate::tracker::StatsTracker;
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub struct AccessController {
-    access_policy: AccessPolicy,
+    pub access_policy: AccessPolicy,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    rules: Vec<AccessRule>,
+    pub rules: Vec<AccessRule>,
 
     #[serde(skip)]
     confirmation_requests: Arc<Mutex<HashMap<TransactionDigest, Vec<GasUsageConfirmationRequest>>>>,
@@ -53,6 +53,15 @@ impl AccessController {
             rules: rules.into_iter().collect(),
             confirmation_requests: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Initializes the access controller by loading the rules from the external sources
+    pub async fn initialize(&mut self) -> Result<()> {
+        for (i, rule) in &mut self.rules.iter_mut().enumerate() {
+            debug!("Initializing access control rule {}", i + 1);
+            rule.initialize().await?;
+        }
+        Ok(())
     }
 
     /// Checks if the transaction can be executed based on the access controller's rules.
@@ -153,6 +162,12 @@ impl AccessController {
     /// Returns true if the access controller is disabled.
     pub fn is_disabled(&self) -> bool {
         self.access_policy == AccessPolicy::Disabled
+    }
+
+    pub async fn reload(&mut self, rules: Vec<AccessRule>, policy: AccessPolicy) -> Result<()> {
+        self.rules = rules;
+        self.access_policy = policy;
+        self.initialize().await
     }
 }
 

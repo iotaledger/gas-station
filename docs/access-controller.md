@@ -2,6 +2,18 @@
 
 The **Gas Station Server** includes an **Access Controller** mechanism to manage access to the `/execute_tx` endpoint. This feature allows you to implement filtering logic based on properties derived from transactions. Currently, the Access Controller supports filtering based on the sender's address, enabling you to block or allow specific addresses.
 
+## Access Controller Rule syntax
+
+|  parameter                  | mandatory  | possible values                                                |
+|-----------------------------| -----------|----------------------------------------------------------------|
+| `sender-address`            |  yes       | `'0x0000...'`, `[0x0000.., 0x1111...]`, `'*'`                  |
+| `gas-budget`                |  no        | `'=100'`, `'<100'`,  `'<=100'`, `'>100'`, `'>=100'`, `'!=100'` |
+| `move-call-package-address` |  no        | `'0x0000...'`, `[0x0000..., 0x1111...]`, `'*'`                 |
+| `ptb-command-count`         |  no        | `'=10'`, `'<10'`,  `'<=10'`, `'>10'`, `'>=10'`, `'!=10'`       |
+| `action`                    |  yes       | `'allow'`, `'deny'`, [Hook Server URL](#hook-server)           |
+| `gas_usage`                 |  no        | See [Gas Usage Filter](#gas-usage-filter)                      |
+| `rego_expression`           |  no        | See [Gas Rego Expression](#rego-expression-filter)             |
+
 ## Access Controller Examples
 
 - Disable All Requests and Allow Only a Specific Address
@@ -14,7 +26,7 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
       rules:
          - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
            move-call-package-address: "0x0202020202020202020202020202020202020202020202020202020202020202"
-           action: 'allow' # allowed actions: 'allow', 'deny', a hook url (see "Hook Server" section)
+           action: allow # allowed actions: 'allow', 'deny', a hook url (see "Hook Server" section)
    ```
 
 ---
@@ -28,7 +40,7 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
       access-policy: deny-all
       rules:
          - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
-           action: 'deny'
+           action: deny
    ```
 
 ---
@@ -42,8 +54,8 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
       access-policy: deny-all
       rules:
          - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
-           transaction-gas-budget: '<1000000' # allowed operators: =, !=, <, >, <=, >=
-           action: 'allow'
+           transaction-gas-budget: <1000000 # allowed operators: =, !=, <, >, <=, >=
+           action: allow
    ```
 
 ---
@@ -57,12 +69,12 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
       access-policy: deny-all
       rules:
          - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
-           transaction-gas-budget: '<=10000000'
-           action: 'allow'
+           transaction-gas-budget: <=10000000
+           action: allow
 
          - sender-address: '*'
-           transaction-gas-budget: '<500000'
-           action: 'allow'
+           transaction-gas-budget: <500000
+           action: allow
    ```
 
 ---
@@ -79,27 +91,203 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
       rules:
          - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
            ptb-command-count: <=1 # allowed operators: =, !=, <, >, <=, >=
-           action: 'allow'
+           action: allow
    ```
 
 ---
 
-### Access Controller Rule syntax
+## Rego Expression Filter
 
-|  parameter                  | mandatory  | possible values                                                |
-|-----------------------------| -----------|----------------------------------------------------------------|
-| `sender-address`            |  no        | `'0x0000...'`, `[0x0000.., 0x1111...]`, `'*'`                  |
-| `gas-budget`                |  no        | `'=100'`, `'<100'`,  `'<=100'`, `'>100'`, `'>=100'`, `'!=100'` |
-| `move-call-package-address` |  no        | `'0x0000...'`, `[0x0000..., 0x1111...]`, `'*'`                 |
-| `ptb-command-count`         |  no        | `'=10'`, `'<10'`,  `'<=10'`, `'>10'`, `'>=10'`, `'!=10'`       |
-| `action`                    |  yes       | `'allow'`, `'deny'`, (URL, e.g. `http://127.0.0.1:8080` )      |
-| `gas_usage`                 |  no        | See [Gas Usage Limit](#gas-usage-limit-feature)                |
+The Rego Expression Filter allows you to evaluate incoming transaction payloads against custom logic by using the Rego language. This gives you the flexibility to check properties like the sender address or any other field available in the transaction data.
 
-Below is a revised version of the documentation with improved grammar and clarity:
+### Rego Expression Input Payload
 
----
+Below is an example JSON payload against which a Rego rule is evaluated:
 
-### Gas Usage Limit Feature
+```json
+{
+  "transaction_data": {
+    "V1": {
+      "kind": {
+        "ProgrammableTransaction": {
+          "inputs": [
+            {
+              "Pure": [
+                5,
+                104,
+                101,
+                108,
+                108,
+                111
+              ]
+            }
+          ],
+          "commands": [
+            {
+              "MoveCall": {
+                "package": "0xb674e2ed79db3c25fa4c00d5c7d62a9c18089e1fc4c2de5b5ee8b2836a85ae26",
+                "module": "allowed_module_name",
+                "function": "allowed_module_function",
+                "type_arguments": [],
+                "arguments": [
+                  {
+                    "Input": 0
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "sender": "0xa2e17e20f97355af6491580ff5c11ecefcdcf76ea224d163e5cb92389adf2311",
+      "gas_data": {
+        "payment": [
+          [
+            "0x1369ab7cca1c229d093060d66666db7c0db1edf43310d5e56acec2dafa492ffb",
+            9521034,
+            "9knpRtwCc9LK1BCJ222KZwgr9ZVHDyZhiLUTPt82FtmV"
+          ],
+          [
+            "0x1932fbdf314cb263f4d2a00656144e0951edd99fe5489b07b799b7087f8de20d",
+            9521055,
+            "BAubkJuEwD1PRGL1CLBRjv3GCP83p93J7ZAdSsdVtifk"
+          ],
+          [
+            "0x19d732e1b95c8b6af724ba026f8f61e4b72b9931777a0e1d0b8d3054de1b2ef4",
+            9521050,
+            "GRyLJcRSepVk3r9Fjdmv9MxauX6mrzYVptAhPwzVRu61"
+          ],
+          [
+            "0x1a5f7fc0f977a3020f8c5bd30c635fadab9b1ea0003e8255d90ec9ee48ff09ea",
+            9521042,
+            "BbrFR6tykrnKzskVJRcBJbWfDRcCeBqMweotE4bXVXLo"
+          ],
+          [
+            "0x1d02df222b5149497a4d722514bf33a8bf755011724cdd3ced7ecb174d833690",
+            9521046,
+            "DcwkhBh2sdw8yJW1SH4tv5mVq6Ec7z4EmAaRL2H3AS27"
+          ],
+          [
+            "0x1d8bf3742256d434ae9f1305eab214c5af458539c293ee51a25af8826b692589",
+            9521046,
+            "GG9mzv9JpXvAMeAC2FWPMXSqWqyTJiqeFepwLAzEpKgL"
+          ],
+          [
+            "0x1e878332e7fa2e6fa6120a395bc8ad207ba5f5fa7cc8359ae4b56da20b50ff54",
+            9521056,
+            "GrK2met5oxjdVP3qJuXtNAs7hkajFFUwbe512LVxBBmW"
+          ],
+          [
+            "0x1ed6d2105135371d901d24e4acd6fd9025b24d4d3d75277f2ad059825a5e5b38",
+            9521040,
+            "DJurdiKP82LVADxNrxsYnYJW9aCcDP1bxLbNbdcvdMHV"
+          ],
+          [
+            "0x1f551af1739e258b5ed17c48e348c494de7598dc2a42aa2d5c0f284589de61e7",
+            9521037,
+            "4rpZtAY2eC2YyAJiDcDfq1BbCnV4sPKQQBU9rGCyTpmD"
+          ],
+          [
+            "0x1fcf200bc9b970c9c877ddadddf28cdff19165c246914444b2968c7287587e8a",
+            9521056,
+            "5DDvPhXHRzmjdT9FRNqYe5T5LwkBpov2XKRpnNevhMJf"
+          ]
+        ],
+        "owner": "0x27147325dafdae103c7e8f09a82654ae7a4654c3042e1e278187013065be47b7",
+        "price": 1000,
+        "budget": 3000000
+      },
+      "expiration": "None"
+    }
+  }
+}
+```
+
+### Rego Filtering Code Example
+
+The payload above is evaluated against a Rego expression. Suppose we want to ensure that only specific move-call can be sponsored by the Gas Station. To enforce this, we can write the following expression:
+
+1. **Extract the Commands Array:**
+   Retrieve the array of commands from the payload.
+
+2. **Restrict to a Single Command:**
+   Ensure that only one command is allowed to prevent piggybacking, where the sender might attach an additional unauthorized move-call to another contract.
+
+3. **Verify Expected Fields:**
+   Confirm that the package, module, and function fields match the expected values.
+
+```go
+package matchers
+
+default move_call_matches = false
+
+move_call_matches if {
+    cmds := input.transaction_data.V1.kind.ProgrammableTransaction.commands
+    count(cmds) == 1
+
+    mc := cmds[0].MoveCall
+    mc["package"]  == "0xb674e2ed79db3c25fa4c00d5c7d62a9c18089e1fc4c2de5b5ee8b2836a85ae26"
+    mc.module   == "allowed_module_name"
+    mc.function == "allowed_function_name"
+}
+```
+
+> **Note:** All field addresses in the Rego expression should begin with `input`.
+
+> **Note:** For full Rego syntax details please see the [Reference](https://www.openpolicyagent.org/docs/policy-language).
+
+### Rego Expression Sources
+
+The Rego expressions may come from different sources:
+
+- **File:** Example configuration to load a rule from a file.
+- **Redis:** Example configuration loading a rule from Redis.
+- **HTTP:** Example configuration loading a rule via HTTP.
+
+#### Rego from File
+
+```yaml
+access-controller:
+  access-policy: deny-all
+  rules:
+    - sender-address: "*"
+      rego-expression:
+        location-type: file
+        path: "./source_file.rego"
+        rego-rule-path: data.matchers.move_call_matches
+      action: allow
+```
+
+#### Rego from Redis
+
+```yaml
+access-controller:
+  access-policy: allow-all
+  rules:
+    - sender-address: "*"
+    rego-expression:
+        location-type: redis
+        url: "redis://localhost"
+        redis-key: source.rego
+        rego-rule-path: data.matchers.move_call_matches
+      action: allow
+```
+
+#### Rego from HTTP
+
+```yaml
+access-controller:
+  access-policy: allow-all
+  rules:
+    - sender-address: "*"
+      rego-expression:
+        location-type: http
+        url: "http://localhost:8080/source.rego"
+        rego-rule-path: data.matchers.move_call_matches
+      action: deny
+```
+
+## Gas Usage Filter
 
 The **Gas Usage Limit** feature enables you to track gas consumption based on predefined parameters. When enabled, the gas tracking applies to the entire rule. The configuration syntax is:
 
@@ -112,7 +300,7 @@ gas-usage:
 
 > **Note:** The syntax of `duration` follows the specification used in the [`humantime`](https://docs.rs/humantime/latest/humantime/index.html) crate
 
-#### Gas Usage Examples
+### Gas Usage Examples
 
 Below are two examples that demonstrate how to enforce gas usage limits.
 
@@ -132,12 +320,12 @@ access-controller:
   rules:
     - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
       gas-usage:
-        value: '>1000000'
         window: 1 day
-      action: 'deny'
+        value: ">1000000"
+      action: deny
 
     - sender-address: '*'
-      action: 'allow'
+      action: allow
 ```
 
 ---
@@ -153,9 +341,9 @@ access-controller:
     - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
       move-call-package-address: "0x0202020202020202020202020202020202020202020202020202020202020202"
       gas-usage:
-        value: '<1000000'
+        value: <1000000
         window: 1 day
-      action: 'allow'
+      action: allow
 ```
 
 ---
@@ -170,13 +358,13 @@ access-controller:
   rules:
     - sender-address: "*"
       gas-usage:
-        value: '<1000000'
+        value: <1000000
         window: 1 day
         count-by: [ sender-address ]
-      action: 'allow'
+      action: allow
 ```
 
-### Hook Server
+## Hook Server
 
 An external server (a hook), that decides whether a transaction should be executed or not can be configured. The hook receives the same input as the gas station allowing to parse inspect the transaction the same way, as the gas station does.
 
@@ -194,12 +382,12 @@ flowchart TD
     AllowTx(allow tx)
     DenyTx(deny tx)
     CheckNextRule(check<br>next<br>rule)
-    CheckPreviousTerm{previous<br>term<br>applies}
+    CheckPreviousTerm{previous<br>terms<br>apply}
     CheckResponse{process<br>response}
 
-    Start --> CheckPreviousTerm
-    CheckPreviousTerm -->|yes| CallHook
-    CheckPreviousTerm -->|no| IgnoreHook
+    Start --> CheckPreviousTerms
+    CheckPreviousTerms -->|yes| CallHook
+    CheckPreviousTerms -->|no| IgnoreHook
 
     IgnoreHook --> CheckNextRule
 
