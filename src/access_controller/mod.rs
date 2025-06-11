@@ -70,29 +70,23 @@ impl AccessController {
         }
 
         for (i, rule) in self.rules.iter().enumerate() {
-            match rule
+            if rule
                 .matches(&ctx)
                 .await
                 .with_context(|| anyhow!("Error evaluating rule #{}", i + 1))?
             {
-                true => {
-                    // Validate the counters if the rule partially matches
-                    let matching_result = rule.match_global_limits(ctx).await?;
-                    if !matching_result.1.is_empty() {
-                        self.confirmation_requests
-                            .lock()
-                            .await
-                            .insert(ctx.transaction_digest, matching_result.1);
-                    }
-                    // if the rule matches and also matches the global limits, invoke the action
-                    if matching_result.0 {
-                        return Ok(rule.action.into());
-                    } else {
-                        continue;
-                    }
+                // Validate the counters if the rule partially matches
+                let matching_result = rule.match_global_limits(ctx).await?;
+                if !matching_result.1.is_empty() {
+                    self.confirmation_requests
+                        .lock()
+                        .await
+                        .insert(ctx.transaction_digest, matching_result.1);
                 }
-                // we don't need to check the global_limits if the rule doesn't match
-                false => continue,
+                // if the rule matches and also matches the global limits, invoke the action
+                if matching_result.0 {
+                    return Ok(rule.action.into());
+                }
             }
         }
 
