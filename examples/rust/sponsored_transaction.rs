@@ -32,7 +32,7 @@ async fn main() {
     assert!(gas_coins.len() >= 1);
 
     // Create a new IOTA Client
-    let iota_client = IotaClientBuilder::default().build_testnet().await.unwrap();
+    let iota_client = IotaClientBuilder::default().build_localnet().await.unwrap();
 
     // Load the config from default location (~./iota/iota_config/client.yaml)
     let config_path = format!(

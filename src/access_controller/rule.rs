@@ -71,7 +71,7 @@ impl AccessRuleBuilder {
 
     /// Sets the action of the AccessRule to call hook.
     pub fn hook(mut self, url: Url) -> Self {
-        self.rule.action = Action::HookAction(HookAction(url));
+        self.rule.action = Action::HookAction(HookAction::HookActionUrl(url));
         self
     }
 

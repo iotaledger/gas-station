@@ -61,6 +61,7 @@ url = { version = "2.5.4", features = ["serde"] }
 
 
 [dev-dependencies]
+indoc = "2"
 rand = "0.8.5"
 
 iota-swarm-config = { git = "https://github.com/iotaledger/iota", tag = "v0.10.3-rc", package = "iota-swarm-config" }

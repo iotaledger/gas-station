@@ -29,7 +29,9 @@ mod test {
             (r#""deny""#, Action::Deny),
             (
                 r#""http://example.org/""#,
-                Action::HookAction(HookAction(Url::parse("http://example.org/").unwrap())),
+                Action::HookAction(HookAction::HookActionUrl(
+                    Url::parse("http://example.org/").unwrap(),
+                )),
             ),
         ];
 
@@ -56,7 +58,9 @@ mod test {
             (Action::Allow, r#""allow""#),
             (Action::Deny, r#""deny""#),
             (
-                Action::HookAction(HookAction(Url::parse("http://example.org/").unwrap())),
+                Action::HookAction(HookAction::HookActionUrl(
+                    Url::parse("http://example.org/").unwrap(),
+                )),
                 r#""http://example.org/""#,
             ),
         ];

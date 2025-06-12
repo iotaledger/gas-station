@@ -95,7 +95,7 @@ impl AccessController {
                             // call hook and take defined result or continue with next rule
                             let response = hook_action.call_hook(ctx).await?;
                             debug!("Called hook: {}, for transaction with digest: {}. Got decision: {:?}, with user message: {:?}",
-                                    hook_action.0,
+                                    hook_action.url(),
                                     ctx.transaction_digest,
                                     response.decision,
                                     response.user_message,

@@ -3,9 +3,9 @@
 
 //! Types related to hook server. Kept in sync with API spec.
 
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
+
+use super::HookActionHeaders;
 
 /// Input for hook to check if transaction should be executed.
 /// Contains original request for Gas Stations `execute_tx` endpoint.
@@ -20,7 +20,7 @@ pub struct ExecuteTxHookRequest {
 #[serde(rename_all = "camelCase")]
 pub struct ExecuteTxGasStationRequest {
     pub payload: ExecuteTxRequestPayload,
-    pub headers: HashMap<String, Vec<String>>,
+    pub headers: HookActionHeaders,
 }
 
 /// Data originally sent to IOTA Gas Station.

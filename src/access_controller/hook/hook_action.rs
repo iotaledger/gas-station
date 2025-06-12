@@ -1,71 +1,214 @@
 // Copyright (c) 2025 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
+use anyhow::Context as _;
+use axum::http::{HeaderMap, HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use crate::access_controller::hook::{
-    ExecuteTxGasStationRequest, ExecuteTxHookRequest, ExecuteTxOkResponse, ExecuteTxRequestPayload,
-};
-use crate::access_controller::rule::TransactionContext;
-
-const HOOK_REQUEST_TIMEOUT_SECONDS: u64 = 60;
-
-fn convert_header_map_to_vec(ctx: &TransactionContext) -> HashMap<String, Vec<String>> {
-    let mut header_hashmap: HashMap<String, Vec<String>> = HashMap::new();
-    for (k, v) in ctx.headers.clone() {
-        let k = k.map(|v| v.to_string()).unwrap_or_default();
-        let v = String::from_utf8_lossy(v.as_bytes()).into_owned();
-        header_hashmap.entry(k).or_insert_with(Vec::new).push(v);
+fn hash_map_to_header_map(hash_map: &HookActionHeaders) -> Result<HeaderMap, anyhow::Error> {
+    let mut header_map = HeaderMap::new();
+    for (key, values) in hash_map.iter() {
+        for value in values.iter() {
+            header_map.append(
+                HeaderName::from_bytes(key.as_bytes()).context("failed to parse header name")?,
+                HeaderValue::from_str(&value).context("failed to parse header value")?,
+            );
+        }
     }
 
-    header_hashmap
-}
-
-fn build_execute_tx_hook_request_payload(ctx: &TransactionContext) -> ExecuteTxHookRequest {
-    ExecuteTxHookRequest {
-        execute_tx_request: ExecuteTxGasStationRequest {
-            payload: ExecuteTxRequestPayload {
-                reservation_id: ctx.reservation_id,
-                tx_bytes: ctx.tx_bytes.encoded(),
-                user_sig: ctx.user_sig.encoded(),
-            },
-            headers: convert_header_map_to_vec(ctx),
-        },
-    }
+    Ok(header_map)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct HookAction(pub(crate) Url);
+pub struct HookActionDetailed {
+    url: Url,
+    headers: Option<HookActionHeaders>,
+}
+
+impl HookActionDetailed {
+    pub fn new(url: Url) -> Self {
+        Self { url, headers: None }
+    }
+
+    pub fn with_headers(mut self, headers: HookActionHeaders) -> Self {
+        self.headers = Some(headers);
+        self
+    }
+}
+
+// pub type HookActionHeaders = HashMap<String, Vec<String>>;
+pub type HookActionHeaders = BTreeMap<String, Vec<String>>;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum HookAction {
+    HookActionUrl(Url),
+    HookActionDetailed(HookActionDetailed),
+}
 
 impl HookAction {
-    /// Call hook to let it decide about transaction processing.
-    pub async fn call_hook(
-        &self,
-        ctx: &TransactionContext,
-    ) -> Result<ExecuteTxOkResponse, anyhow::Error> {
-        use anyhow::Context;
+    /// Url the hook call is made against.
+    pub fn url(&self) -> &Url {
+        match self {
+            HookAction::HookActionUrl(url) => url,
+            HookAction::HookActionDetailed(HookActionDetailed { url, .. }) => url,
+        }
+    }
 
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(HOOK_REQUEST_TIMEOUT_SECONDS))
-            .build()?;
-        let body = build_execute_tx_hook_request_payload(ctx);
-        let res = client.post(self.0.clone()).json(&body).send().await?;
+    /// Headers, that will be used in the hook call.
+    pub fn headers(&self) -> Option<&HookActionHeaders> {
+        match self {
+            HookAction::HookActionDetailed(HookActionDetailed {
+                headers: Some(headers),
+                ..
+            }) => Some(&headers),
+            _ => None,
+        }
+    }
 
-        if res.status().is_success() {
-            return res
-                .json()
-                .await
-                .context("failed to parse successful hook response body");
-        } else {
-            let message = format!(
-                "hook call failed with status {}; {}",
-                res.status(),
-                res.text().await.unwrap_or_default()
-            );
-            anyhow::bail!(message);
+    /// Get and/or cache headers as `HeaderMap`.
+    ///
+    /// This can be refactored to an `Rule::initialize` step, as soon as soon as #69 is merged.
+    pub fn header_map(&self) -> Result<Option<HeaderMap>, anyhow::Error> {
+        match self {
+            // HookAction::HookActionDetailed(hook_action_detailed) => {
+            //     hook_action_detailed.header_map()
+            // }
+            HookAction::HookActionDetailed(HookActionDetailed {
+                headers: Some(headers),
+                ..
+            }) => hash_map_to_header_map(headers).map(|v| Some(v)),
+            _ => Ok(None),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use indoc::indoc;
+
+    use super::*;
+
+    const EXAMPLE_URL: &str = "http://example.org/";
+
+    mod hook_action_url {
+        use super::*;
+
+        const SERIALIZED_HOOK_ACTION_URL: &str = indoc! {"
+            http://example.org/
+        "};
+
+        #[test]
+        fn can_be_serialized() {
+            let action = HookAction::HookActionUrl(Url::parse(EXAMPLE_URL).unwrap());
+            let serialized = serde_yaml::to_string(&action).unwrap();
+            assert_eq!(serialized, SERIALIZED_HOOK_ACTION_URL);
+        }
+
+        #[test]
+        fn can_be_deserialized() {
+            let action = HookAction::HookActionUrl(Url::parse(EXAMPLE_URL).unwrap());
+            let deserialized: HookAction =
+                serde_yaml::from_str(&SERIALIZED_HOOK_ACTION_URL).unwrap();
+            assert_eq!(deserialized, action);
+        }
+    }
+
+    mod hook_action_detailed {
+        use super::*;
+
+        mod without_headers {
+            use super::*;
+
+            const SERIALIZED_HOOK_ACTION: &str = indoc! {"
+                url: http://example.org/
+                headers: null
+            "};
+
+            #[test]
+            fn can_be_serialized() {
+                let action = HookAction::HookActionDetailed(HookActionDetailed::new(
+                    Url::parse(EXAMPLE_URL).unwrap(),
+                ));
+
+                let serialized = serde_yaml::to_string(&action).unwrap();
+
+                assert_eq!(serialized, SERIALIZED_HOOK_ACTION);
+            }
+            #[test]
+            fn can_be_deserialized() {
+                let action = HookAction::HookActionDetailed(HookActionDetailed::new(
+                    Url::parse(EXAMPLE_URL).unwrap(),
+                ));
+
+                let deserialized: HookAction =
+                    serde_yaml::from_str(&SERIALIZED_HOOK_ACTION).unwrap();
+
+                assert_eq!(deserialized, action);
+            }
+        }
+
+        mod with_headers {
+            use super::*;
+
+            const SERIALIZED_HOOK_ACTION: &str = indoc! {"
+                url: http://example.org/
+                headers:
+                  foo:
+                  - foo
+                  foobar:
+                  - foo
+                  - bar
+            "};
+
+            fn get_test_action() -> HookAction {
+                let mut hash_map: HookActionHeaders = HookActionHeaders::new();
+                hash_map.insert("foo".to_string(), vec!["foo".to_string()]);
+                hash_map.insert(
+                    "foobar".to_string(),
+                    vec!["foo".to_string(), "bar".to_string()],
+                );
+
+                HookAction::HookActionDetailed(
+                    HookActionDetailed::new(Url::parse(EXAMPLE_URL).unwrap())
+                        .with_headers(hash_map),
+                )
+            }
+
+            #[test]
+            fn can_be_serialized() {
+                let action = get_test_action();
+                let serialized = serde_yaml::to_string(&action).unwrap();
+                assert_eq!(serialized, SERIALIZED_HOOK_ACTION);
+            }
+
+            #[test]
+            fn can_be_deserialized() {
+                let action = get_test_action();
+
+                let deserialized: HookAction =
+                    serde_yaml::from_str(&SERIALIZED_HOOK_ACTION).unwrap();
+
+                assert_eq!(deserialized, action);
+            }
+
+            #[test]
+            fn can_return_a_header_map() {
+                let action = get_test_action();
+
+                let header_map = action.header_map().unwrap().unwrap();
+
+                let mut foo_values = header_map.get_all("foo").iter();
+                assert_eq!(foo_values.next().unwrap(), "foo");
+                assert_eq!(foo_values.next(), None);
+                let mut foobar_values = header_map.get_all("foobar").iter();
+                assert_eq!(foobar_values.next().unwrap(), "foo");
+                assert_eq!(foobar_values.next().unwrap(), "bar");
+                assert_eq!(foobar_values.next(), None);
+            }
         }
     }
 }
