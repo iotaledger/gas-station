@@ -570,16 +570,17 @@ rules:
 
         assert_eq!(
             yaml,
-            indoc! {r#"
+            indoc! {r###"
+              ---
               access-policy: deny-all
               rules:
-              - sender-address: '*'
-                action:
-                  url: http://example.org/
-                  headers:
-                    foo:
-                    - bar
-            "#}
+                - sender-address: "*"
+                  action:
+                    url: "http://example.org/"
+                    headers:
+                      foo:
+                        - bar
+            "###}
         );
     }
 

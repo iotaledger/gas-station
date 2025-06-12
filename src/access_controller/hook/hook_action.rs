@@ -97,9 +97,10 @@ mod tests {
     mod hook_action_url {
         use super::*;
 
-        const SERIALIZED_HOOK_ACTION_URL: &str = indoc! {"
-            http://example.org/
-        "};
+        const SERIALIZED_HOOK_ACTION_URL: &str = indoc! {r###"
+            ---
+            "http://example.org/"
+        "###};
 
         #[test]
         fn can_be_serialized() {
@@ -123,10 +124,11 @@ mod tests {
         mod without_headers {
             use super::*;
 
-            const SERIALIZED_HOOK_ACTION: &str = indoc! {"
-                url: http://example.org/
-                headers: null
-            "};
+            const SERIALIZED_HOOK_ACTION: &str = indoc! {r###"
+                ---
+                url: "http://example.org/"
+                headers: ~
+            "###};
 
             #[test]
             fn can_be_serialized() {
@@ -154,17 +156,18 @@ mod tests {
         mod with_headers {
             use super::*;
 
-            const SERIALIZED_HOOK_ACTION: &str = indoc! {r#"
-                url: http://example.org/
+            const SERIALIZED_HOOK_ACTION: &str = indoc! {r###"
+                ---
+                url: "http://example.org/"
                 headers:
                   authorization:
-                  - Bearer this-could-be-your-auth-token
+                    - Bearer this-could-be-your-auth-token
                   foobar:
-                  - foo
-                  - bar
+                    - foo
+                    - bar
                   test-response:
-                  - '{"decision": "allow"}'
-            "#};
+                    - "{\"decision\": \"allow\"}"
+            "###};
 
             fn get_test_action() -> HookAction {
                 let mut hash_map: HookActionHeaders = HookActionHeaders::new();
