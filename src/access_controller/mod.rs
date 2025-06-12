@@ -450,14 +450,14 @@ mod test {
 
     #[test]
     fn deserialize_access_controller() {
-        let yaml = r#"
-access-policy: "deny-all"
-rules:
-      - sender-address: ['0x0101010101010101010101010101010101010101010101010101010101010101']
-        transaction-gas-budget: <=10000
-        ptb-command-count: <=5
-        action: allow
-"#;
+        let yaml = indoc! {r#"
+          access-policy: "deny-all"
+          rules:
+            - sender-address: ['0x0101010101010101010101010101010101010101010101010101010101010101']
+              transaction-gas-budget: <=10000
+              ptb-command-count: <=5
+              action: allow
+        "#};
         let ac: AccessController = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(ac.access_policy, AccessPolicy::DenyAll);
         assert_eq!(ac.rules.len(), 1);
@@ -492,14 +492,15 @@ rules:
 
         assert_eq!(
             yaml,
-            r#"---
-access-policy: deny-all
-rules:
-  - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
-    transaction-gas-budget: "<=10000"
-    ptb-command-count: "<=5"
-    action: allow
-"#
+            indoc! {r#"
+              ---
+              access-policy: deny-all
+              rules:
+                - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
+                  transaction-gas-budget: "<=10000"
+                  ptb-command-count: "<=5"
+                  action: allow
+            "#}
         );
     }
 
@@ -517,25 +518,27 @@ rules:
 
         assert_eq!(
             yaml,
-            r#"---
-access-policy: deny-all
-rules:
-  - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
-    move-call-package-address: "0x0202020202020202020202020202020202020202020202020202020202020202"
-    action: allow
-"#
+            indoc! {r#"
+              ---
+              access-policy: deny-all
+              rules:
+                - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
+                  move-call-package-address: "0x0202020202020202020202020202020202020202020202020202020202020202"
+                  action: allow
+            "#}
         );
     }
 
     #[test]
     fn deserialize_access_controller_with_move_call_package_address() {
-        let yaml = r#"
-access-policy: "deny-all"
-rules:
-      - sender-address: ['0x0101010101010101010101010101010101010101010101010101010101010101']
-        move-call-package-address: ['0x0202020202020202020202020202020202020202020202020202020202020202']
-        action: allow
-"#;
+        let yaml = indoc! {r#"
+          ---
+          access-policy: "deny-all"
+          rules:
+            - sender-address: ['0x0101010101010101010101010101010101010101010101010101010101010101']
+              move-call-package-address: ['0x0202020202020202020202020202020202020202020202020202020202020202']
+              action: allow
+          "#};
         let ac: AccessController = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(ac.access_policy, AccessPolicy::DenyAll);
         assert_eq!(ac.rules.len(), 1);
