@@ -154,22 +154,31 @@ mod tests {
         mod with_headers {
             use super::*;
 
-            const SERIALIZED_HOOK_ACTION: &str = indoc! {"
+            const SERIALIZED_HOOK_ACTION: &str = indoc! {r#"
                 url: http://example.org/
                 headers:
-                  foo:
-                  - foo
+                  authorization:
+                  - Bearer this-could-be-your-auth-token
                   foobar:
                   - foo
                   - bar
-            "};
+                  test-response:
+                  - '{"decision": "allow"}'
+            "#};
 
             fn get_test_action() -> HookAction {
                 let mut hash_map: HookActionHeaders = HookActionHeaders::new();
-                hash_map.insert("foo".to_string(), vec!["foo".to_string()]);
+                hash_map.insert(
+                    "authorization".to_string(),
+                    vec!["Bearer this-could-be-your-auth-token".to_string()],
+                );
                 hash_map.insert(
                     "foobar".to_string(),
                     vec!["foo".to_string(), "bar".to_string()],
+                );
+                hash_map.insert(
+                    "test-response".to_string(),
+                    vec![r#"{"decision": "allow"}"#.to_string()],
                 );
 
                 HookAction::HookActionDetailed(
@@ -201,9 +210,18 @@ mod tests {
 
                 let header_map = action.header_map().unwrap().unwrap();
 
-                let mut foo_values = header_map.get_all("foo").iter();
-                assert_eq!(foo_values.next().unwrap(), "foo");
-                assert_eq!(foo_values.next(), None);
+                let mut authorization = header_map.get_all("authorization").iter();
+                assert_eq!(
+                    authorization.next().unwrap(),
+                    "Bearer this-could-be-your-auth-token"
+                );
+                assert_eq!(authorization.next(), None);
+                let mut test_response_values = header_map.get_all("test-response").iter();
+                assert_eq!(
+                    test_response_values.next().unwrap(),
+                    r#"{"decision": "allow"}"#
+                );
+                assert_eq!(test_response_values.next(), None);
                 let mut foobar_values = header_map.get_all("foobar").iter();
                 assert_eq!(foobar_values.next().unwrap(), "foo");
                 assert_eq!(foobar_values.next().unwrap(), "bar");

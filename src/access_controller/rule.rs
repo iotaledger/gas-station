@@ -20,9 +20,12 @@ use super::{
     hook::HookAction,
     predicates::{Action, LimitBy, RegoExpression, ValueAggregate, ValueIotaAddress, ValueNumber},
 };
-use crate::tracker::{
-    stats_tracker_storage::{Aggregate, AggregateType},
-    StatsTracker,
+use crate::{
+    access_controller::hook::{HookActionDetailed, HookActionHeaders},
+    tracker::{
+        stats_tracker_storage::{Aggregate, AggregateType},
+        StatsTracker,
+    },
 };
 
 /// The AccessRuleBuilder is used to build an AccessRule with fluent API.
@@ -70,8 +73,13 @@ impl AccessRuleBuilder {
     }
 
     /// Sets the action of the AccessRule to call hook.
-    pub fn hook(mut self, url: Url) -> Self {
-        self.rule.action = Action::HookAction(HookAction::HookActionUrl(url));
+    pub fn hook(mut self, url: Url, headers: Option<HookActionHeaders>) -> Self {
+        let hook_action = if let Some(headers_value) = headers {
+            HookAction::HookActionDetailed(HookActionDetailed::new(url).with_headers(headers_value))
+        } else {
+            HookAction::HookActionUrl(url)
+        };
+        self.rule.action = Action::HookAction(hook_action);
         self
     }
 

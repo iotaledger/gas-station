@@ -74,3 +74,11 @@ panic = "abort"
 [[example]]
 name = "sponsored_transaction"
 path = "examples/rust/sponsored_transaction.rs"
+
+[[example]]
+name = "hook_with_request_headers"
+path = "examples/rust/hook_with_request_headers.rs"
+
+[[example]]
+name = "hook_with_config_headers"
+path = "examples/rust/hook_with_config_headers.rs"

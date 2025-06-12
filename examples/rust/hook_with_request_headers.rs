@@ -1,5 +1,6 @@
-use std::path::Path;
+use std::{path::Path, str::FromStr};
 
+use axum::http::{HeaderMap, HeaderName, HeaderValue};
 use iota_config::IOTA_CLIENT_CONFIG;
 use iota_gas_station::rpc::client::GasStationRpcClient;
 use iota_json_rpc_types::{IotaExecutionStatus, IotaTransactionBlockEffectsAPI};
@@ -13,7 +14,22 @@ use iota_types::{
 //  - Reserve gas from the gas station
 //  - Create a transaction with the gas object reserved from the gas station
 //  - Sign the transaction with the wallet
-//  - Execute the transaction with the gas station
+//  - Let an external hook decide if the transaction should be executed
+//  - Execute the transaction with the gas station, if allowed
+
+// As this is a hook example, make sure, that the example hook server from this project is running
+// (`cargo run` in `examples/hook` folder) and that your IOTA gas station is using an access controller,
+// that relies on a hook.
+//
+// This example passes headers **sent to the gas station** as **part of the payload** to the hook,
+// so no need to configure additional headers in the config, and we can just use the hook's url as the action value:
+//
+// ```yaml
+// access-controller:
+//   access-policy: deny-all
+//   rules:
+//   - action: "http://127.0.0.1:8080"
+// ```
 
 // Before you run this example make sure:
 //  - GAS_STATION_AUTH env is set to the correct value
@@ -75,10 +91,20 @@ async fn main() {
     let transaction = wallet_context.sign_transaction(&tx_data);
     let signature = transaction.tx_signatures()[0].to_owned();
 
+    // Build the response, we want to get from the hook as part of the request headers used for the call to the hook.
+    // These headers will be part of the payload sent to the hook.
+    let mut headers = HeaderMap::new();
+    headers.append(
+        HeaderName::from_str("test-response").unwrap(),
+        HeaderValue::from_str(r#"{"decision": "allow"}"#).unwrap(),
+    );
+    // You can set the `decision` value to other values ("allow"/"deny"/"noDecision") if you want to test
+    // different responses or use the header `test-error` with a string value to test errors returned from the hook.
+
     // Send the TransactionData together with the signature to the Gas Station.
     // The Gas Station will execute the Transaction and returns the effects.
     let effects = gas_station_client
-        .execute_tx(reservation_id, &tx_data, &signature, None)
+        .execute_tx(reservation_id, &tx_data, &signature, Some(headers))
         .await
         .expect("transaction should be sent");
 

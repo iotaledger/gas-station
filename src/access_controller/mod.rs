@@ -187,10 +187,15 @@ impl TransactionExecutionResult {
 
 #[cfg(test)]
 mod test {
+    use std::collections::BTreeMap;
+
+    use indoc::indoc;
     use iota_types::base_types::IotaAddress;
+    use url::Url;
 
     use crate::access_controller::{
         decision::Decision,
+        hook::{HookAction, HookActionDetailed, HookActionHeaders},
         predicates::{Action, ValueIotaAddress},
         AccessController,
     };
@@ -545,6 +550,69 @@ rules:
         assert_eq!(ac.rules[0].action, Action::Allow);
     }
 
+    #[test]
+    fn serialize_access_controller_with_detailed_hook_action() {
+        let ac = AccessController::new(
+            AccessPolicy::DenyAll,
+            [AccessRuleBuilder::new()
+                .hook(
+                    Url::parse("http://example.org/").unwrap(),
+                    Some({
+                        let mut headers = BTreeMap::new();
+                        headers.insert("foo".to_string(), vec!["bar".to_string()]);
+                        headers
+                    }),
+                )
+                .build()],
+        );
+
+        let yaml = serde_yaml::to_string(&ac).unwrap();
+
+        assert_eq!(
+            yaml,
+            indoc! {r#"
+              access-policy: deny-all
+              rules:
+              - sender-address: '*'
+                action:
+                  url: http://example.org/
+                  headers:
+                    foo:
+                    - bar
+            "#}
+        );
+    }
+
+    #[test]
+    fn deserialize_access_controller_with_detailed_hook_action() {
+        let yaml = indoc! {r#"
+          access-policy: deny-all
+          rules:
+          - action:
+              url: http://127.0.0.1:8080
+              headers:
+                foo:
+                - bar
+        "#};
+
+        let ac: AccessController = serde_yaml::from_str(yaml).unwrap();
+
+        assert_eq!(ac.access_policy, AccessPolicy::DenyAll);
+        assert_eq!(ac.rules.len(), 1);
+        assert_eq!(ac.rules[0].sender_address, ValueIotaAddress::All,);
+        assert_eq!(
+            ac.rules[0].action,
+            Action::HookAction(HookAction::HookActionDetailed(
+                HookActionDetailed::new(Url::parse("http://127.0.0.1:8080/").unwrap())
+                    .with_headers({
+                        let mut headers = HookActionHeaders::new();
+                        headers.insert("foo".to_string(), vec!["bar".to_string()]);
+                        headers
+                    })
+            ))
+        );
+    }
+
     #[tokio::test]
     async fn test_evaluation_order_multiple_rules_policy_deny() {
         let sender_address = IotaAddress::new([1; 32]);
@@ -661,7 +729,7 @@ rules:
         #[tokio::test]
         async fn test_hook_can_allow_tx() {
             let hook_rule = AccessRuleBuilder::new()
-                .hook(Url::parse("https://example.net").unwrap())
+                .hook(Url::parse("https://example.net").unwrap(), None)
                 .build();
             // "calling" the test hook action with this context will return `SkippableDecision::Allow`
             let allow_ctx = TransactionContext::default().with_headers(
@@ -684,7 +752,7 @@ rules:
         #[tokio::test]
         async fn test_hook_can_deny_tx() {
             let hook_rule = AccessRuleBuilder::new()
-                .hook(Url::parse("https://example.net").unwrap())
+                .hook(Url::parse("https://example.net").unwrap(), None)
                 .build();
             // "calling" the test hook action with this context will return `SkippableDecision::Deny`
             let deny_ctx = TransactionContext::default().with_headers(
@@ -707,7 +775,7 @@ rules:
         #[tokio::test]
         async fn test_hook_can_forward_decision_to_next_rule() {
             let hook_rule = AccessRuleBuilder::new()
-                .hook(Url::parse("https://example.net").unwrap())
+                .hook(Url::parse("https://example.net").unwrap(), None)
                 .build();
             let allow_rule = AccessRuleBuilder::new().allow().build();
             let deny_rule = AccessRuleBuilder::new().deny().build();
@@ -734,7 +802,7 @@ rules:
         #[tokio::test]
         async fn test_hook_can_forward_own_error_messages() {
             let hook_rule = AccessRuleBuilder::new()
-                .hook(Url::parse("https://example.net").unwrap())
+                .hook(Url::parse("https://example.net").unwrap(), None)
                 .build();
             // "calling" the test hook action with this context will return an error
             let error_ctx = TransactionContext::default().with_headers({
@@ -760,7 +828,7 @@ rules:
         #[tokio::test]
         async fn test_hook_is_not_called_if_a_previous_rule_applies() {
             let hook_rule = AccessRuleBuilder::new()
-                .hook(Url::parse("https://example.net").unwrap())
+                .hook(Url::parse("https://example.net").unwrap(), None)
                 .build();
             let allow_rule = AccessRuleBuilder::new().allow().build();
             let deny_rule = AccessRuleBuilder::new().deny().build();
@@ -795,7 +863,7 @@ rules:
             let sender_address = IotaAddress::new([1; 32]);
             let hook_rule = AccessRuleBuilder::new()
                 .sender_address(sender_address)
-                .hook(Url::parse("https://example.net").unwrap())
+                .hook(Url::parse("https://example.net").unwrap(), None)
                 .build();
             // "calling" the test hook action with this context will return an error
             // this should be skipped as the first term in the rule should already stop rule evaluation
@@ -829,7 +897,7 @@ rules:
             let blocked_address = IotaAddress::new([2; 32]);
             let hook_rule = AccessRuleBuilder::new()
                 .sender_address(sender_address)
-                .hook(Url::parse("https://example.net").unwrap())
+                .hook(Url::parse("https://example.net").unwrap(), None)
                 .build();
             // "calling" the test hook action with this context will return an error
             // this should be skipped as the first term in the rule should already stop rule evaluation
