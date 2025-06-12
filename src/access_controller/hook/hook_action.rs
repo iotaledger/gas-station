@@ -25,6 +25,7 @@ fn hash_map_to_header_map(hash_map: &HookActionHeaders) -> Result<HeaderMap, any
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HookActionDetailed {
     url: Url,
+    #[serde(skip_serializing_if = "Option::is_none")]
     headers: Option<HookActionHeaders>,
 }
 
@@ -127,7 +128,6 @@ mod tests {
             const SERIALIZED_HOOK_ACTION: &str = indoc! {r###"
                 ---
                 url: "http://example.org/"
-                headers: ~
             "###};
 
             #[test]
