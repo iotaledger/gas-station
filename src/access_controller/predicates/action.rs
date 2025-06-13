@@ -16,6 +16,15 @@ pub enum Action {
     HookAction(HookAction),
 }
 
+impl Action {
+    pub fn initialize(&mut self) -> Result<(), anyhow::Error> {
+        match self {
+            Action::HookAction(hook_action) => hook_action.initialize(),
+            _ => Ok(()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use url::Url;

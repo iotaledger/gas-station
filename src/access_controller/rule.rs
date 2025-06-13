@@ -153,6 +153,7 @@ impl AccessRule {
         if let Some(rego_expression) = self.rego_expression.as_mut() {
             rego_expression.reload_source().await?;
         }
+        self.action.initialize()?;
         Ok(())
     }
 

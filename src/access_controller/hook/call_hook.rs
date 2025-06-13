@@ -34,20 +34,6 @@ fn build_execute_tx_hook_request_payload(ctx: &TransactionContext) -> ExecuteTxH
     }
 }
 
-// fn hash_map_to_header_map(hash_map: HookActionHeaders) -> Result<HeaderMap, anyhow::Error> {
-//     let mut header_map = HeaderMap::new();
-//     for (key, values) in hash_map.iter() {
-//         for value in values.iter() {
-//             header_map.append(
-//                 HeaderName::from_bytes(key.as_bytes()).context("failed to parse header name")?,
-//                 HeaderValue::from_str(&value).context("failed to parse header value")?,
-//             );
-//         }
-//     }
-
-//     Ok(header_map)
-// }
-
 impl HookAction {
     /// Call hook to let it decide about transaction processing.
     pub async fn call_hook(
@@ -62,12 +48,7 @@ impl HookAction {
         let body = build_execute_tx_hook_request_payload(ctx);
         let res = client
             .post(self.url().clone())
-            .headers(
-                self.header_map()?
-                    .map(|v| v.clone())
-                    .unwrap_or_default()
-                    .clone(),
-            )
+            .headers(self.header_map()?.unwrap_or_default())
             .json(&body)
             .send()
             .await?;

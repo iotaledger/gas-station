@@ -27,20 +27,47 @@ pub struct HookActionDetailed {
     url: Url,
     #[serde(skip_serializing_if = "Option::is_none")]
     headers: Option<HookActionHeaders>,
+    #[serde(skip)]
+    header_map: Option<HeaderMap>,
 }
 
 impl HookActionDetailed {
+    pub fn initialize(&mut self) -> Result<(), anyhow::Error> {
+        if let Some(headers) = &self.headers {
+            self.header_map = Some(hash_map_to_header_map(&headers)?);
+        }
+
+        Ok(())
+    }
+
     pub fn new(url: Url) -> Self {
-        Self { url, headers: None }
+        Self {
+            url,
+            headers: None,
+            header_map: None,
+        }
     }
 
     pub fn with_headers(mut self, headers: HookActionHeaders) -> Self {
         self.headers = Some(headers);
         self
     }
+
+    /// Return configured request headers parsed on-the-fly or cached (if available from [`Self::initialize()`]).
+    pub fn header_map(&self) -> Result<Option<HeaderMap>, anyhow::Error> {
+        if self.header_map.is_some() {
+            // return pre-cached headers, if available
+            return Ok(self.header_map.clone());
+        }
+        if let Some(headers) = &self.headers {
+            // or parse them from config values
+            let header_map = hash_map_to_header_map(headers)?;
+            return Ok(Some(header_map));
+        }
+        Ok(None)
+    }
 }
 
-// pub type HookActionHeaders = HashMap<String, Vec<String>>;
 pub type HookActionHeaders = BTreeMap<String, Vec<String>>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -51,6 +78,13 @@ pub enum HookAction {
 }
 
 impl HookAction {
+    pub fn initialize(&mut self) -> Result<(), anyhow::Error> {
+        match self {
+            HookAction::HookActionDetailed(detailed) => detailed.initialize(),
+            _ => Ok(()),
+        }
+    }
+
     /// Url the hook call is made against.
     pub fn url(&self) -> &Url {
         match self {
@@ -70,18 +104,10 @@ impl HookAction {
         }
     }
 
-    /// Get and/or cache headers as `HeaderMap`.
-    ///
-    /// This can be refactored to an `Rule::initialize` step, as soon as soon as #69 is merged.
+    /// Get configured request headers as `HeaderMap`.
     pub fn header_map(&self) -> Result<Option<HeaderMap>, anyhow::Error> {
         match self {
-            // HookAction::HookActionDetailed(hook_action_detailed) => {
-            //     hook_action_detailed.header_map()
-            // }
-            HookAction::HookActionDetailed(HookActionDetailed {
-                headers: Some(headers),
-                ..
-            }) => hash_map_to_header_map(headers).map(|v| Some(v)),
+            HookAction::HookActionDetailed(detailed) => detailed.header_map(),
             _ => Ok(None),
         }
     }
@@ -205,6 +231,13 @@ mod tests {
                     serde_yaml::from_str(&SERIALIZED_HOOK_ACTION).unwrap();
 
                 assert_eq!(deserialized, action);
+            }
+
+            #[test]
+            fn can_be_initialized() {
+                let action = get_test_action();
+                let result = action.header_map();
+                assert!(result.is_ok())
             }
 
             #[test]
