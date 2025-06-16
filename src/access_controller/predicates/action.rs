@@ -29,7 +29,9 @@ impl Action {
 mod test {
     use url::Url;
 
-    use super::{Action, HookAction};
+    use super::Action;
+
+    use crate::access_controller::hook::HookAction;
 
     #[test]
     fn test_deserialize_valid_actions() {
@@ -38,9 +40,9 @@ mod test {
             (r#""deny""#, Action::Deny),
             (
                 r#""http://example.org/""#,
-                Action::HookAction(HookAction::HookActionUrl(
-                    Url::parse("http://example.org/").unwrap(),
-                )),
+                Action::HookAction(
+                    HookAction::new_url(Url::parse("http://example.org/").unwrap()).unwrap(),
+                ),
             ),
         ];
 
@@ -67,9 +69,9 @@ mod test {
             (Action::Allow, r#""allow""#),
             (Action::Deny, r#""deny""#),
             (
-                Action::HookAction(HookAction::HookActionUrl(
-                    Url::parse("http://example.org/").unwrap(),
-                )),
+                Action::HookAction(
+                    HookAction::new_url(Url::parse("http://example.org/").unwrap()).unwrap(),
+                ),
                 r#""http://example.org/""#,
             ),
         ];

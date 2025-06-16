@@ -16,12 +16,11 @@ use serde_with::skip_serializing_none;
 use tracing::trace;
 use url::Url;
 
-use super::{
-    hook::HookAction,
-    predicates::{Action, LimitBy, RegoExpression, ValueAggregate, ValueIotaAddress, ValueNumber},
+use super::predicates::{
+    Action, LimitBy, RegoExpression, ValueAggregate, ValueIotaAddress, ValueNumber,
 };
 use crate::{
-    access_controller::hook::{HookActionDetailed, HookActionHeaders},
+    access_controller::hook::{HookAction, HookActionHeaders},
     tracker::{
         stats_tracker_storage::{Aggregate, AggregateType},
         StatsTracker,
@@ -73,14 +72,19 @@ impl AccessRuleBuilder {
     }
 
     /// Sets the action of the AccessRule to call hook.
-    pub fn hook(mut self, url: Url, headers: Option<HookActionHeaders>) -> Self {
+    pub fn hook(
+        mut self,
+        url: Url,
+        headers: Option<HookActionHeaders>,
+    ) -> Result<Self, anyhow::Error> {
         let hook_action = if let Some(headers_value) = headers {
-            HookAction::HookActionDetailed(HookActionDetailed::new(url).with_headers(headers_value))
+            HookAction::new_detailed(url, Some(headers_value))?
         } else {
-            HookAction::HookActionUrl(url)
+            HookAction::new_url(url)?
         };
         self.rule.action = Action::HookAction(hook_action);
-        self
+
+        Ok(self)
     }
 
     pub fn gas_budget(mut self, gas_size: ValueNumber<u64>) -> Self {

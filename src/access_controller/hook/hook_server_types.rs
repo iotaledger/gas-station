@@ -47,7 +47,7 @@ pub struct ExecuteTxOkResponse {
 }
 
 /// "allow"/"deny" transaction or take "noDecision" and proceed with other rules.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SkippableDecision {
     Allow,

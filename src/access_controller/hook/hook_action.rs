@@ -1,117 +1,150 @@
 // Copyright (c) 2025 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::BTreeMap;
-
 use anyhow::Context as _;
-use axum::http::{HeaderMap, HeaderName, HeaderValue};
+use axum::http::HeaderMap;
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-fn hash_map_to_header_map(hash_map: &HookActionHeaders) -> Result<HeaderMap, anyhow::Error> {
-    let mut header_map = HeaderMap::new();
-    for (key, values) in hash_map.iter() {
-        for value in values.iter() {
-            header_map.append(
-                HeaderName::from_bytes(key.as_bytes()).context("failed to parse header name")?,
-                HeaderValue::from_str(&value).context("failed to parse header value")?,
-            );
-        }
+use super::{
+    ExecuteTxGasStationRequest, ExecuteTxHookRequest, ExecuteTxOkResponse, ExecuteTxRequestPayload,
+    HookActionConfig, HookActionDetailed, HookActionHeaders,
+};
+
+use crate::access_controller::rule::TransactionContext;
+
+const HOOK_REQUEST_TIMEOUT_SECONDS: u64 = 60;
+
+fn header_map_to_hash_map(ctx: &TransactionContext) -> HookActionHeaders {
+    let mut header_hashmap: HookActionHeaders = HookActionHeaders::new();
+    for (k, v) in ctx.headers.clone() {
+        let k = k.map(|v| v.to_string()).unwrap_or_default();
+        let v = String::from_utf8_lossy(v.as_bytes()).into_owned();
+        header_hashmap.entry(k).or_insert_with(Vec::new).push(v);
     }
 
-    Ok(header_map)
+    header_hashmap
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct HookActionDetailed {
-    url: Url,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    headers: Option<HookActionHeaders>,
+fn build_execute_tx_hook_request_payload(ctx: &TransactionContext) -> ExecuteTxHookRequest {
+    ExecuteTxHookRequest {
+        execute_tx_request: ExecuteTxGasStationRequest {
+            payload: ExecuteTxRequestPayload {
+                reservation_id: ctx.reservation_id,
+                tx_bytes: ctx.tx_bytes.encoded(),
+                user_sig: ctx.user_sig.encoded(),
+            },
+            headers: header_map_to_hash_map(ctx),
+        },
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct HookAction {
+    config: HookActionConfig,
     #[serde(skip)]
-    header_map: Option<HeaderMap>,
-}
-
-impl HookActionDetailed {
-    pub fn initialize(&mut self) -> Result<(), anyhow::Error> {
-        if let Some(headers) = &self.headers {
-            self.header_map = Some(hash_map_to_header_map(&headers)?);
-        }
-
-        Ok(())
-    }
-
-    pub fn new(url: Url) -> Self {
-        Self {
-            url,
-            headers: None,
-            header_map: None,
-        }
-    }
-
-    pub fn with_headers(mut self, headers: HookActionHeaders) -> Self {
-        self.headers = Some(headers);
-        self
-    }
-
-    /// Return configured request headers parsed on-the-fly or cached (if available from [`Self::initialize()`]).
-    pub fn header_map(&self) -> Result<Option<HeaderMap>, anyhow::Error> {
-        if self.header_map.is_some() {
-            // return pre-cached headers, if available
-            return Ok(self.header_map.clone());
-        }
-        if let Some(headers) = &self.headers {
-            // or parse them from config values
-            let header_map = hash_map_to_header_map(headers)?;
-            return Ok(Some(header_map));
-        }
-        Ok(None)
-    }
-}
-
-pub type HookActionHeaders = BTreeMap<String, Vec<String>>;
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(untagged)]
-pub enum HookAction {
-    HookActionUrl(Url),
-    HookActionDetailed(HookActionDetailed),
+    pub(crate) http_client: Client, // <- move to new caller struct? (--> "intercept" calls for test)
 }
 
 impl HookAction {
+    pub fn new_url(url: Url) -> Result<Self, anyhow::Error> {
+        let http_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(HOOK_REQUEST_TIMEOUT_SECONDS))
+            .build()?;
+        Ok(Self {
+            config: HookActionConfig::HookActionUrl(url),
+            http_client,
+        })
+    }
+
+    pub fn new_detailed(
+        url: Url,
+        headers: Option<HookActionHeaders>,
+    ) -> Result<Self, anyhow::Error> {
+        let http_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(HOOK_REQUEST_TIMEOUT_SECONDS))
+            .build()?;
+        let mut detailed = HookActionDetailed::new(url);
+        if let Some(headers) = headers {
+            detailed = detailed.with_headers(headers);
+        };
+
+        Ok(Self {
+            config: HookActionConfig::HookActionDetailed(detailed),
+            http_client,
+        })
+    }
+
     pub fn initialize(&mut self) -> Result<(), anyhow::Error> {
-        match self {
-            HookAction::HookActionDetailed(detailed) => detailed.initialize(),
-            _ => Ok(()),
-        }
+        self.config.initialize()
     }
 
     /// Url the hook call is made against.
     pub fn url(&self) -> &Url {
-        match self {
-            HookAction::HookActionUrl(url) => url,
-            HookAction::HookActionDetailed(HookActionDetailed { url, .. }) => url,
+        match &self.config {
+            HookActionConfig::HookActionUrl(url) => url,
+            HookActionConfig::HookActionDetailed(HookActionDetailed { url, .. }) => url,
         }
     }
 
     /// Headers, that will be used in the hook call.
     pub fn headers(&self) -> Option<&HookActionHeaders> {
-        match self {
-            HookAction::HookActionDetailed(HookActionDetailed {
+        match &self.config {
+            HookActionConfig::HookActionDetailed(HookActionDetailed {
                 headers: Some(headers),
                 ..
-            }) => Some(&headers),
+            }) => Some(headers),
             _ => None,
         }
     }
 
     /// Get configured request headers as `HeaderMap`.
     pub fn header_map(&self) -> Result<Option<HeaderMap>, anyhow::Error> {
-        match self {
-            HookAction::HookActionDetailed(detailed) => detailed.header_map(),
+        match &self.config {
+            HookActionConfig::HookActionDetailed(detailed) => detailed.header_map(),
             _ => Ok(None),
         }
     }
+
+    /// Call hook to let it decide about transaction processing.
+    pub async fn call_hook(
+        &self,
+        ctx: &TransactionContext,
+    ) -> Result<ExecuteTxOkResponse, anyhow::Error> {
+        let body = build_execute_tx_hook_request_payload(ctx);
+        let res = self
+            .http_client
+            .post(self.url().clone())
+            .headers(self.header_map()?.unwrap_or_default())
+            .json(&body)
+            .send()
+            .await?;
+
+        if res.status().is_success() {
+            return res
+                .json()
+                .await
+                .context("failed to parse successful hook response body");
+        } else {
+            let message = format!(
+                "hook call failed with status {}; {}",
+                res.status(),
+                res.text().await.unwrap_or_default()
+            );
+            anyhow::bail!(message);
+        }
+    }
 }
+
+impl PartialEq for HookAction {
+    fn eq(&self, other: &Self) -> bool {
+        self.config == other.config
+    }
+}
+
+impl Eq for HookAction {}
 
 #[cfg(test)]
 mod tests {
@@ -131,14 +164,14 @@ mod tests {
 
         #[test]
         fn can_be_serialized() {
-            let action = HookAction::HookActionUrl(Url::parse(EXAMPLE_URL).unwrap());
+            let action = HookAction::new_url(Url::parse(EXAMPLE_URL).unwrap()).unwrap();
             let serialized = serde_yaml::to_string(&action).unwrap();
             assert_eq!(serialized, SERIALIZED_HOOK_ACTION_URL);
         }
 
         #[test]
         fn can_be_deserialized() {
-            let action = HookAction::HookActionUrl(Url::parse(EXAMPLE_URL).unwrap());
+            let action = HookAction::new_url(Url::parse(EXAMPLE_URL).unwrap()).unwrap();
             let deserialized: HookAction =
                 serde_yaml::from_str(&SERIALIZED_HOOK_ACTION_URL).unwrap();
             assert_eq!(deserialized, action);
@@ -158,19 +191,16 @@ mod tests {
 
             #[test]
             fn can_be_serialized() {
-                let action = HookAction::HookActionDetailed(HookActionDetailed::new(
-                    Url::parse(EXAMPLE_URL).unwrap(),
-                ));
-
+                let action =
+                    HookAction::new_detailed(Url::parse(EXAMPLE_URL).unwrap(), None).unwrap();
                 let serialized = serde_yaml::to_string(&action).unwrap();
-
                 assert_eq!(serialized, SERIALIZED_HOOK_ACTION);
             }
+
             #[test]
             fn can_be_deserialized() {
-                let action = HookAction::HookActionDetailed(HookActionDetailed::new(
-                    Url::parse(EXAMPLE_URL).unwrap(),
-                ));
+                let action =
+                    HookAction::new_detailed(Url::parse(EXAMPLE_URL).unwrap(), None).unwrap();
 
                 let deserialized: HookAction =
                     serde_yaml::from_str(&SERIALIZED_HOOK_ACTION).unwrap();
@@ -196,24 +226,21 @@ mod tests {
             "###};
 
             fn get_test_action() -> HookAction {
-                let mut hash_map: HookActionHeaders = HookActionHeaders::new();
-                hash_map.insert(
+                let mut headers: HookActionHeaders = HookActionHeaders::new();
+                headers.insert(
                     "authorization".to_string(),
                     vec!["Bearer this-could-be-your-auth-token".to_string()],
                 );
-                hash_map.insert(
+                headers.insert(
                     "foobar".to_string(),
                     vec!["foo".to_string(), "bar".to_string()],
                 );
-                hash_map.insert(
+                headers.insert(
                     "test-response".to_string(),
                     vec![r#"{"decision": "allow"}"#.to_string()],
                 );
 
-                HookAction::HookActionDetailed(
-                    HookActionDetailed::new(Url::parse(EXAMPLE_URL).unwrap())
-                        .with_headers(hash_map),
-                )
+                HookAction::new_detailed(Url::parse(EXAMPLE_URL).unwrap(), Some(headers)).unwrap()
             }
 
             #[test]

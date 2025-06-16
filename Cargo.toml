@@ -66,6 +66,7 @@ rand = "0.8.5"
 
 iota-swarm-config = { git = "https://github.com/iotaledger/iota", tag = "v0.10.3-rc", package = "iota-swarm-config" }
 test-cluster = { git = "https://github.com/iotaledger/iota", tag = "v0.10.3-rc", package = "test-cluster" }
+wiremock = "0.6.3"
 
 [profile.release]
 panic = "abort"
