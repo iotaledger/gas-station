@@ -10,7 +10,7 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
 | `gas-budget`                |  no        | `'=100'`, `'<100'`,  `'<=100'`, `'>100'`, `'>=100'`, `'!=100'` |
 | `move-call-package-address` |  no        | `'0x0000...'`, `[0x0000..., 0x1111...]`, `'*'`                 |
 | `ptb-command-count`         |  no        | `'=10'`, `'<10'`,  `'<=10'`, `'>10'`, `'>=10'`, `'!=10'`       |
-| `action`                    |  yes       | `'allow'`, `'deny'`, [Hook Server URL](#hook-server)           |
+| `action`                    |  yes       | `'allow'`, `'deny'`, [Hook Server](#hook-server)               |
 | `gas_usage`                 |  no        | See [Gas Usage Filter](#gas-usage-filter)                      |
 | `rego_expression`           |  no        | See [Gas Rego Expression](#rego-expression-filter)             |
 
@@ -405,7 +405,7 @@ An external server (a hook), that decides whether a transaction should be execut
 
 Hook server(s) can be configured as a term in the access controller rules, allowing to integrate hooks into existing rule sets or replacing the gas station built in access controller by a using hook only configuration.
 
-Hooks are configured as values for the "action" keyword, by setting the `action` value to a URL instead of `allow`/`deny`. 
+Hooks are configured as values for the "action" keyword, by setting the `action` value to a URL or a mapping with URL and headers instead of `allow`/`deny`.
 
 Hooks are the last thing that is called in an access controller rule (just before the gas usage check due to safety reasons). This reduces the amount of calls against a hook server and leads to a few possible scenarios as shown below.
 
@@ -432,7 +432,7 @@ flowchart TD
     CheckResponse -->|noDecision| CheckNextRule
 ```
 
-A hook server has to follow the api spec defined [here](./hook-openapi.json). Also an example server that can be used as a starting point for an own hook can be found in our [examples](../examples/hook).
+A hook server has to follow the api spec defined [here](./hook-openapi.json). Also, an example server that can be used as a starting point for an own hook can be found in our [examples](../examples/hook).
 
 ---
 
@@ -455,6 +455,22 @@ access-controller:
   access-policy: deny-all
   rules:
     - action: http://127.0.0.1:8080
+```
+
+It is also possible to pass header values to be used in the request against the hook, e.g. if you want to use an authentication header. For example:
+
+```yml
+access-controller:
+  access-policy: deny-all
+  rules:
+    - action:
+        url: "http://example.org/"
+        headers:
+          authorization:
+            - Bearer an-auth-token-for-a-hook
+          other_header:
+            - value1
+            - value2
 ```
 
 ---

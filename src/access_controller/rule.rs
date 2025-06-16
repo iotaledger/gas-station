@@ -16,13 +16,15 @@ use serde_with::skip_serializing_none;
 use tracing::trace;
 use url::Url;
 
-use super::{
-    hook::HookAction,
-    predicates::{Action, LimitBy, RegoExpression, ValueAggregate, ValueIotaAddress, ValueNumber},
+use super::predicates::{
+    Action, LimitBy, RegoExpression, ValueAggregate, ValueIotaAddress, ValueNumber,
 };
-use crate::tracker::{
-    stats_tracker_storage::{Aggregate, AggregateType},
-    StatsTracker,
+use crate::{
+    access_controller::hook::{HookAction, HookActionHeaders},
+    tracker::{
+        stats_tracker_storage::{Aggregate, AggregateType},
+        StatsTracker,
+    },
 };
 
 /// The AccessRuleBuilder is used to build an AccessRule with fluent API.
@@ -70,9 +72,19 @@ impl AccessRuleBuilder {
     }
 
     /// Sets the action of the AccessRule to call hook.
-    pub fn hook(mut self, url: Url) -> Self {
-        self.rule.action = Action::HookAction(HookAction(url));
-        self
+    pub fn hook(
+        mut self,
+        url: Url,
+        headers: Option<HookActionHeaders>,
+    ) -> Result<Self, anyhow::Error> {
+        let hook_action = if let Some(headers_value) = headers {
+            HookAction::new_detailed(url, Some(headers_value))?
+        } else {
+            HookAction::new_url(url)?
+        };
+        self.rule.action = Action::HookAction(hook_action);
+
+        Ok(self)
     }
 
     pub fn gas_budget(mut self, gas_size: ValueNumber<u64>) -> Self {
@@ -145,6 +157,7 @@ impl AccessRule {
         if let Some(rego_expression) = self.rego_expression.as_mut() {
             rego_expression.reload_source().await?;
         }
+        self.action.initialize()?;
         Ok(())
     }
 
