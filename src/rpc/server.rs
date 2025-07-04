@@ -89,7 +89,7 @@ impl GasStationServer {
 #[derive(Clone)]
 struct ServerState {
     gas_station: Arc<GasStation>,
-    secret: Arc<String>,
+    secret: Arc<Option<String>>,
     metrics: Arc<GasStationRpcMetrics>,
     access_controller: Arc<ArcSwap<AccessController>>,
     stats_tracker: StatsTracker,
@@ -131,8 +131,10 @@ async fn debug_health_check(
     Extension(server): Extension<ServerState>,
 ) -> String {
     info!("Received debug_health_check request");
-    if authorization.token() != server.secret.as_str() {
-        return "Unauthorized".to_string();
+    if let Some(secret) = server.secret.as_ref() {
+        if authorization.token() != secret {
+            return "Unauthorized".to_string();
+        }
     }
     if let Err(err) = server.gas_station.debug_check_health().await {
         return format!("Failed to check health: {:?}", err);
@@ -145,14 +147,15 @@ async fn reserve_gas(
     Extension(server): Extension<ServerState>,
     Json(payload): Json<ReserveGasRequest>,
 ) -> impl IntoResponse {
-    server.metrics.num_reserve_gas_requests.inc();
-    if authorization.token() != server.secret.as_str() {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(ReserveGasResponse::new_err(anyhow::anyhow!(
-                "Invalid authorization token"
-            ))),
-        );
+    if let Some(secret) = server.secret.as_ref() {
+        if authorization.token() != secret {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ReserveGasResponse::new_err(anyhow::anyhow!(
+                    "Invalid authorization token"
+                ))),
+            );
+        }
     }
     server.metrics.num_authorized_reserve_gas_requests.inc();
     debug!("Received v1 reserve_gas request: {:?}", payload);
@@ -235,13 +238,15 @@ async fn execute_tx(
     Json(payload): Json<ExecuteTxRequest>,
 ) -> impl IntoResponse {
     server.metrics.num_execute_tx_requests.inc();
-    if authorization.token() != server.secret.as_ref() {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(ExecuteTxResponse::new_err(anyhow::anyhow!(
-                "Invalid authorization token"
-            ))),
-        );
+    if let Some(secret) = server.secret.as_ref() {
+        if authorization.token() != secret {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ExecuteTxResponse::new_err(anyhow::anyhow!(
+                    "Invalid authorization token"
+                ))),
+            );
+        }
     }
 
     server.metrics.num_authorized_execute_tx_requests.inc();
@@ -388,13 +393,15 @@ async fn reload_access_controller(
     TypedHeader(authorization): TypedHeader<Authorization<Bearer>>,
     Extension(server): Extension<ServerState>,
 ) -> impl IntoResponse {
-    if authorization.token() != server.secret.as_str() {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(GasStationResponse::new_err_from_str(
-                "Invalid authorization token",
-            )),
-        );
+    if let Some(secret) = server.secret.as_ref() {
+        if authorization.token() != secret {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(GasStationResponse::new_err_from_str(
+                    "Invalid authorization token",
+                )),
+            );
+        }
     }
     let mut access_controller = match GasStationConfig::load(&server.config_path) {
         Ok(new_config) => new_config.access_controller,
