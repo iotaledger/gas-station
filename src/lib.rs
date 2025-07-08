@@ -52,7 +52,7 @@ pub fn read_auth_env() -> Option<String> {
             Ok(token) => Some(token),
             Err(_) => {
                 warn!(
-                    "⚠️  {} environment variable is not set. AUTHENTICATION WILL BE DISABLED. ⚠️",
+                    "⚠️  {} environment variable is not set. Authorization is disabled! ⚠️",
                     AUTH_ENV_NAME
                 );
                 None

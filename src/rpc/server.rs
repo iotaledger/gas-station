@@ -127,12 +127,13 @@ async fn version() -> &'static str {
 }
 
 async fn debug_health_check(
-    TypedHeader(authorization): TypedHeader<Authorization<Bearer>>,
+    authorization: Option<TypedHeader<Authorization<Bearer>>>,
     Extension(server): Extension<ServerState>,
 ) -> String {
     info!("Received debug_health_check request");
     if let Some(secret) = server.secret.as_ref() {
-        if authorization.token() != secret {
+        let token = authorization.as_ref().map(|auth| auth.token());
+        if token != Some(secret.as_str()) {
             return "Unauthorized".to_string();
         }
     }
@@ -143,16 +144,17 @@ async fn debug_health_check(
 }
 
 async fn reserve_gas(
-    TypedHeader(authorization): TypedHeader<Authorization<Bearer>>,
+    authorization: Option<TypedHeader<Authorization<Bearer>>>,
     Extension(server): Extension<ServerState>,
     Json(payload): Json<ReserveGasRequest>,
 ) -> impl IntoResponse {
     if let Some(secret) = server.secret.as_ref() {
-        if authorization.token() != secret {
+        let token = authorization.as_ref().map(|auth| auth.token());
+        if token != Some(secret.as_str()) {
             return (
                 StatusCode::UNAUTHORIZED,
                 Json(ReserveGasResponse::new_err(anyhow::anyhow!(
-                    "Invalid authorization token"
+                    "Authorization token is required or invalid"
                 ))),
             );
         }
@@ -233,13 +235,14 @@ async fn reserve_gas_impl(
 
 async fn execute_tx(
     headers: HeaderMap,
-    TypedHeader(authorization): TypedHeader<Authorization<Bearer>>,
+    authorization: Option<TypedHeader<Authorization<Bearer>>>,
     Extension(server): Extension<ServerState>,
     Json(payload): Json<ExecuteTxRequest>,
 ) -> impl IntoResponse {
     server.metrics.num_execute_tx_requests.inc();
     if let Some(secret) = server.secret.as_ref() {
-        if authorization.token() != secret {
+        let token = authorization.as_ref().map(|auth| auth.token());
+        if token != Some(secret.as_str()) {
             return (
                 StatusCode::UNAUTHORIZED,
                 Json(ExecuteTxResponse::new_err(anyhow::anyhow!(
@@ -390,11 +393,12 @@ async fn execute_tx_impl(
 }
 
 async fn reload_access_controller(
-    TypedHeader(authorization): TypedHeader<Authorization<Bearer>>,
+    authorization: Option<TypedHeader<Authorization<Bearer>>>,
     Extension(server): Extension<ServerState>,
 ) -> impl IntoResponse {
     if let Some(secret) = server.secret.as_ref() {
-        if authorization.token() != secret {
+        let token = authorization.as_ref().map(|auth| auth.token());
+        if token != Some(secret.as_str()) {
             return (
                 StatusCode::FORBIDDEN,
                 Json(GasStationResponse::new_err_from_str(
