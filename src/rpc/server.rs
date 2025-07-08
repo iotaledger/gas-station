@@ -57,6 +57,12 @@ impl GasStationServer {
             stats_tracker,
             config_path,
         );
+        if state.secret.is_none() {
+            warn!(
+                "⚠️  {} environment variable is not set. Authorization is disabled! ⚠️",
+                crate::AUTH_ENV_NAME
+            );
+        }
         let app = Router::new()
             .route("/", get(health))
             .route("/version", get(version))
