@@ -74,8 +74,6 @@ mod tests {
 
         let (_sponsor, _res_id, gas_coins) = client.reserve_gas(NANOS_PER_IOTA, 10).await.unwrap();
         assert_eq!(gas_coins.len(), 1);
-
-        // Change the auth secret used in the client.
         assert!(client.reserve_gas(NANOS_PER_IOTA, 10).await.is_ok());
     }
 
