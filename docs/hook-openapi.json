@@ -165,7 +165,7 @@
                             },
                             {
                                 "$ref": "#/components/schemas/ExecuteTransactionRequestType",
-                                "description": "Request type used for transaction finality waiting, defaults to `waitForEffectsCert`."
+                                "description": "Request type used for transaction finality waiting."
                             }
                         ]
                     },

@@ -6,7 +6,6 @@ use std::collections::HashMap;
 use anyhow::Context as _;
 use axum::http::StatusCode;
 use base64::prelude::*;
-use iota_types::quorum_driver_types::ExecuteTransactionRequestType;
 use iota_types::transaction::TransactionData;
 use serde::Deserialize;
 use serde::Serialize;
@@ -44,64 +43,15 @@ pub struct ExecuteTxRequestPayload {
     /// Base64 encoded user signature.
     #[schema(content_encoding = "base64")]
     pub user_sig: String,
-    /// Request type used for transaction finality waiting, defaults to `waitForEffectsCert`.
-    #[serde(default, with = "option_execute_transaction_request_type")]
-    #[schema(value_type = Option<option_execute_transaction_request_type::ExecuteTransactionRequestType>)]
+    /// Request type used for transaction finality waiting.
     pub request_type: Option<ExecuteTransactionRequestType>,
 }
 
-/// Helper module, that allows to convert `iota`s `ExecuteTransactionRequestType` to a lowercase representation of it
-/// as a value in a REST request. `serde`s `remote` attribute does currently not support optional values, so added a helper
-/// module as [suggested](https://github.com/serde-rs/serde/issues/1301#issuecomment-394108486).
-mod option_execute_transaction_request_type {
-    use serde::Deserialize;
-    use serde::Deserializer;
-    use serde::Serialize;
-    use serde::Serializer;
-    use utoipa::ToSchema;
-
-    use super::ExecuteTransactionRequestType as ExternalExecuteTransactionRequestType;
-
-    #[derive(Serialize, Deserialize, Clone, Debug, ToSchema)]
-    #[serde(
-        remote = "ExternalExecuteTransactionRequestType",
-        rename_all = "camelCase"
-    )]
-    pub enum ExecuteTransactionRequestType {
-        WaitForEffectsCert,
-        WaitForLocalExecution,
-    }
-
-    pub fn serialize<S>(
-        value: &Option<ExternalExecuteTransactionRequestType>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        #[derive(Serialize)]
-        struct Helper<'a>(
-            #[serde(with = "ExecuteTransactionRequestType")]
-            &'a ExternalExecuteTransactionRequestType,
-        );
-
-        value.as_ref().map(Helper).serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D>(
-        deserializer: D,
-    ) -> Result<Option<ExternalExecuteTransactionRequestType>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct Helper(
-            #[serde(with = "ExecuteTransactionRequestType")] ExternalExecuteTransactionRequestType,
-        );
-
-        let helper = Option::deserialize(deserializer)?;
-        Ok(helper.map(|Helper(external)| external))
-    }
+#[derive(Serialize, Deserialize, Clone, Debug, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ExecuteTransactionRequestType {
+    WaitForEffectsCert,
+    WaitForLocalExecution,
 }
 
 impl ExecuteTxHookRequest {

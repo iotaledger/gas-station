@@ -3,14 +3,14 @@
 
 use crate::read_auth_env;
 use crate::rpc::rpc_types::{
-    ExecuteTxRequest, ExecuteTxResponse, ReserveGasRequest, ReserveGasResponse,
+    ExecuteTransactionRequestType, ExecuteTxRequest, ExecuteTxResponse, ReserveGasRequest,
+    ReserveGasResponse,
 };
 use crate::types::ReservationID;
 use anyhow::bail;
 use fastcrypto::encoding::Base64;
 use iota_json_rpc_types::IotaTransactionBlockEffects;
 use iota_types::base_types::{IotaAddress, ObjectRef};
-use iota_types::quorum_driver_types::ExecuteTransactionRequestType;
 use iota_types::signature::GenericSignature;
 use iota_types::transaction::TransactionData;
 use reqwest::header::{HeaderMap, AUTHORIZATION};

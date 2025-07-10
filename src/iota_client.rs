@@ -1,6 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::rpc::rpc_types::ExecuteTransactionRequestType;
 use crate::types::GasCoin;
 use crate::{retry_forever, retry_with_max_attempts};
 use futures_util::stream::FuturesUnordered;
@@ -15,7 +16,6 @@ use iota_types::base_types::{IotaAddress, ObjectID, ObjectRef};
 use iota_types::coin::{PAY_MODULE_NAME, PAY_SPLIT_N_FUNC_NAME};
 use iota_types::gas_coin::GAS;
 use iota_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
-use iota_types::quorum_driver_types::ExecuteTransactionRequestType;
 use iota_types::transaction::{
     Argument, ObjectArg, ProgrammableTransaction, Transaction, TransactionKind,
 };
@@ -206,6 +206,8 @@ impl IotaClient {
     ) -> anyhow::Result<IotaTransactionBlockEffects> {
         let digest = *tx.digest();
         debug!(?digest, "Executing transaction: {:?}", tx);
+        let request_type =
+            request_type.unwrap_or(ExecuteTransactionRequestType::WaitForEffectsCert);
         let response = retry_with_max_attempts!(
             async {
                 self.iota_client
@@ -213,9 +215,7 @@ impl IotaClient {
                     .execute_transaction_block(
                         tx.clone(),
                         IotaTransactionBlockResponseOptions::new().with_effects(),
-                        request_type
-                            .clone()
-                            .or(Some(ExecuteTransactionRequestType::WaitForEffectsCert)),
+                        request_type.clone(),
                     )
                     .await
                     .tap_err(|err| debug!(?digest, "execute_transaction error: {:?}", err))

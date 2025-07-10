@@ -3,6 +3,7 @@
 
 use crate::iota_client::IotaClient;
 use crate::metrics::GasStationCoreMetrics;
+use crate::rpc::rpc_types::ExecuteTransactionRequestType;
 use crate::storage::Storage;
 use crate::tx_signer::TxSigner;
 use crate::types::{GasCoin, ReservationID};
@@ -12,7 +13,6 @@ use iota_json_rpc_types::{IotaTransactionBlockEffects, IotaTransactionBlockEffec
 use iota_types::base_types::{IotaAddress, ObjectID, ObjectRef};
 use iota_types::gas_coin::NANOS_PER_IOTA;
 use iota_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
-use iota_types::quorum_driver_types::ExecuteTransactionRequestType;
 use iota_types::signature::GenericSignature;
 use iota_types::transaction::{
     Argument, Command, Transaction, TransactionData, TransactionDataAPI, TransactionKind,

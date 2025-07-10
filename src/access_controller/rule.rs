@@ -7,7 +7,6 @@ use fastcrypto::encoding::Base64;
 use iota_types::{
     base_types::IotaAddress,
     digests::TransactionDigest,
-    quorum_driver_types::ExecuteTransactionRequestType,
     signature::GenericSignature,
     transaction::{TransactionData, TransactionDataAPI, TransactionDataV1, TransactionKind},
 };
@@ -21,9 +20,12 @@ use super::{
     hook::HookAction,
     predicates::{Action, LimitBy, RegoExpression, ValueAggregate, ValueIotaAddress, ValueNumber},
 };
-use crate::tracker::{
-    stats_tracker_storage::{Aggregate, AggregateType},
-    StatsTracker,
+use crate::{
+    rpc::rpc_types::ExecuteTransactionRequestType,
+    tracker::{
+        stats_tracker_storage::{Aggregate, AggregateType},
+        StatsTracker,
+    },
 };
 
 /// The AccessRuleBuilder is used to build an AccessRule with fluent API.

@@ -5,6 +5,7 @@ pub mod client;
 pub(crate) mod rpc_types;
 mod server;
 
+pub use rpc_types::ExecuteTransactionRequestType;
 pub use server::GasStationServer;
 
 #[cfg(test)]

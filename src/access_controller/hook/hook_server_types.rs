@@ -5,10 +5,9 @@
 
 use std::collections::HashMap;
 
-use iota_types::quorum_driver_types::ExecuteTransactionRequestType;
 use serde::{Deserialize, Serialize};
 
-use crate::rpc::rpc_types::option_execute_transaction_request_type;
+use crate::rpc::rpc_types::ExecuteTransactionRequestType;
 
 /// Input for hook to check if transaction should be executed.
 /// Contains original request for Gas Stations `execute_tx` endpoint.
@@ -37,7 +36,7 @@ pub struct ExecuteTxRequestPayload {
     /// Base64 encoded user signature.
     pub user_sig: String,
     /// Request type used for transaction finality waiting, defaults to `WaitForEffectsCert`.
-    #[serde(default, with = "option_execute_transaction_request_type")]
+    // #[serde(default, with = "option_execute_transaction_request_type")]
     pub request_type: Option<ExecuteTransactionRequestType>,
 }
 
