@@ -17,6 +17,7 @@ mod tests {
     use crate::access_controller::rule::AccessRuleBuilder;
     use crate::access_controller::AccessController;
     use crate::config::GasStationConfig;
+    use crate::rpc::ExecuteTransactionRequestType;
     use crate::test_env::{
         create_test_transaction, start_rpc_server_for_testing,
         start_rpc_server_for_testing_with_access_controller, DEFAULT_TEST_CONFIG_PATH,
@@ -25,7 +26,6 @@ mod tests {
     use iota_config::Config;
     use iota_json_rpc_types::IotaTransactionBlockEffectsAPI;
     use iota_types::gas_coin::NANOS_PER_IOTA;
-    use iota_types::quorum_driver_types::ExecuteTransactionRequestType;
 
     #[tokio::test]
     async fn test_basic_rpc_flow() {
