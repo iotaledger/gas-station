@@ -12,6 +12,7 @@ use iota_json_rpc_types::{IotaTransactionBlockEffects, IotaTransactionBlockEffec
 use iota_types::base_types::{IotaAddress, ObjectID, ObjectRef};
 use iota_types::gas_coin::NANOS_PER_IOTA;
 use iota_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
+use iota_types::quorum_driver_types::ExecuteTransactionRequestType;
 use iota_types::signature::GenericSignature;
 use iota_types::transaction::{
     Argument, Command, Transaction, TransactionData, TransactionDataAPI, TransactionKind,
@@ -89,6 +90,7 @@ impl GasStation {
         reservation_id: ReservationID,
         tx_data: TransactionData,
         user_sig: GenericSignature,
+        request_type: Option<ExecuteTransactionRequestType>,
     ) -> anyhow::Result<IotaTransactionBlockEffects> {
         let sponsor = tx_data.gas_data().owner;
         if !self.signer.is_valid_address(&sponsor) {
@@ -121,7 +123,7 @@ impl GasStation {
             "Total gas coin balance prior to execution: {}", total_gas_coin_balance,
         );
         let response = self
-            .execute_transaction_impl(reservation_id, tx_data, user_sig)
+            .execute_transaction_impl(reservation_id, tx_data, user_sig, request_type)
             .await;
         let updated_coins = match &response {
             Ok(effects) => {
@@ -183,6 +185,7 @@ impl GasStation {
         reservation_id: ReservationID,
         tx_data: TransactionData,
         user_sig: GenericSignature,
+        request_type: Option<ExecuteTransactionRequestType>,
     ) -> anyhow::Result<IotaTransactionBlockEffects> {
         let sponsor = tx_data.gas_data().owner;
         let cur_time = std::time::Instant::now();
@@ -203,7 +206,10 @@ impl GasStation {
 
         let tx = Transaction::from_generic_sig_data(tx_data, vec![sponsor_sig, user_sig]);
         let cur_time = std::time::Instant::now();
-        let effects = self.iota_client.execute_transaction(tx, 3).await?;
+        let effects = self
+            .iota_client
+            .execute_transaction(tx, 3, request_type)
+            .await?;
         debug!(?reservation_id, "Transaction executed");
         let elapsed = cur_time.elapsed().as_millis();
         self.metrics

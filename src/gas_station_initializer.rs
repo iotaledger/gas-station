@@ -110,7 +110,10 @@ impl CoinSplitEnv {
                 "Sending transaction for execution. Tx digest: {:?}",
                 tx.digest()
             );
-            let result = self.iota_client.execute_transaction(tx.clone(), 10).await;
+            let result = self
+                .iota_client
+                .execute_transaction(tx.clone(), 10, None)
+                .await;
             match result {
                 Ok(effects) => {
                     assert!(

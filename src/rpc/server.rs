@@ -251,6 +251,7 @@ async fn execute_tx(
         reservation_id,
         tx_bytes,
         user_sig: user_sig_raw,
+        request_type,
     } = payload;
     let Ok((tx_data, user_sig)) = convert_tx_and_sig(tx_bytes.clone(), user_sig_raw.clone()) else {
         return (
@@ -269,6 +270,7 @@ async fn execute_tx(
         reservation_id,
         tx_bytes,
         user_sig_raw,
+        request_type,
         headers,
     );
 
@@ -283,7 +285,7 @@ async fn execute_tx(
     ))
     .await
     .unwrap_or_else(|err| {
-        error!("Failed to spawn reserve_gas task: {:?}", err);
+        error!("Failed to spawn execute_tx task: {:?}", err);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ExecuteTxResponse::new_err(anyhow::anyhow!(
@@ -332,7 +334,7 @@ async fn execute_tx_impl(
 
     let transaction_digest = tx_data.digest();
     match gas_station
-        .execute_transaction(ctx.reservation_id, tx_data, user_sig)
+        .execute_transaction(ctx.reservation_id, tx_data, user_sig, ctx.request_type)
         .await
     {
         Ok(effects) => {

@@ -10,6 +10,7 @@ use anyhow::bail;
 use fastcrypto::encoding::Base64;
 use iota_json_rpc_types::IotaTransactionBlockEffects;
 use iota_types::base_types::{IotaAddress, ObjectRef};
+use iota_types::quorum_driver_types::ExecuteTransactionRequestType;
 use iota_types::signature::GenericSignature;
 use iota_types::transaction::TransactionData;
 use reqwest::header::{HeaderMap, AUTHORIZATION};
@@ -127,6 +128,7 @@ impl GasStationRpcClient {
         reservation_id: ReservationID,
         tx_data: &TransactionData,
         user_sig: &GenericSignature,
+        request_type: Option<ExecuteTransactionRequestType>,
         headers: Option<HeaderMap>,
     ) -> anyhow::Result<IotaTransactionBlockEffects> {
         let mut headers = headers.unwrap_or_default();
@@ -138,6 +140,7 @@ impl GasStationRpcClient {
             reservation_id,
             tx_bytes: Base64::from_bytes(&bcs::to_bytes(&tx_data).unwrap()),
             user_sig: Base64::from_bytes(user_sig.as_ref()),
+            request_type,
         };
         let response = self
             .client

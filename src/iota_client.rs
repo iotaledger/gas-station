@@ -202,6 +202,7 @@ impl IotaClient {
         &self,
         tx: Transaction,
         max_attempts: usize,
+        request_type: Option<ExecuteTransactionRequestType>,
     ) -> anyhow::Result<IotaTransactionBlockEffects> {
         let digest = *tx.digest();
         debug!(?digest, "Executing transaction: {:?}", tx);
@@ -212,7 +213,9 @@ impl IotaClient {
                     .execute_transaction_block(
                         tx.clone(),
                         IotaTransactionBlockResponseOptions::new().with_effects(),
-                        Some(ExecuteTransactionRequestType::WaitForEffectsCert),
+                        request_type
+                            .clone()
+                            .or(Some(ExecuteTransactionRequestType::WaitForEffectsCert)),
                     )
                     .await
                     .tap_err(|err| debug!(?digest, "execute_transaction error: {:?}", err))
