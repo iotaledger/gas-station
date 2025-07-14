@@ -4,7 +4,10 @@
 use crate::types::ReservationID;
 use fastcrypto::encoding::Base64;
 use iota_json_rpc_types::{IotaObjectRef, IotaTransactionBlockEffects};
-use iota_types::base_types::{IotaAddress, ObjectRef};
+use iota_types::{
+    base_types::{IotaAddress, ObjectRef},
+    quorum_driver_types::ExecuteTransactionRequestType as IotaExecuteTransactionRequestType,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -83,6 +86,27 @@ pub struct ExecuteTxRequest {
     pub reservation_id: ReservationID,
     pub tx_bytes: Base64,
     pub user_sig: Base64,
+    pub request_type: Option<ExecuteTransactionRequestType>,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub enum ExecuteTransactionRequestType {
+    WaitForEffectsCert,
+    WaitForLocalExecution,
+}
+
+impl Into<Option<IotaExecuteTransactionRequestType>> for ExecuteTransactionRequestType {
+    fn into(self) -> Option<IotaExecuteTransactionRequestType> {
+        match self {
+            ExecuteTransactionRequestType::WaitForEffectsCert => {
+                Some(IotaExecuteTransactionRequestType::WaitForEffectsCert)
+            }
+            ExecuteTransactionRequestType::WaitForLocalExecution => {
+                Some(IotaExecuteTransactionRequestType::WaitForLocalExecution)
+            }
+        }
+    }
 }
 
 #[derive(Debug, JsonSchema, Serialize, Deserialize)]

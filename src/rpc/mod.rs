@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod client;
-mod rpc_types;
+pub(crate) mod rpc_types;
 mod server;
 
+pub use rpc_types::ExecuteTransactionRequestType;
 pub use server::GasStationServer;
 
 #[cfg(test)]
@@ -16,6 +17,7 @@ mod tests {
     use crate::access_controller::rule::AccessRuleBuilder;
     use crate::access_controller::AccessController;
     use crate::config::GasStationConfig;
+    use crate::rpc::ExecuteTransactionRequestType;
     use crate::test_env::{
         create_test_transaction, start_rpc_server_for_testing,
         start_rpc_server_for_testing_with_access_controller, DEFAULT_TEST_CONFIG_PATH,
@@ -41,7 +43,7 @@ mod tests {
 
         let (tx_data, user_sig) = create_test_transaction(&test_cluster, sponsor, gas_coins).await;
         let effects = client
-            .execute_tx(reservation_id, &tx_data, &user_sig, None)
+            .execute_tx(reservation_id, &tx_data, &user_sig, None, None)
             .await
             .unwrap();
         assert!(effects.status().is_ok());
@@ -84,7 +86,7 @@ mod tests {
 
         let (tx_data, user_sig) = create_test_transaction(&test_cluster, sponsor, gas_coins).await;
         assert!(client
-            .execute_tx(reservation_id, &tx_data, &user_sig, None)
+            .execute_tx(reservation_id, &tx_data, &user_sig, None, None)
             .await
             .is_err());
     }
@@ -111,7 +113,7 @@ mod tests {
 
         let (tx_data, user_sig) = create_test_transaction(&test_cluster, sponsor, gas_coins).await;
         assert!(client
-            .execute_tx(reservation_id, &tx_data, &user_sig, None)
+            .execute_tx(reservation_id, &tx_data, &user_sig, None, None)
             .await
             .is_err());
 
@@ -130,7 +132,7 @@ mod tests {
 
         // After the reload, the access controller should accept all transactions
         assert!(client
-            .execute_tx(reservation_id, &tx_data, &user_sig, None)
+            .execute_tx(reservation_id, &tx_data, &user_sig, None, None)
             .await
             .is_ok());
 
@@ -167,7 +169,7 @@ mod tests {
         let (tx_data, user_sig) = create_test_transaction(&test_cluster, sponsor, gas_coins).await;
         // The transaction sets the gas budget to 10000000, which is more than the limit set in the rule.
         assert!(client
-            .execute_tx(reservation_id, &tx_data, &user_sig, None,)
+            .execute_tx(reservation_id, &tx_data, &user_sig, None, None)
             .await
             .is_err());
     }
@@ -179,5 +181,61 @@ mod tests {
 
         let client = server.get_local_client();
         client.debug_health_check().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_explicit_wait_for_effects_cert() {
+        let (test_cluster, _container, server) =
+            start_rpc_server_for_testing(vec![NANOS_PER_IOTA; 10], NANOS_PER_IOTA).await;
+        let client = server.get_local_client();
+        client.health().await.unwrap();
+
+        let (sponsor, reservation_id, gas_coins) =
+            client.reserve_gas(NANOS_PER_IOTA, 10).await.unwrap();
+        assert_eq!(gas_coins.len(), 1);
+
+        // We can no longer request all balance given one is loaned out above.
+        assert!(client.reserve_gas(NANOS_PER_IOTA * 10, 10).await.is_err());
+
+        let (tx_data, user_sig) = create_test_transaction(&test_cluster, sponsor, gas_coins).await;
+        let effects = client
+            .execute_tx(
+                reservation_id,
+                &tx_data,
+                &user_sig,
+                Some(ExecuteTransactionRequestType::WaitForEffectsCert),
+                None,
+            )
+            .await
+            .unwrap();
+        assert!(effects.status().is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_local_execution() {
+        let (test_cluster, _container, server) =
+            start_rpc_server_for_testing(vec![NANOS_PER_IOTA; 10], NANOS_PER_IOTA).await;
+        let client = server.get_local_client();
+        client.health().await.unwrap();
+
+        let (sponsor, reservation_id, gas_coins) =
+            client.reserve_gas(NANOS_PER_IOTA, 10).await.unwrap();
+        assert_eq!(gas_coins.len(), 1);
+
+        // We can no longer request all balance given one is loaned out above.
+        assert!(client.reserve_gas(NANOS_PER_IOTA * 10, 10).await.is_err());
+
+        let (tx_data, user_sig) = create_test_transaction(&test_cluster, sponsor, gas_coins).await;
+        let effects = client
+            .execute_tx(
+                reservation_id,
+                &tx_data,
+                &user_sig,
+                Some(ExecuteTransactionRequestType::WaitForLocalExecution),
+                None,
+            )
+            .await
+            .unwrap();
+        assert!(effects.status().is_ok());
     }
 }

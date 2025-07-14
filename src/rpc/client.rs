@@ -3,7 +3,8 @@
 
 use crate::read_auth_env;
 use crate::rpc::rpc_types::{
-    ExecuteTxRequest, ExecuteTxResponse, ReserveGasRequest, ReserveGasResponse,
+    ExecuteTransactionRequestType, ExecuteTxRequest, ExecuteTxResponse, ReserveGasRequest,
+    ReserveGasResponse,
 };
 use crate::types::ReservationID;
 use anyhow::bail;
@@ -127,6 +128,7 @@ impl GasStationRpcClient {
         reservation_id: ReservationID,
         tx_data: &TransactionData,
         user_sig: &GenericSignature,
+        request_type: Option<ExecuteTransactionRequestType>,
         headers: Option<HeaderMap>,
     ) -> anyhow::Result<IotaTransactionBlockEffects> {
         let mut headers = headers.unwrap_or_default();
@@ -138,6 +140,7 @@ impl GasStationRpcClient {
             reservation_id,
             tx_bytes: Base64::from_bytes(&bcs::to_bytes(&tx_data).unwrap()),
             user_sig: Base64::from_bytes(user_sig.as_ref()),
+            request_type,
         };
         let response = self
             .client

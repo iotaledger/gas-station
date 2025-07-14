@@ -85,6 +85,13 @@
                     }
                 }
             },
+            "ExecuteTransactionRequestType": {
+                "type": "string",
+                "enum": [
+                    "waitForEffectsCert",
+                    "waitForLocalExecution"
+                ]
+            },
             "ExecuteTxGasStationRequest": {
                 "type": "object",
                 "description": "Original request data and headers sent to Gas Stations `execute_tx` endpoint.",
@@ -151,6 +158,17 @@
                     "userSig"
                 ],
                 "properties": {
+                    "requestType": {
+                        "oneOf": [
+                            {
+                                "type": "null"
+                            },
+                            {
+                                "$ref": "#/components/schemas/ExecuteTransactionRequestType",
+                                "description": "Request type used for transaction finality waiting."
+                            }
+                        ]
+                    },
                     "reservationId": {
                         "type": "integer",
                         "format": "uint64",

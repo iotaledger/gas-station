@@ -7,6 +7,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::rpc::rpc_types::ExecuteTransactionRequestType;
+
 /// Input for hook to check if transaction should be executed.
 /// Contains original request for Gas Stations `execute_tx` endpoint.
 #[derive(Debug, Deserialize, Serialize)]
@@ -33,6 +35,8 @@ pub struct ExecuteTxRequestPayload {
     pub tx_bytes: String,
     /// Base64 encoded user signature.
     pub user_sig: String,
+    /// Request type used for transaction finality waiting.
+    pub request_type: Option<ExecuteTransactionRequestType>,
 }
 
 /// Result of checking if transaction should be executed.

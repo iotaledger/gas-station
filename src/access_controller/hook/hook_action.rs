@@ -31,6 +31,7 @@ fn build_execute_tx_hook_request_payload(ctx: &TransactionContext) -> ExecuteTxH
                 reservation_id: ctx.reservation_id,
                 tx_bytes: ctx.tx_bytes.encoded(),
                 user_sig: ctx.user_sig.encoded(),
+                request_type: ctx.request_type.clone(),
             },
             headers: convert_header_map_to_vec(ctx),
         },
