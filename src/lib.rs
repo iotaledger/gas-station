@@ -41,10 +41,6 @@ pub const GIT_REVISION: &str = {
 };
 pub const VERSION: &str = const_str::concat!(env!("CARGO_PKG_VERSION"), "-", GIT_REVISION);
 
-pub fn read_auth_env() -> String {
-    std::env::var(AUTH_ENV_NAME)
-        .ok()
-        .unwrap_or_else(|| panic!("{} environment variable must be specified", AUTH_ENV_NAME))
-        .parse::<String>()
-        .unwrap()
+pub fn read_auth_env() -> Option<String> {
+    std::env::var(AUTH_ENV_NAME).ok()
 }
