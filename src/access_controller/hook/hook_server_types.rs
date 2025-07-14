@@ -35,8 +35,7 @@ pub struct ExecuteTxRequestPayload {
     pub tx_bytes: String,
     /// Base64 encoded user signature.
     pub user_sig: String,
-    /// Request type used for transaction finality waiting, defaults to `WaitForEffectsCert`.
-    // #[serde(default, with = "option_execute_transaction_request_type")]
+    /// Request type used for transaction finality waiting.
     pub request_type: Option<ExecuteTransactionRequestType>,
 }
 
