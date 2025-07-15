@@ -24,8 +24,8 @@ jobs:
     strategy:
       matrix:
         image:
-          - { name: "iota-gas-station", repo: "atoicafe/gas-station" }
-          # - { name: "tool", repo: "iotaledger/gas-station-tool" }
+          - { name: "iota-gas-station", repo: "iotaledger/gas-station" }
+          - { name: "tool", repo: "iotaledger/gas-station-tool" }
     steps:
       - name: Check out the repo
         uses: actions/checkout@v4
@@ -45,7 +45,7 @@ jobs:
           IFS=',' read -ra TAG_ARRAY <<< "${{ github.event.inputs.tags }}"
           TAG_ARGS=""
           for tag in "${TAG_ARRAY[@]}"; do
-            tag=$(echo "$tag" | xargs)  # trim whitespace
+            tag=$(echo "$tag" | xargs)
             TAG_ARGS="$TAG_ARGS -t ${{ matrix.image.repo }}:$tag"
           done
           echo "tag-args=$TAG_ARGS" >> $GITHUB_OUTPUT
