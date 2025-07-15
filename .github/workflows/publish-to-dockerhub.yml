@@ -24,8 +24,8 @@ jobs:
     strategy:
       matrix:
         image:
-          - { name: "iota-gas-station", repo: "iotaledger/gas-station" }
-          - { name: "tool", repo: "iotaledger/gas-station-tool" }
+          - { name: "iota-gas-station", repo: "atoicafe/gas-station" }
+          # - { name: "tool", repo: "iotaledger/gas-station-tool" }
     steps:
       - name: Check out the repo
         uses: actions/checkout@v4
