@@ -45,8 +45,9 @@ jobs:
           IFS=',' read -ra TAG_ARRAY <<< "${{ github.event.inputs.tags }}"
           TAG_ARGS=""
           for tag in "${TAG_ARRAY[@]}"; do
-            tag=$(echo "$tag" | xargs)
-            TAG_ARGS="$TAG_ARGS -t ${{ matrix.image.repo }}:$tag"
+            # trim leading/trailing whitespace
+            tag_trimmed=$(echo "$tag" | xargs)
+            TAG_ARGS="$TAG_ARGS -t ${{ matrix.image.repo }}:$tag_trimmed"
           done
           echo "tag-args=$TAG_ARGS" >> $GITHUB_OUTPUT
           echo "Tags to be used: $TAG_ARGS"
