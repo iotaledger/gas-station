@@ -47,7 +47,9 @@ jobs:
           for tag in "${TAG_ARRAY[@]}"; do
             # trim leading/trailing whitespace
             tag_trimmed=$(echo "$tag" | xargs)
-            TAG_ARGS="$TAG_ARGS -t ${{ matrix.image.repo }}:$tag_trimmed"
+            if [ -n "$tag_trimmed" ]; then
+              TAG_ARGS="$TAG_ARGS -t ${{ matrix.image.repo }}:$tag_trimmed"
+            fi
           done
           echo "tag-args=$TAG_ARGS" >> $GITHUB_OUTPUT
           echo "Tags to be used: $TAG_ARGS"
