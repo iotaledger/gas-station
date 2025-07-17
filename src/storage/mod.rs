@@ -1,12 +1,12 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::config::GasPoolStorageConfig;
+use crate::config::GasStationStorageConfig;
 use crate::metrics::StorageMetrics;
 use crate::storage::redis::RedisStorage;
 use crate::types::{GasCoin, ReservationID};
+use iota_types::base_types::{IotaAddress, ObjectID};
 use std::sync::Arc;
-use sui_types::base_types::{ObjectID, SuiAddress};
 
 mod redis;
 
@@ -36,7 +36,7 @@ pub trait Storage: Sync + Send {
 
     async fn expire_coins(&self) -> anyhow::Result<Vec<ObjectID>>;
 
-    /// Initialize some of the gas pool statistics at the startup.
+    /// Initialize some of the Gas Station statistics at the startup.
     /// Such as the total number of gas coins and the total balance.
     /// This is needed for several reasons:
     /// 1. To make sure that these fields are not empty when the first query comes in.
@@ -45,10 +45,10 @@ pub trait Storage: Sync + Send {
     /// Returns the total number of gas coins and the total balance.
     async fn init_coin_stats_at_startup(&self) -> anyhow::Result<(u64, u64)>;
 
-    /// Whether the gas pool for the given sponsor address is initialized.
+    /// Whether the Gas Station for the given sponsor address is initialized.
     async fn is_initialized(&self) -> anyhow::Result<bool>;
 
-    /// Acquire a lock to initialize the gas pool for the given sponsor address for a certain duration.
+    /// Acquire a lock to initialize the Gas Station for the given sponsor address for a certain duration.
     /// Returns true if the lock is acquired, false otherwise.
     /// Once the lock is acquired, until it expires, no other caller can acquire the lock.
     /// The reason we use a lock duration is such that in case the server crashed while holding the lock,
@@ -71,12 +71,12 @@ pub trait Storage: Sync + Send {
 }
 
 pub async fn connect_storage(
-    config: &GasPoolStorageConfig,
-    sponsor_address: SuiAddress,
+    config: &GasStationStorageConfig,
+    sponsor_address: IotaAddress,
     metrics: Arc<StorageMetrics>,
 ) -> Arc<dyn Storage> {
     let storage: Arc<dyn Storage> = match config {
-        GasPoolStorageConfig::Redis { redis_url } => {
+        GasStationStorageConfig::Redis { redis_url } => {
             Arc::new(RedisStorage::new(redis_url, sponsor_address, metrics).await)
         }
     };
@@ -90,8 +90,8 @@ pub async fn connect_storage(
 
 #[cfg(test)]
 pub async fn connect_storage_for_testing_with_config(
-    config: &GasPoolStorageConfig,
-    sponsor_address: SuiAddress,
+    config: &GasStationStorageConfig,
+    sponsor_address: IotaAddress,
 ) -> Arc<dyn Storage> {
     use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -109,27 +109,28 @@ pub async fn connect_storage_for_testing_with_config(
 }
 
 #[cfg(test)]
-pub async fn connect_storage_for_testing(sponsor_address: SuiAddress) -> Arc<dyn Storage> {
-    connect_storage_for_testing_with_config(&GasPoolStorageConfig::default(), sponsor_address).await
+pub async fn connect_storage_for_testing(sponsor_address: IotaAddress) -> Arc<dyn Storage> {
+    connect_storage_for_testing_with_config(&GasStationStorageConfig::default(), sponsor_address)
+        .await
 }
 
 #[cfg(test)]
 mod tests {
     use crate::storage::{connect_storage_for_testing, Storage, MAX_GAS_PER_QUERY};
     use crate::types::GasCoin;
+    use iota_types::base_types::{random_object_ref, IotaAddress, ObjectID, SequenceNumber};
+    use iota_types::digests::ObjectDigest;
     use rand::random;
     use std::collections::BTreeSet;
     use std::sync::Arc;
     use std::time::Duration;
-    use sui_types::base_types::{random_object_ref, ObjectID, SequenceNumber, SuiAddress};
-    use sui_types::digests::ObjectDigest;
 
     async fn assert_coin_count(storage: &Arc<dyn Storage>, available: usize, reserved: usize) {
         assert_eq!(storage.get_available_coin_count().await.unwrap(), available);
         assert_eq!(storage.get_reserved_coin_count().await, reserved);
     }
 
-    async fn setup(sponsor: SuiAddress, init_balances: Vec<u64>) -> Arc<dyn Storage> {
+    async fn setup(sponsor: IotaAddress, init_balances: Vec<u64>) -> Arc<dyn Storage> {
         let storage = connect_storage_for_testing(sponsor).await;
         let gas_coins = init_balances
             .into_iter()
@@ -149,8 +150,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_gas_pool_init() {
-        let sponsor = SuiAddress::random_for_testing_only();
+    async fn test_gas_station_init() {
+        let sponsor = IotaAddress::random_for_testing_only();
         let storage = connect_storage_for_testing(sponsor).await;
         assert!(!storage.is_initialized().await.unwrap());
         storage.add_new_coins(vec![]).await.unwrap();
@@ -168,8 +169,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_successful_reservation() {
-        // Create a gas pool of 100000 coins, each with balance of 1.
-        let sponsor = SuiAddress::random_for_testing_only();
+        // Create a Gas Station of 100000 coins, each with balance of 1.
+        let sponsor = IotaAddress::random_for_testing_only();
         let storage = setup(sponsor, vec![1; 100000]).await;
         assert_coin_count(&storage, 100000, 0).await;
         let mut cur_available = 100000;
@@ -187,7 +188,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_max_gas_coin_per_query() {
-        let sponsor = SuiAddress::random_for_testing_only();
+        let sponsor = IotaAddress::random_for_testing_only();
         let storage = setup(sponsor, vec![1; MAX_GAS_PER_QUERY + 1]).await;
         assert!(storage
             .reserve_gas_coins((MAX_GAS_PER_QUERY + 1) as u64, 1000)
@@ -198,7 +199,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_insufficient_pool_budget() {
-        let sponsor = SuiAddress::random_for_testing_only();
+        let sponsor = IotaAddress::random_for_testing_only();
         let storage = setup(sponsor, vec![1; 100]).await;
         assert!(storage.reserve_gas_coins(101, 1000).await.is_err());
         assert_coin_count(&storage, 100, 0).await;
@@ -206,7 +207,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_coin_release() {
-        let sponsor = SuiAddress::random_for_testing_only();
+        let sponsor = IotaAddress::random_for_testing_only();
         let storage = setup(sponsor, vec![1; 100]).await;
         for _ in 0..100 {
             // Keep reserving and putting them back.
@@ -222,7 +223,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_coin_release_with_updated_balance() {
-        let sponsor = SuiAddress::random_for_testing_only();
+        let sponsor = IotaAddress::random_for_testing_only();
         let storage = setup(sponsor, vec![1; 100]).await;
         for _ in 0..10 {
             let (res_id, mut reserved_gas_coins) =
@@ -246,7 +247,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_deleted_objects() {
-        let sponsor = SuiAddress::random_for_testing_only();
+        let sponsor = IotaAddress::random_for_testing_only();
         let storage = setup(sponsor, vec![1; 100]).await;
         let (res_id, mut reserved_gas_coins) = storage.reserve_gas_coins(100, 1000).await.unwrap();
         assert_eq!(reserved_gas_coins.len(), 100);
@@ -260,7 +261,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_coin_expiration() {
-        let sponsor = SuiAddress::random_for_testing_only();
+        let sponsor = IotaAddress::random_for_testing_only();
         let storage = setup(sponsor, vec![1; 100]).await;
         let (_res_id1, reserved_gas_coins1) = storage.reserve_gas_coins(10, 900).await.unwrap();
         assert_eq!(reserved_gas_coins1.len(), 10);
@@ -306,7 +307,7 @@ mod tests {
     #[tokio::test]
     async fn test_multiple_sponsors() {
         let sponsors = (0..10)
-            .map(|_| SuiAddress::random_for_testing_only())
+            .map(|_| IotaAddress::random_for_testing_only())
             .collect::<Vec<_>>();
         let mut storages = vec![];
         for sponsor in sponsors {
@@ -321,7 +322,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_concurrent_reservation() {
-        let sponsor = SuiAddress::random_for_testing_only();
+        let sponsor = IotaAddress::random_for_testing_only();
         let storage = setup(sponsor, vec![1; 100000]).await;
         let mut handles = vec![];
         for _ in 0..10 {
@@ -349,7 +350,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_acquire_init_lock() {
-        let sponsor = SuiAddress::random_for_testing_only();
+        let sponsor = IotaAddress::random_for_testing_only();
         let storage = setup(sponsor, vec![1; 100]).await;
         assert!(storage.acquire_init_lock(5).await.unwrap());
         assert!(!storage.acquire_init_lock(1).await.unwrap());
@@ -359,7 +360,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_init_coin_stats_idempotent() {
-        let sponsor = SuiAddress::random_for_testing_only();
+        let sponsor = IotaAddress::random_for_testing_only();
         let storage = setup(sponsor, vec![1; 100]).await;
         // init_coin_stats_at_startup has already been called in setup.
         // Calling it again should not change anything.

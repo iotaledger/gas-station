@@ -1,48 +1,46 @@
 [package]
-name = "sui-gas-station"
-version = "0.4.0"
+name = "iota-gas-station"
+version = "0.3.0"
 edition = "2021"
-authors = ["Mysten Labs <build@mystenlabs.com>"]
+authors = ["Mysten Labs <build@mystenlabs.com>", "IOTA Stiftung"]
 license = "Apache-2.0"
-repository = "https://github.com/MystenLabs/sui-gas-station"
+repository = "https://github.com/iotaledger/gas-station"
 
 [dependencies]
-#sui-config = { path = "../sui-upstream/crates/sui-config" }
-#sui-json-rpc-types = { path = "../sui-upstream/crates/sui-json-rpc-types" }
-#sui-sdk = { path = "../sui-upstream/crates/sui-sdk" }
-#sui-swarm-config = { path = "../sui-upstream/crates/sui-swarm-config" }
-#sui-types = { path = "../sui-upstream/crates/sui-types" }
-#shared-crypto = { path = "../sui-upstream/crates/shared-crypto" }
-#telemetry-subscribers = { path = "../sui-upstream/crates/telemetry-subscribers" }
-#test-cluster = { path = "../sui-upstream/crates/test-cluster" }
-#typed-store = { path = "../sui-upstream/crates/typed-store" }
-#typed-store-derive = { path = "../sui-upstream/crates/typed-store-derive" }
 
-fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", branch = "main" }
-mysten-metrics = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "mysten-metrics" }
-sui-config = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "sui-config" }
-sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "sui-json-rpc-types" }
-sui-sdk = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "sui-sdk" }
-sui-types = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "sui-types" }
-shared-crypto = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "shared-crypto" }
-telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "telemetry-subscribers" }
+fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "5f2c63266a065996d53f98156f0412782b468597" }
+
+iota-metrics = { git = "https://github.com/iotaledger/iota", tag = "v0.10.3-rc", package = "iota-metrics" }
+iota-config = { git = "https://github.com/iotaledger/iota", tag = "v0.10.3-rc", package = "iota-config" }
+iota-json-rpc-types = { git = "https://github.com/iotaledger/iota", tag = "v0.10.3-rc", package = "iota-json-rpc-types" }
+iota-sdk = { git = "https://github.com/iotaledger/iota", tag = "v0.10.3-rc", package = "iota-sdk" }
+iota-types = { git = "https://github.com/iotaledger/iota", tag = "v0.10.3-rc", package = "iota-types" }
+shared-crypto = { git = "https://github.com/iotaledger/iota", tag = "v0.10.3-rc", package = "shared-crypto" }
+telemetry-subscribers = { git = "https://github.com/iotaledger/iota", tag = "v0.10.3-rc", package = "telemetry-subscribers" }
+
 
 anyhow = "1.0.75"
 async-trait = "0.1.51"
-axum = {version = "0.6.6", features = ["headers"]}
+arc-swap = { version = "1.7.1" }
+axum = { version = "0.6.6", features = ["headers"] }
 bcs = "0.1.6"
-clap = "4.4.10"
+clap = { version = "4.4.10", features = ["env"] }
 chrono = "0.4.19"
 const-str = "0.5.6"
 eyre = "0.6.9"
 futures-util = "0.3.30"
 git-version = "0.3.9"
-itertools = "0.12.0"
+hostname = "0.4.0"
+itertools = "0.14.0"
 once_cell = "1.19.0"
 parking_lot = "0.12.1"
 prometheus = "0.13.3"
-rand = "0.8.5"
-redis = { version = "0.24.0", features = ["default", "async-std-comp", "connection-manager"] }
+rand = { version = "0.8.5", features = ["small_rng"] }
+redis = { version = "0.24.0", features = [
+  "default",
+  "async-std-comp",
+  "connection-manager",
+] }
 reqwest = { version = "0.11.22", features = ["json"] }
 serde = { version = "1.0.193", features = ["derive", "rc"] }
 serde_with = "3.4.0"
@@ -50,16 +48,28 @@ schemars = "0.8.16"
 tap = "1.0.1"
 tempfile = "3.2.0"
 tracing = "0.1.40"
-tokio = { version = "1.36.0", features = ["full"] }
+tokio = { version = "1.43.0", features = ["full"] }
 tokio-retry = "0.3.0"
 serde_json = "1.0.108"
+serde_json_canonicalizer = { version = "0.3.0" }
+serde_yaml = "0.8.26"
+lazy_static = "1.5.0"
+uuid = { version = "1.17.0", features = ["v4"] }
+humantime = "2.2.0"
+regorus = { version = "0.4.0" }
+url = { version = "2.5.4", features = ["serde"] }
+
 
 [dev-dependencies]
 rand = "0.8.5"
 
-sui-swarm-config = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "sui-swarm-config" }
-test-cluster = { git = "https://github.com/MystenLabs/sui", branch = "testnet", package = "test-cluster" }
+iota-swarm-config = { git = "https://github.com/iotaledger/iota", tag = "v0.10.3-rc", package = "iota-swarm-config" }
+test-cluster = { git = "https://github.com/iotaledger/iota", tag = "v0.10.3-rc", package = "test-cluster" }
 
 [profile.release]
 panic = "abort"
 
+
+[[example]]
+name = "sponsored_transaction"
+path = "examples/rust/sponsored_transaction.rs"

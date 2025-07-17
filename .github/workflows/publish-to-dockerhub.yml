@@ -1,0 +1,74 @@
+name: publish to DockerHub
+
+on:
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: "Comma-separated list of tags to publish (e.g., '0.2,latest')"
+        required: false
+        default: latest
+      branch:
+        description: "Branch to run publish from"
+        required: true
+      is-dry-run:
+        description: "Run in dry-run mode"
+        type: boolean
+        required: false
+        default: true
+
+jobs:
+  push_to_registry:
+    environment: release
+    name: Push Docker images to Docker Hub
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image:
+          - { name: "iota-gas-station", repo: "iotaledger/gas-station" }
+          - { name: "tool", repo: "iotaledger/gas-station-tool" }
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567
+        with:
+          username: ${{ secrets.IOTALEDGER_DOCKER_USERNAME }}
+          password: ${{ secrets.IOTALEDGER_DOCKER_PASSWORD }}
+
+      - name: Parse tags
+        id: parse-tags
+        run: |
+          # Convert comma-separated tags to array and build tag arguments
+          IFS=',' read -ra TAG_ARRAY <<< "${{ github.event.inputs.tags }}"
+          TAG_ARGS=""
+          for tag in "${TAG_ARRAY[@]}"; do
+            # trim leading/trailing whitespace
+            tag_trimmed=$(echo "$tag" | xargs)
+            if [ -n "$tag_trimmed" ]; then
+              TAG_ARGS="$TAG_ARGS -t ${{ matrix.image.repo }}:$tag_trimmed"
+            fi
+          done
+          echo "tag-args=$TAG_ARGS" >> $GITHUB_OUTPUT
+          echo "Tags to be used: $TAG_ARGS"
+
+      - name: Build image with build.sh
+        run: |
+          ENTRY_BINARY=${{ matrix.image.name }} docker/build.sh ${{ steps.parse-tags.outputs.tag-args }}
+
+      - name: Push docker images
+        if: ${{ github.event.inputs.is-dry-run != 'true' }}
+        run: |
+          docker push --all-tags ${{ matrix.image.repo }}
+
+      # - name: Docker Hub Description for ${{ matrix.image.repo }}
+      #   if: ${{ github.event.inputs.is-dry-run  == 'false'}}
+      #   uses: peter-evans/dockerhub-description@e98e4d1628a5f3be2be7c231e50981aee98723ae
+      #   with:
+      #     username: ${{ secrets.IOTALEDGER_DOCKER_USERNAME }}
+      #     password: ${{ secrets.IOTALEDGER_DOCKER_PASSWORD }}
+      #     repository: ${{ matrix.image.repo }}
+      #     readme-filepath: ./README.md
+      #     short-description: ${{ github.event.repository.description }}

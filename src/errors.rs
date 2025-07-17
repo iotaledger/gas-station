@@ -28,3 +28,8 @@ macro_rules! retry_forever {
         $func.await
     }};
 }
+
+pub fn generate_event_id() -> String {
+    use uuid::Uuid;
+    Uuid::new_v4().to_string()
+}

@@ -8,12 +8,12 @@ use crate::storage::redis::script_manager::ScriptManager;
 use crate::storage::Storage;
 use crate::types::{GasCoin, ReservationID};
 use chrono::Utc;
+use iota_types::base_types::{IotaAddress, ObjectDigest, ObjectID, SequenceNumber};
 use redis::aio::ConnectionManager;
 use std::ops::Add;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use sui_types::base_types::{ObjectDigest, ObjectID, SequenceNumber, SuiAddress};
 use tracing::{debug, info};
 
 pub struct RedisStorage {
@@ -26,7 +26,7 @@ pub struct RedisStorage {
 impl RedisStorage {
     pub async fn new(
         redis_url: &str,
-        sponsor_address: SuiAddress,
+        sponsor_address: IotaAddress,
         metrics: Arc<StorageMetrics>,
     ) -> Self {
         let client = redis::Client::open(redis_url).unwrap();
@@ -88,11 +88,11 @@ impl Storage for RedisStorage {
             .collect();
 
         self.metrics
-            .gas_pool_available_gas_coin_count
+            .gas_station_available_gas_coin_count
             .with_label_values(&[&self.sponsor_str])
             .set(new_coin_count);
         self.metrics
-            .gas_pool_available_gas_total_balance
+            .gas_station_available_gas_total_balance
             .with_label_values(&[&self.sponsor_str])
             .set(new_total_balance);
         self.metrics.num_successful_reserve_gas_coins_requests.inc();
@@ -145,11 +145,11 @@ impl Storage for RedisStorage {
             new_total_balance, new_coin_count
         );
         self.metrics
-            .gas_pool_available_gas_coin_count
+            .gas_station_available_gas_coin_count
             .with_label_values(&[&self.sponsor_str])
             .set(new_coin_count);
         self.metrics
-            .gas_pool_available_gas_total_balance
+            .gas_station_available_gas_total_balance
             .with_label_values(&[&self.sponsor_str])
             .set(new_total_balance);
         self.metrics.num_successful_add_new_coins_requests.inc();
@@ -190,11 +190,11 @@ impl Storage for RedisStorage {
             available_coin_total_balance
         );
         self.metrics
-            .gas_pool_available_gas_coin_count
+            .gas_station_available_gas_coin_count
             .with_label_values(&[&self.sponsor_str])
             .set(available_coin_count);
         self.metrics
-            .gas_pool_available_gas_total_balance
+            .gas_station_available_gas_total_balance
             .with_label_values(&[&self.sponsor_str])
             .set(available_coin_total_balance);
         Ok((
@@ -240,7 +240,9 @@ impl Storage for RedisStorage {
 
     async fn check_health(&self) -> anyhow::Result<()> {
         let mut conn = self.conn_manager.clone();
-        redis::cmd("PING").query_async(&mut conn).await?;
+        redis::cmd("PING")
+            .query_async::<_, String>(&mut conn)
+            .await?;
         Ok(())
     }
 
@@ -284,7 +286,7 @@ impl Storage for RedisStorage {
 
 #[cfg(test)]
 mod tests {
-    use sui_types::base_types::{random_object_ref, SuiAddress};
+    use iota_types::base_types::{random_object_ref, IotaAddress};
 
     use crate::{
         metrics::StorageMetrics,
@@ -355,7 +357,7 @@ mod tests {
     async fn setup_storage() -> RedisStorage {
         let storage = RedisStorage::new(
             "redis://127.0.0.1:6379",
-            SuiAddress::ZERO,
+            IotaAddress::ZERO,
             StorageMetrics::new_for_testing(),
         )
         .await;

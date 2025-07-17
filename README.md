@@ -1,202 +1,169 @@
-# Sui Gas Pool
+<div align="center">
+  <img src=".github/imgs/banner_gas_station.svg" alt="banner" />
+</div>
 
-Sui Gas Pool is a service that powers sponsored transactions on Sui at scale. It manages a database of gas coins owned
+# IOTA Gas Station
+
+IOTA Gas Station is a component that powers sponsored transactions on IOTA at scale. It manages a database of gas coins owned
 by a sponsor address and provides APIs to reserve gas coins and use them to pay for transactions. It achieves
 scalability and high throughput by managing a large number of gas coin objects in the pool, so that it can sponsor a
 large number of transactions concurrently.
 
-## User Flow
+## Documentation
 
-A typical flow that interacts with the gas pool service looks like the following:
+For complete documentation, visit this [link](https://docs.iota.org/operator/gas-station/).
 
-1. App or client prepares a transaction without gas payment, sends it to an internal server.
-2. The internal server talks to the gas pool service to reserve gas coins for the given budget specified by the
-   transaction.
-3. The gas pool reserves gas coins and returns them to the internal server.
-4. The internal server sends the complete transaction back to the app/client.
-5. The app/client asks the user to sign the complete transaction, and sends back the sender signed transaction to the
-   internal server.
-6. The internal server then sends the sender signed transaction to the gas pool service to execute the transaction.
-7. The gas pool service executes the transaction though a fullnode and returns the effects to the internal server, which
-   then forwards it back to the app/client. The used gas coins are also freed up and ready for reservation again.
+## How to run with Docker
 
-## Architecture
+### Prerequisites
 
-A gas pool service instance corresponds to one sponsor address. A gas pool service instance will contain the following
-components:
+* [Git](https://github.com/git-guides/install-git)
+* [Docker](https://docs.docker.com/engine/install/)
+* [Docker Compose](https://docs.docker.com/compose/install/)
 
-1. Redis Storage. There should be a single Redis instance per gas pool service. This stores all the data that need to be
-   persisted, including the gas coin objects in the pool, reservation information and etc.
-2. One or more gas pool servers. This is the binary built from this repository, and it is ok to deploy multiple
-   instances of them, as long as they all connect to the same Redis server. Each of these servers provide RPC interfaces
-   to serve requests.
-3. (Optional) KMS Sidecar. There should be a single KMS sidecar instance per gas pool service. The KMS defines the
-   sponsor address and can sign transactions securely. Optionally we can also store the private key in memory without
-   using a KMS sidecar.
+### Setup Steps
 
-## Redis Storage
+1. **Clone the IOTA Gas Station Repository:**
 
-The storage layer stores all the gas coins in the pool and reservation information. It is the only place where we
-persist data.
-It uses Redis store as the backend, and Lua scripts to control the logic.
-Detailed documentation of each Lua script can be found
-in [link](https://www.notion.so/mystenlabs/src/storage/redis/lua_scripts/).
-
-## Gas Pool Server
-
-The Gas Pool Server contains a RPC server that accepts JSON-RPC requests, as well as an initializer that is able to
-initialize and fund gas coins to the pool:
-
-1. Upon requesting gas coins, it's able to obtain gas coins from the storage layer and return them to the caller.
-2. Caller can follow up with a transaction execution request that uses previously reserved coins, and the gas station
-   core will drive the execution of the transaction, automatically release the coins back to the storage layer after the
-   transaction is executed.
-3. It's able to automatically release reserved gas coins back to the storage after the requested duration expires.
-
-### RPC Server
-
-The gas pool service starts a RPC Server that listens on a specified port. It supports permission control through barer
-secret token. An internal server that communicates with the gas pool service must specify the token in the request. This
-is also why an internal server is needed such that the barer token is not exposed to the public.
-An HTTP server is implemented to take the following 3 requests:
-
-- GET("/"): Checks the health of the server
-- POST("/v1/reserve_gas"): Takes a [`ReserveGasRequest`](https://www.notion.so/mystenlabs/src/rpc/rpc_types.rs)
-  parameter in JSON form, and
-  returns [`ReserveGasResponse`](https://www.notion.so/mystenlabs/src/rpc/rpc_types.rs).
-- POST("/v1/execute_tx"): Takes a [`ExecuteTxRequest`](https://www.notion.so/mystenlabs/src/rpc/rpc_types.rs) parameter
-  in JSON form, and
-  returns [`ExecuteTxResponse`](https://www.notion.so/mystenlabs/src/rpc/rpc_types.rs).
-
-```rust
-pub struct ReserveGasRequest {
-    /// Desired gas budget. The response will contain gas coins that have total balance >= gas_budget.
-    pub gas_budget: u64,
-    /// The reserved gas coins will be released back to the pool after this duration expires.
-    pub reserve_duration_secs: u64,
-}
-
-pub struct ReserveGasResponse {
-    pub result: Option<ReserveGasResult>,
-    pub error: Option<String>,
-}
-
-pub struct ReserveGasResult {
-    pub sponsor_address: SuiAddress,
-    pub reservation_id: ReservationID,
-    pub gas_coins: Vec<SuiObjectRef>,
-}
-
-pub struct ExecuteTxRequest {
-    /// This must be the same reservation ID returned in ReserveGasResponse.
-    pub reservation_id: ReservationID,
-    /// BCS serialized transaction data bytes without its type tag, as base-64 encoded string.
-    pub tx_bytes: Base64,
-    /// User signature (`flag || signature || pubkey` bytes, as base-64 encoded string). Signature is committed to the intent message of the transaction data, as base-64 encoded string.
-    pub user_sig: Base64,
-}
-
-pub struct ExecuteTxResponse {
-    pub effects: Option<SuiTransactionBlockEffects>,
-    pub error: Option<String>,
-}
-
+```sh
+git clone https://github.com/iotaledger/gas-station
 ```
 
-### Gas Pool Initializer
+2. **Navigate to the Docker Directory and Generate the Config File:**
 
-The Gas Pool Initializer is able to initialize the global gas pool, as well as processing new funds and adding new coins
-to the gas pool.
-When we are starting up the gas pool for a given sponsor address for the first time, it will trigger the initialization
-process. It looks at all the SUI coins currently owned by the sponsor address, and split them into gas coins with a
-specified target balance. Once a day, it also looks at whether there is any coin owned by the sponsor address with a
-very large balance (NEW_COIN_BALANCE_FACTOR_THRESHOLD * target_init_balance), and if so it triggers initialization
-process again on the newly detected coin. This allows us add funding to the gas pool.
-To speed up the initialization time, it is able to split coins into smaller coins in parallel.
-Before each initialization run, it acquires a lock from the store to ensure that no other initialization task is running
-at the same time. The lock expires automatically after 12 hours.
-This allows us to run multiple gas servers for the same sponsor address.
+```sh
+cd gas-station/docker
+../utils/./gas-station-tool.sh generate-sample-config --config-path config.yaml --docker-compose -n testnet
+```
 
-### Transaction Signing
+   **Note:** If the generated private key pair doesn’t meet your requirements, replace it with your own keys.
 
-The sponsor will need to sign transactions since it owns the gas coins. The gas pool supports two different signer
-implementations:
+3. **Set Up Authentication:** Define a bearer token for the Gas Station API using the `GAS_STATION_AUTH` environment variable.
 
-1. KMS Sidecar: This allows us to manage private keys in a secure key management service such as AWS KMS. You will need
-   to run a KMS sidecar that accepts signing requests through a JSON-RPC endpoint, that talks to AWS and signs
-   transactions. We provided a [sample implementation](sample_kms_sidecar/) of such sidecar in the repo.
-2. In-memory: This allows the gas pool server to load a SuiKeyPair directly from file and use it to sign transactions.
+4. **Start the Gas Station**
 
-## Binaries
+```sh
+GAS_STATION_AUTH=[bearer_token] docker-compose up
+```
 
-### `sui-gas-station` Binary
 
-The binary takes a an argument:
+### Expected Output
 
-- `--config-path` (required): Path to the config file.
+When the gas station starts, it will perform the initial coin-splitting procedure. You should see logs similar to the following:
 
-### `tool` Binary
+```log
+2024-12-16T17:12:49.369620Z  INFO iota_gas_station::gas_station_initializer: Number of coins got so far: 392
+2024-12-16T17:12:49.369690Z  INFO iota_gas_station::gas_station_initializer: Splitting finished. Got 392 coins. New total balance: 39615604800. Spent 384395200 gas in total
+2024-12-16T17:12:49.381289Z DEBUG iota_gas_station::storage::redis: After add_new_coins. New total balance: 39615604800, new coin count: 392
+2024-12-16T17:12:49.381378Z DEBUG iota_gas_station::storage::redis: Releasing the init lock.
+2024-12-16T17:12:49.382094Z  INFO iota_gas_station::gas_station_initializer: New coin initialization took 0s
+2024-12-16T17:12:49.383373Z  INFO iota_gas_station::rpc::server: listening on 0.0.0.0:9527
+```
 
-The `tool` binary currently supports a few helper commands:
+### API
 
-1. `benchmark`: This starts a stress benchmark that continuously send gas reservation request to the gas station server,
-   and measures number of requests processed per second. Each reservation expires automatically after 1 second so the
-   unused gas are put back to the pool.
-2. `generate-sample-config`: This generates a sample config file that can be used to start the gas station server.
-3. `cli`: Provides a few CLI commands to interact with the gas station server.
+Your Gas Station instance should now be running and accessible via its [HTTP API](https://docs.iota.org/operator/gas-station/api-reference/).
 
-## Deployment
+## How to build
 
-Below describes the steps to deploy a gas pool service:
+### Build prerequisites
 
-1. Get a sponsor address keypair, either by generating it manually if you want to use in-memory signer, or get a KMS
-   instance from some cloud providers (or implement your own). Note that the **gas pool must use a dedicated address**,
-   and
-   this address cannot be used for any other purpose. Otherwise transactions sent outside of the gas pool could mess up
-   the gas coin setup.
-2. Send a sufficiently funded SUI coin into that address. This will be the initial funding of the gas pool.
-3. Deploy a Redis instance.
-4. Create a YAML config file (see details below).
-5. Pick a secure secret token for the RPC server, this will be passed through the `GAS_STATION_AUTH` environment
-   variable when starting the gas pool server.
-6. Deploy the gas pool server.
+- [Rust 1.86](https://www.rust-lang.org/tools/install)
 
-To create a YAML config file, you can use the following command to generate a sample config:
+### Build
 
-`tool generate-sample-config --config-path sample.yaml --with-sidecar-signer`
+To build the gas station binary, run:
+
+```bash
+cargo build --release
+```
+
+### Binaries
+
+- `./target/release/tool`: gas station helper tool
+- `./target/release/iota-gas-station`: gas station server binary
+
+## Configuration
+
+The example configuration file `config.yaml` can be generated with the `tool`. The example of config:
 
 ```yaml
----
 signer-config:
-  sidecar:
-    sidecar_url: "http://localhost:3000"
+  local:
+    keypair: AKT1Ghtd+yNbI9fFCQin3FpiGx8xoUdJMe7iAhoFUm4f
 rpc-host-ip: 0.0.0.0
 rpc-port: 9527
 metrics-port: 9184
-gas-pool-config:
+storage-config:
   redis:
     redis_url: "redis://127.0.0.1"
-fullnode-url: "http://localhost:9000"
+fullnode-url: "https://api.testnet.iota.cafe"
 coin-init-config:
   target-init-balance: 100000000
   refresh-interval-sec: 86400
 daily-gas-usage-cap: 1500000000000
+access-controller:
+  access-policy: disabled
 ```
 
-If you want to use in-memory signer, you can remove `--with-sidecar-signer` from the command.
+### Configuration parameters
 
-A description of these fields:
+| Parameter                               | Description                                                         | Example                          |
+| --------------------------------------- | ------------------------------------------------------------------- | -------------------------------- |
+| `signer-config`                         | Configuration of signer. It can be a local or an external KMS.      |  See [down below](#signer-configuration)|
+| `rpc-host-ip`                           | IP address for the RPC server                                       | `0.0.0.0`                        |
+| `rpc-port`                              | Port for the RPC server                                             | `9527`                           |
+| `metrics-port`                          | Port for collecting and exposing metrics                            | `9184`                           |
+| `storage-config.redis.redis_url`        | Redis connection URL                                                | `redis://127.0.0.1`              |
+| `fullnode-url`                          | URL of the IOTA full node                                           | `https://api.testnet.iota.cafe`  |
+| `coin-init-config.target-init-balance`  | Initial balance to maintain                                         | `100000000`                      |
+| `coin-init-config.refresh-interval-sec` | Interval in seconds to refresh balance                              | `86400`                          |
+| `daily-gas-usage-cap`                   | Maximum allowed daily gas usage                                     | `1500000000000`                  |
+| `access-controller.access-policy`       | Access policy mode.                                                 | `disabled`, `allow-all`, `deny-all`. See [this link](./docs/access-controller.md) to learn more|
 
-- sidecar_url: This is the RPC endpoint of the KMS sidecar.
-- rpc-host-ip: The IP of the gas pool RPC server, usually just 0.0.0.0.
-- rpc-port: The port that RPC server runs on.
-- metrics-port: The port where some metric service could go and grab metrics and logging.
-- redis_url: The full URL of the Redis instance.
-- fullnode-url: The fullnode that the gas pool will be talking to.
-- coin-init-config
-    - target-init-balance: The targeting initial balance of each coin (in MIST). For instance if you specify 100000000
-      which is 0.1 SUI, the gas pool will attempt to split its gas coin into smaller gas coins each with 0.1 SUI balance
-      during initialization.
-    - refresh-interval-sec: The interval to look at all gas coins owned by the sponsor again and see if some new funding
-      has been added.
-- daily-gas-usage-cap: The total amount of gas usage allowed per day, as a safety cap.
+#### Signer Configuration
+
+You can configure the signer in two ways:
+
+- **Local (hardcoded) key** _(unsafe)_
+
+   **Example**:
+
+   ```yaml
+   local:
+      keypair: AKT1Ghtd+yNbI9fFCQin3FpiGx8xoUdJMe7iAhoFUm4f # base64 encoded private key
+   ```
+
+   To convert a private key to base64, follow these steps:
+   1. List available keys: `iota keytool list`
+   2. Export the key for a selected alias: `iota keytool export --key-identity [alias]`
+   3. Convert the bech32 key to base64: `./utils/gas-station-tool.sh convert-key --key iotaprivatkey...`
+
+- **External key management store (KMS)**
+
+   **Example**:
+
+   ```yaml
+   sidecar:
+      sidecar-url: https://localhost:8001
+   ```
+
+   For more details, see the [documentation](https://docs.iota.org/operator/gas-station/architecture/components#key-store-manager) and the [KMS sidecar](./sample_kms_sidecar/) example.
+
+## Sponsored Transaction Examples
+
+- [Rust Example](examples/rust/README.md)
+- [TypeScript Example](examples/ts/README.md)
+
+## Common Issues
+
+[See the Common Issues section](./docs/common-issues.md)
+
+## Contributing
+
+We would love to have you help us with the development of IOTA Identity. Each and every contribution is greatly valued!
+
+To contribute directly to the repository, simply fork the project, push your changes to your fork and create a pull request to get them included!
+
+The best place to get involved in discussions about this library or to look for support at is the `#gas-station-dev` channel on the [IOTA Discord](https://discord.iota.org). You can also ask questions on our [Stack Exchange](https://iota.stackexchange.com/).
+

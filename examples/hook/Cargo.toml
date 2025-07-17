@@ -1,0 +1,28 @@
+[package]
+name = "hook"
+version = "0.1.0"
+edition = "2024"
+authors = ["IOTA Stiftung"]
+license = "Apache-2.0"
+
+[dependencies]
+anyhow = "1.0.98"
+axum = "0.8.0"
+base64 = "0.22.1"
+bcs = "0.1.4"
+iota-types = { git = "https://github.com/iotaledger/iota", tag = "v0.10.3-rc", package = "iota-types" }
+serde = "1"
+serde_json = "1.0.140"
+thiserror = "2.0.12"
+tokio = { version = "1", features = ["full"] }
+utoipa = { version = "5.3.1", features = ["axum_extras", "debug", "non_strict_integers"] }
+utoipa-axum = { version = "0.2.0" ,features = ["debug"] }
+utoipa-swagger-ui = { version = "9.0.1", features = ["axum", "debug"], optional = true}
+
+[features]
+default = [
+    "swagger-ui",
+]
+swagger-ui = [
+    "dep:utoipa-swagger-ui"
+]

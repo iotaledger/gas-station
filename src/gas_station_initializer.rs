@@ -2,24 +2,24 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::config::CoinInitConfig;
+use crate::iota_client::IotaClient;
 use crate::retry_forever;
 use crate::storage::Storage;
-use crate::sui_client::SuiClient;
 use crate::tx_signer::TxSigner;
 use crate::types::GasCoin;
+use iota_json_rpc_types::IotaTransactionBlockEffectsAPI;
+use iota_types::base_types::IotaAddress;
+use iota_types::coin::{PAY_MODULE_NAME, PAY_SPLIT_N_FUNC_NAME};
+use iota_types::gas_coin::GAS;
+use iota_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
+use iota_types::transaction::{Argument, Transaction, TransactionData};
+use iota_types::IOTA_FRAMEWORK_PACKAGE_ID;
 use parking_lot::Mutex;
 use std::cmp::min;
 use std::collections::VecDeque;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Duration;
-use sui_json_rpc_types::SuiTransactionBlockEffectsAPI;
-use sui_types::base_types::SuiAddress;
-use sui_types::coin::{PAY_MODULE_NAME, PAY_SPLIT_N_FUNC_NAME};
-use sui_types::gas_coin::GAS;
-use sui_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
-use sui_types::transaction::{Argument, Transaction, TransactionData};
-use sui_types::SUI_FRAMEWORK_PACKAGE_ID;
 use tap::TapFallible;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
@@ -29,7 +29,7 @@ use tracing::{debug, error, info};
 /// is considered a new coin, and we will try to split it into smaller coins with balance close to target_init_coin_balance.
 const NEW_COIN_BALANCE_FACTOR_THRESHOLD: u64 = 200;
 
-/// Assume that initializing the gas pool (i.e. splitting coins) will take at most 12 hours.
+/// Assume that initializing the Gas Station (i.e. splitting coins) will take at most 12 hours.
 const MAX_INIT_DURATION_SEC: u64 = 60 * 60 * 12;
 
 #[derive(Clone)]
@@ -37,8 +37,8 @@ struct CoinSplitEnv {
     target_init_coin_balance: u64,
     gas_cost_per_object: u64,
     signer: Arc<dyn TxSigner>,
-    sponsor_address: SuiAddress,
-    sui_client: SuiClient,
+    sponsor_address: IotaAddress,
+    iota_client: IotaClient,
     task_queue: Arc<Mutex<VecDeque<JoinHandle<Vec<GasCoin>>>>>,
     total_coin_count: Arc<AtomicUsize>,
     rgp: u64,
@@ -84,7 +84,7 @@ impl CoinSplitEnv {
             let mut pt_builder = ProgrammableTransactionBuilder::new();
             let pure_arg = pt_builder.pure(split_count).unwrap();
             pt_builder.programmable_move_call(
-                SUI_FRAMEWORK_PACKAGE_ID,
+                IOTA_FRAMEWORK_PACKAGE_ID,
                 PAY_MODULE_NAME.into(),
                 PAY_SPLIT_N_FUNC_NAME.into(),
                 vec![GAS::type_tag()],
@@ -110,7 +110,10 @@ impl CoinSplitEnv {
                 "Sending transaction for execution. Tx digest: {:?}",
                 tx.digest()
             );
-            let result = self.sui_client.execute_transaction(tx.clone(), 10).await;
+            let result = self
+                .iota_client
+                .execute_transaction(tx.clone(), 10, None)
+                .await;
             match result {
                 Ok(effects) => {
                     assert!(
@@ -124,7 +127,7 @@ impl CoinSplitEnv {
                 Err(e) => {
                     error!("Failed to execute transaction: {:?}", e);
                     coin = self
-                        .sui_client
+                        .iota_client
                         .get_latest_gas_objects([coin.object_ref.0])
                         .await
                         .into_iter()
@@ -160,21 +163,21 @@ enum RunMode {
     Refresh,
 }
 
-pub struct GasPoolInitializer {
+pub struct GasStationInitializer {
     _task_handle: JoinHandle<()>,
     // This is always Some. It is None only after the drop method is called.
     cancel_sender: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
-impl Drop for GasPoolInitializer {
+impl Drop for GasStationInitializer {
     fn drop(&mut self) {
         self.cancel_sender.take().unwrap().send(()).unwrap();
     }
 }
 
-impl GasPoolInitializer {
+impl GasStationInitializer {
     pub async fn start(
-        sui_client: SuiClient,
+        iota_client: IotaClient,
         storage: Arc<dyn Storage>,
         coin_init_config: CoinInitConfig,
         signer: Arc<dyn TxSigner>,
@@ -182,7 +185,7 @@ impl GasPoolInitializer {
         if !storage.is_initialized().await.unwrap() {
             // If the pool has never been initialized, always run once at the beginning to make sure we have enough coins.
             Self::run_once(
-                sui_client.clone(),
+                iota_client.clone(),
                 &storage,
                 RunMode::Init,
                 coin_init_config.target_init_balance,
@@ -192,7 +195,7 @@ impl GasPoolInitializer {
         }
         let (cancel_sender, cancel_receiver) = tokio::sync::oneshot::channel();
         let _task_handle = tokio::spawn(Self::run(
-            sui_client,
+            iota_client,
             storage,
             coin_init_config,
             signer,
@@ -205,7 +208,7 @@ impl GasPoolInitializer {
     }
 
     async fn run(
-        sui_client: SuiClient,
+        iota_client: IotaClient,
         storage: Arc<dyn Storage>,
         coin_init_config: CoinInitConfig,
         signer: Arc<dyn TxSigner>,
@@ -221,7 +224,7 @@ impl GasPoolInitializer {
             }
             info!("Coin init task waking up and looking for new coins to initialize");
             Self::run_once(
-                sui_client.clone(),
+                iota_client.clone(),
                 &storage,
                 RunMode::Refresh,
                 coin_init_config.target_init_balance,
@@ -232,7 +235,7 @@ impl GasPoolInitializer {
     }
 
     async fn run_once(
-        sui_client: SuiClient,
+        iota_client: IotaClient,
         storage: &Arc<dyn Storage>,
         mode: RunMode,
         target_init_coin_balance: u64,
@@ -256,8 +259,8 @@ impl GasPoolInitializer {
         } else {
             target_init_coin_balance * NEW_COIN_BALANCE_FACTOR_THRESHOLD
         };
-        let coins = sui_client
-            .get_all_owned_sui_coins_above_balance_threshold(sponsor_address, balance_threshold)
+        let coins = iota_client
+            .get_all_owned_iota_coins_above_balance_threshold(sponsor_address, balance_threshold)
             .await;
         if coins.is_empty() {
             info!(
@@ -268,8 +271,8 @@ impl GasPoolInitializer {
             return;
         }
         let total_coin_count = Arc::new(AtomicUsize::new(coins.len()));
-        let rgp = sui_client.get_reference_gas_price().await;
-        let gas_cost_per_object = sui_client
+        let rgp = iota_client.get_reference_gas_price().await;
+        let gas_cost_per_object = iota_client
             .calibrate_gas_cost_per_object(sponsor_address, &coins[0])
             .await;
         info!("Calibrated gas cost per object: {:?}", gas_cost_per_object);
@@ -280,7 +283,7 @@ impl GasPoolInitializer {
                 gas_cost_per_object,
                 signer: signer.clone(),
                 sponsor_address,
-                sui_client,
+                iota_client,
                 task_queue: Default::default(),
                 total_coin_count,
                 rgp,
@@ -330,26 +333,28 @@ impl GasPoolInitializer {
 #[cfg(test)]
 mod tests {
     use crate::config::CoinInitConfig;
-    use crate::gas_pool_initializer::{GasPoolInitializer, NEW_COIN_BALANCE_FACTOR_THRESHOLD};
+    use crate::gas_station_initializer::{
+        GasStationInitializer, NEW_COIN_BALANCE_FACTOR_THRESHOLD,
+    };
+    use crate::iota_client::IotaClient;
     use crate::storage::connect_storage_for_testing;
-    use crate::sui_client::SuiClient;
-    use crate::test_env::start_sui_cluster;
-    use sui_types::gas_coin::MIST_PER_SUI;
+    use crate::test_env::start_iota_cluster;
+    use iota_types::gas_coin::NANOS_PER_IOTA;
 
     // TODO: Add more accurate tests.
 
     #[tokio::test]
     async fn test_basic_init_flow() {
         telemetry_subscribers::init_for_testing();
-        let (cluster, signer) = start_sui_cluster(vec![1000 * MIST_PER_SUI]).await;
+        let (cluster, signer) = start_iota_cluster(vec![1000 * NANOS_PER_IOTA]).await;
         let fullnode_url = cluster.fullnode_handle.rpc_url;
         let storage = connect_storage_for_testing(signer.get_address()).await;
-        let sui_client = SuiClient::new(&fullnode_url, None).await;
-        let _ = GasPoolInitializer::start(
-            sui_client,
+        let iota_client = IotaClient::new(&fullnode_url, None).await;
+        let _ = GasStationInitializer::start(
+            iota_client,
             storage.clone(),
             CoinInitConfig {
-                target_init_balance: MIST_PER_SUI,
+                target_init_balance: NANOS_PER_IOTA,
                 refresh_interval_sec: 200,
             },
             signer,
@@ -361,13 +366,13 @@ mod tests {
     #[tokio::test]
     async fn test_init_non_even_split() {
         telemetry_subscribers::init_for_testing();
-        let (cluster, signer) = start_sui_cluster(vec![10000000 * MIST_PER_SUI]).await;
+        let (cluster, signer) = start_iota_cluster(vec![10000000 * NANOS_PER_IOTA]).await;
         let fullnode_url = cluster.fullnode_handle.rpc_url;
         let storage = connect_storage_for_testing(signer.get_address()).await;
-        let target_init_balance = 12345 * MIST_PER_SUI;
-        let sui_client = SuiClient::new(&fullnode_url, None).await;
-        let _ = GasPoolInitializer::start(
-            sui_client,
+        let target_init_balance = 12345 * NANOS_PER_IOTA;
+        let iota_client = IotaClient::new(&fullnode_url, None).await;
+        let _ = GasStationInitializer::start(
+            iota_client,
             storage.clone(),
             CoinInitConfig {
                 target_init_balance,
@@ -382,16 +387,16 @@ mod tests {
     #[tokio::test]
     async fn test_add_new_funds_to_pool() {
         telemetry_subscribers::init_for_testing();
-        let (cluster, signer) = start_sui_cluster(vec![1000 * MIST_PER_SUI]).await;
+        let (cluster, signer) = start_iota_cluster(vec![1000 * NANOS_PER_IOTA]).await;
         let sponsor = signer.get_address();
         let fullnode_url = cluster.fullnode_handle.rpc_url.clone();
         let storage = connect_storage_for_testing(signer.get_address()).await;
-        let sui_client = SuiClient::new(&fullnode_url, None).await;
-        let _init_task = GasPoolInitializer::start(
-            sui_client,
+        let iota_client = IotaClient::new(&fullnode_url, None).await;
+        let _init_task = GasStationInitializer::start(
+            iota_client,
             storage.clone(),
             CoinInitConfig {
-                target_init_balance: MIST_PER_SUI,
+                target_init_balance: NANOS_PER_IOTA,
                 refresh_interval_sec: 1,
             },
             signer,
@@ -401,7 +406,7 @@ mod tests {
         let available_coin_count = storage.get_available_coin_count().await.unwrap();
         tracing::debug!("Available coin count: {}", available_coin_count);
 
-        // Transfer some new SUI into the sponsor account.
+        // Transfer some new IOTA into the sponsor account.
         let new_addr = *cluster
             .get_addresses()
             .iter()
@@ -410,8 +415,8 @@ mod tests {
         let tx_data = cluster
             .test_transaction_builder_with_sender(new_addr)
             .await
-            .transfer_sui(
-                Some(NEW_COIN_BALANCE_FACTOR_THRESHOLD * MIST_PER_SUI),
+            .transfer_iota(
+                Some(NEW_COIN_BALANCE_FACTOR_THRESHOLD * NANOS_PER_IOTA),
                 sponsor,
             )
             .build();
@@ -424,7 +429,7 @@ mod tests {
         assert!(
             // In an ideal world we should have NEW_COIN_BALANCE_FACTOR_THRESHOLD more coins
             // since we just send a new coin with balance NEW_COIN_BALANCE_FACTOR_THRESHOLD and split
-            // into target balance of 1 SUI each. However due to gas cost in splitting in practice
+            // into target balance of 1 IOTA each. However due to gas cost in splitting in practice
             // we are getting less, depending on gas cost which could change from time to time.
             // Subtract 5 which is an arbitrary small number just to be safe.
             new_available_coin_count

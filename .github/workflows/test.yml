@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - "main"
+      - "dev"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
@@ -38,15 +39,16 @@ env:
 jobs:
   test:
     name: CI tests
-    runs-on: [ubuntu-ghcloud]
+    runs-on: [ubuntu-latest]
     steps:
       - name: Checkout repo
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # Pin v4.1.1
 
-      - name: Set Swap Space
-        uses: pierotofy/set-swap-space@master
-        with:
-          swap-size-gb: 256
+      ## Uncomment the following lines to enable swap space if needed.
+      # - name: Set Swap Space
+      #   uses: pierotofy/set-swap-space@master
+      #   with:
+      #     swap-size-gb: 256
 
       - name: Setup nextest
         uses: taiki-e/install-action@nextest
