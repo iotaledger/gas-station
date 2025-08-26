@@ -95,11 +95,9 @@ pub fn bcs_decode_typed(args: Vec<Value>) -> Result<Value, anyhow::Error> {
 fn bcs_decode_bytes(data_bytes: &[u8], data_type: BcsDataType) -> Result<Value, anyhow::Error> {
     match data_type {
         BcsDataType::String => {
-            let decoded = IotaJsonValue::from_bcs_bytes(
-                Some(&MoveTypeLayout::Vector(MoveTypeLayout::U8.into())),
-                data_bytes,
-            )?;
-            Ok(Value::from(decoded.to_json_value()))
+            let decoded: String = bcs::from_bytes(data_bytes)
+                .map_err(|e| anyhow::anyhow!("Failed to decode string: {}", e))?;
+            Ok(Value::from(decoded))
         }
         BcsDataType::U8 => {
             let decoded: u8 = bcs::from_bytes(data_bytes)
