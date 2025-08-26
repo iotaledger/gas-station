@@ -25,6 +25,15 @@ impl Action {
     }
 }
 
+impl std::fmt::Display for Action {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Action::HookAction(hook_action) = self {
+            write!(f, "{}", hook_action.url().to_string())
+        } else {
+            write!(f, "{:?}", self)
+        }
+    }
+}
 #[cfg(test)]
 mod test {
     use url::Url;

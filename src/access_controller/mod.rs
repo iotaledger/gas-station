@@ -5,6 +5,7 @@
 //! It provides a way to control the constraints for executing transactions, ensuring that only authorized addresses can perform specific actions.
 
 pub mod decision;
+pub mod decision_report;
 pub mod hook;
 pub mod policy;
 pub mod predicates;
@@ -12,7 +13,7 @@ pub mod rule;
 
 use std::{collections::HashMap, fmt::Formatter, sync::Arc};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use decision::Decision;
 use hook::SkippableDecision;
 use iota_types::digests::TransactionDigest;
@@ -21,10 +22,9 @@ use predicates::Action;
 use rule::{AccessRule, GasUsageConfirmationRequest, TransactionContext};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
-use tracing::debug;
+use tracing::{debug, trace};
 
-use crate::tracker::StatsTracker;
-
+use crate::{access_controller::decision_report::AccessReport, tracker::StatsTracker};
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub struct AccessController {
@@ -72,12 +72,15 @@ impl AccessController {
             return Ok(Decision::Allow);
         }
 
-        for (i, rule) in self.rules.iter().enumerate() {
-            if rule
-                .matches(&ctx)
-                .await
-                .with_context(|| anyhow!("Error evaluating rule #{}", i + 1))?
-            {
+        let mut access_report = AccessReport::new();
+        access_report.set_transaction_data(ctx.transaction_data.clone());
+
+        for (_, rule) in self.rules.iter().enumerate() {
+            let mut maybe_decision: Option<Decision> = None;
+            let mut rule_report = rule.matches(ctx).await?;
+            let is_partially_matched = rule_report.is_matched;
+
+            if is_partially_matched {
                 // Validate the counters if the rule partially matches
                 let matching_result = rule.match_global_limits(ctx).await?;
                 if !matching_result.1.is_empty() {
@@ -86,11 +89,15 @@ impl AccessController {
                         .await
                         .insert(ctx.transaction_digest, matching_result.1);
                 }
-                // if the rule matches and also matches the global limits, invoke the action
-                if matching_result.0 {
-                    match &rule.action {
-                        Action::Allow => return Ok(Decision::Allow),
-                        Action::Deny => return Ok(Decision::Deny),
+                // add the the predicate reports from global limits to get the "full" report for the rule
+                rule_report.add_predicate_reports(matching_result.0.predicate_reports);
+
+                if matching_result.0.is_matched {
+                    rule_report.set_final_action(Some(rule.action.clone()));
+
+                    maybe_decision = match &rule.action {
+                        Action::Allow => Some(Decision::Allow),
+                        Action::Deny => Some(Decision::Deny),
                         Action::HookAction(hook_action) => {
                             // call hook and take defined result or continue with next rule
                             let response = hook_action.call_hook(ctx).await?;
@@ -101,21 +108,30 @@ impl AccessController {
                                     response.user_message,
                                 );
                             match response.decision {
-                                SkippableDecision::Allow => return Ok(Decision::Allow),
-                                SkippableDecision::Deny => return Ok(Decision::Deny),
-                                _ => (),
-                            };
+                                SkippableDecision::Allow => Some(Decision::Allow),
+                                SkippableDecision::Deny => Some(Decision::Deny),
+                                SkippableDecision::NoDecision => None,
+                            }
                         }
                     };
                 }
             }
+
+            // regardless of matching result, add the rule report to the access report
+            access_report.add_rule(rule_report);
+
+            // if a decision was made, set it in the access report and return it
+            if let Some(decision) = maybe_decision {
+                access_report.set_decision(decision.clone());
+                trace!("{}", access_report);
+                return Ok(decision);
+            }
         }
 
-        match self.access_policy {
-            AccessPolicy::AllowAll => Ok(Decision::Allow),
-            AccessPolicy::DenyAll => Ok(Decision::Deny),
-            AccessPolicy::Disabled => Ok(Decision::Allow),
-        }
+        access_report.set_decision_with_reason(self.access_policy.into(), "Default policy applied");
+
+        trace!("{}", access_report);
+        Ok(self.access_policy.into())
     }
 
     pub async fn confirm_transaction(

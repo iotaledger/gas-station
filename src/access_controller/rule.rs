@@ -16,8 +16,9 @@ use serde_with::skip_serializing_none;
 use tracing::trace;
 use url::Url;
 
-use super::predicates::{
-    Action, LimitBy, RegoExpression, ValueAggregate, ValueIotaAddress, ValueNumber,
+use super::{
+    decision_report::{PredicateReport, RuleReport},
+    predicates::{Action, LimitBy, RegoExpression, ValueAggregate, ValueIotaAddress, ValueNumber},
 };
 use crate::{
     access_controller::hook::{HookAction, HookActionHeaders},
@@ -27,6 +28,14 @@ use crate::{
         StatsTracker,
     },
 };
+mod predicate_names {
+    pub const SENDER_ADDRESS: &str = "sender_address";
+    pub const GAS_BUDGET: &str = "gas_budget";
+    pub const MOVE_CALL_PACKAGE_ADDRESS: &str = "move_call_package_address";
+    pub const PTB_COMMAND_COUNT: &str = "ptb_command_count";
+    pub const GAS_USAGE: &str = "gas_usage";
+    pub const REG_O_EXPRESSION: &str = "rego_expression";
+}
 
 /// The AccessRuleBuilder is used to build an AccessRule with fluent API.
 pub struct AccessRuleBuilder {
@@ -165,28 +174,145 @@ impl AccessRule {
     /// Returns the action of the rule.
     ///
     /// Checks if the rule matches the transaction data.
-    pub async fn matches(&self, data: &TransactionContext) -> Result<bool, anyhow::Error> {
-        Ok(self.sender_address.includes(&data.sender_address)
-            // Gas Budget
-            && self
-                .transaction_gas_budget
-                .map(|size| size.matches(data.transaction_budget))
-                // If the gas size is not defined then the rule matches
-                .unwrap_or(true)
-            // Move Call Package Address
-            && self
-                .move_call_package_address.as_ref().map(|address| address.includes_any(&data.move_call_package_addresses)).unwrap_or(true)
-            && self.ptb_command_count_matches_or_not_applicable(data)
-            // Rego expression
-            && self.match_rego_expression(data)?)
+    pub async fn matches(&self, data: &TransactionContext) -> Result<RuleReport, anyhow::Error> {
+        let mut rule_report = RuleReport::new();
+
+        let sender_address_result = self.match_sender_address(data);
+        rule_report.add_predicate_report(sender_address_result);
+
+        // When first predicate is not matched, we don't need to check the rest of the predicates.
+        if !rule_report.is_matched {
+            return Ok(rule_report);
+        }
+
+        let gas_budget_result = self.match_gas_budget(data);
+        rule_report.add_predicate_report(gas_budget_result);
+
+        if !rule_report.is_matched {
+            return Ok(rule_report);
+        }
+
+        let move_call_package_address_result = self.match_move_call_package_address(data);
+        rule_report.add_predicate_report(move_call_package_address_result);
+
+        if !rule_report.is_matched {
+            return Ok(rule_report);
+        }
+
+        let ptb_command_count_result = self.match_ptb_command_count(data);
+        rule_report.add_predicate_report(ptb_command_count_result);
+
+        if !rule_report.is_matched {
+            return Ok(rule_report);
+        }
+
+        let rego_expression_result = self.match_rego_expression(data)?;
+        rule_report.add_predicate_report(rego_expression_result);
+
+        Ok(rule_report)
+    }
+
+    pub fn match_ptb_command_count(&self, data: &TransactionContext) -> PredicateReport {
+        match (self.ptb_command_count, data.ptb_command_count) {
+            (Some(criteria), Some(value)) => {
+                let is_matched = criteria.matches(value);
+                let result_reason = if is_matched {
+                    format!("ptb command count {} matches: {}", value, criteria)
+                } else {
+                    format!("ptb command count {} does not match: {}", value, criteria)
+                };
+                PredicateReport::new(
+                    predicate_names::PTB_COMMAND_COUNT,
+                    is_matched,
+                    result_reason,
+                )
+            }
+            _ => PredicateReport::new(
+                predicate_names::PTB_COMMAND_COUNT,
+                true,
+                "ptb command count is not defined".to_string(),
+            ),
+        }
+    }
+
+    pub fn match_move_call_package_address(&self, data: &TransactionContext) -> PredicateReport {
+        let is_matched = self
+            .move_call_package_address
+            .as_ref()
+            .map(|address| address.includes_any(&data.move_call_package_addresses))
+            .unwrap_or(true);
+        let result_reason = if self.move_call_package_address.is_some() {
+            if is_matched {
+                format!(
+                    "move call package address {:?} is in the list: '{:?}'",
+                    data.move_call_package_addresses,
+                    self.move_call_package_address.as_ref().unwrap()
+                )
+            } else {
+                format!(
+                    "move call package address {:?} is not in the list: '{:?}'",
+                    data.move_call_package_addresses,
+                    self.move_call_package_address.as_ref().unwrap()
+                )
+            }
+        } else {
+            "move call package address is not defined".to_string()
+        };
+        PredicateReport::new(
+            predicate_names::MOVE_CALL_PACKAGE_ADDRESS,
+            is_matched,
+            result_reason,
+        )
+    }
+
+    pub fn match_gas_budget(&self, data: &TransactionContext) -> PredicateReport {
+        let is_matched = self
+            .transaction_gas_budget
+            .map(|size| size.matches(data.transaction_budget))
+            .unwrap_or(true);
+        let result_reason = if self.transaction_gas_budget.is_some() {
+            if is_matched {
+                format!(
+                    "gas budget {} matches: {}",
+                    data.transaction_budget,
+                    self.transaction_gas_budget.as_ref().unwrap()
+                )
+            } else {
+                format!(
+                    "gas budget {} does not match: {}",
+                    data.transaction_budget,
+                    self.transaction_gas_budget.as_ref().unwrap()
+                )
+            }
+        } else {
+            "gas budget is not defined".to_string()
+        };
+        PredicateReport::new(predicate_names::GAS_BUDGET, is_matched, result_reason)
+    }
+
+    pub fn match_sender_address(&self, data: &TransactionContext) -> PredicateReport {
+        let is_matched = self.sender_address.includes(&data.sender_address);
+        let result_reason = if is_matched {
+            format!(
+                "sender address {} is in the list: '{:?}'",
+                data.sender_address, self.sender_address
+            )
+        } else {
+            format!(
+                "sender address {} is not in the list: '{:?}'",
+                data.sender_address, self.sender_address
+            )
+        };
+        PredicateReport::new(predicate_names::SENDER_ADDRESS, is_matched, result_reason)
     }
 
     /// Match checking for global limits. Global limits use a persistent storage to track their values
     pub async fn match_global_limits(
         &self,
         ctx: &TransactionContext,
-    ) -> Result<(bool, Vec<GasUsageConfirmationRequest>), anyhow::Error> {
+    ) -> Result<(RuleReport, Vec<GasUsageConfirmationRequest>), anyhow::Error> {
         let mut confirmation_requests = vec![];
+        let mut rule_report = RuleReport::new();
         let gas_limit_result = self
             .match_gas_limit(ctx)
             .await
@@ -194,8 +320,8 @@ impl AccessRule {
         if let Some(confirmation_request) = gas_limit_result.1 {
             confirmation_requests.push(confirmation_request);
         }
-        let result = (gas_limit_result.0, confirmation_requests);
-        Ok(result)
+        rule_report.add_predicate_report(gas_limit_result.0);
+        Ok((rule_report, confirmation_requests))
     }
 
     /// Returns the rule meta data as a JSON object. The rule meta is used to calculate the hash of the rule.
@@ -221,13 +347,13 @@ impl AccessRule {
     async fn match_gas_limit(
         &self,
         ctx: &TransactionContext,
-    ) -> Result<(bool, Option<GasUsageConfirmationRequest>), anyhow::Error> {
+    ) -> Result<(PredicateReport, Option<GasUsageConfirmationRequest>), anyhow::Error> {
         if let Some(gas_limit) = self.gas_usage.as_ref() {
             let rule_meta = self
                 .get_rule_meta(ctx)
                 .context("Failed to calculate rule meta")?;
 
-            let aggr = Aggregate::with_name("gas_usage")
+            let aggr = Aggregate::with_name(predicate_names::GAS_USAGE)
                 .with_aggr_type(AggregateType::Sum)
                 .with_window(gas_limit.window);
 
@@ -244,38 +370,57 @@ impl AccessRule {
             };
 
             return Ok((
-                gas_limit.value.matches(total_gas_claim as u64),
+                PredicateReport::new(
+                    predicate_names::GAS_USAGE,
+                    gas_limit.value.matches(total_gas_claim as u64),
+                    format!("gas usage {} matches: {}", total_gas_claim, gas_limit.value),
+                ),
                 Some(confirmation_request),
             ));
         } else {
             // If the gas limit is not defined then the rule matches
-            return Ok((true, None));
+            return Ok((
+                PredicateReport::new(predicate_names::GAS_USAGE, true, "gas usage is not defined"),
+                None,
+            ));
         }
     }
 
-    fn match_rego_expression(&self, ctx: &TransactionContext) -> Result<bool, anyhow::Error> {
+    fn match_rego_expression(
+        &self,
+        ctx: &TransactionContext,
+    ) -> Result<PredicateReport, anyhow::Error> {
         if let Some(rego_expression) = self.rego_expression.as_ref() {
             let input_payload = RegoInputPayload::from_context(ctx);
             let input_string = serde_json::to_string_pretty(&input_payload)
                 .context("Failed to serialize input payload to JSON")?;
-            trace!("\n\n Input string: {}", input_string);
-
             let result = rego_expression
                 .matches(&input_string)
                 .context("Failed to match rego expression")?;
 
-            return Ok(result);
-        }
-        // If the rego expression is not defined then the rule matches. Every payload is allowed
-        Ok(true)
-    }
-}
-
-impl AccessRule {
-    fn ptb_command_count_matches_or_not_applicable(&self, data: &TransactionContext) -> bool {
-        match (self.ptb_command_count, data.ptb_command_count) {
-            (Some(criteria), Some(value)) => criteria.matches(value),
-            _ => true,
+            let result_reason = if result {
+                format!(
+                    "rego expression matches: {}",
+                    rego_expression.source.location.to_string()
+                )
+            } else {
+                format!(
+                    "rego expression does not match: {}",
+                    rego_expression.source.location.to_string()
+                )
+            };
+            Ok(PredicateReport::new(
+                predicate_names::REG_O_EXPRESSION,
+                result,
+                result_reason,
+            ))
+        } else {
+            // If the rego expression is not defined then the rule matches. Every payload is allowed
+            Ok(PredicateReport::new(
+                predicate_names::REG_O_EXPRESSION,
+                true,
+                "rego expression is not defined",
+            ))
         }
     }
 }
@@ -475,8 +620,8 @@ mod test {
             ..Default::default()
         };
 
-        assert!(rule.matches(&matched_data).await.unwrap());
-        assert!(!rule.matches(&unmatched_data).await.unwrap());
+        assert!(rule.matches(&matched_data).await.unwrap().is_matched);
+        assert!(!rule.matches(&unmatched_data).await.unwrap().is_matched);
     }
 
     #[tokio::test]
@@ -489,8 +634,8 @@ mod test {
         let matched_data = TransactionContext::default().with_gas_budget(50);
         let unmatched_data = TransactionContext::default().with_gas_budget(200);
 
-        assert!(rule.matches(&matched_data).await.unwrap());
-        assert!(!rule.matches(&unmatched_data).await.unwrap());
+        assert!(rule.matches(&matched_data).await.unwrap().is_matched);
+        assert!(!rule.matches(&unmatched_data).await.unwrap().is_matched);
     }
 
     #[tokio::test]
@@ -507,8 +652,8 @@ mod test {
         let unmatched_data = TransactionContext::default()
             .with_move_call_package_addresses(vec![unmatch_package_id]);
 
-        assert!(rule.matches(&matched_data).await.unwrap());
-        assert!(!rule.matches(&unmatched_data).await.unwrap());
+        assert!(rule.matches(&matched_data).await.unwrap().is_matched);
+        assert!(!rule.matches(&unmatched_data).await.unwrap().is_matched);
     }
 
     #[tokio::test]
@@ -529,21 +674,33 @@ mod test {
             .with_gas_budget(gas_limit)
             .with_move_call_package_addresses(vec![move_call_package_address]);
 
-        assert!(rule.matches(&data).await.unwrap());
+        assert!(rule.matches(&data).await.unwrap().is_matched);
 
         let unmatched_data_package_address = TransactionContext::default()
             .with_sender_address(sender_address)
             .with_gas_budget(gas_limit)
             .with_move_call_package_addresses(vec![IotaAddress::new([3; 32])]);
 
-        assert!(!rule.matches(&unmatched_data_package_address).await.unwrap());
+        assert!(
+            !rule
+                .matches(&unmatched_data_package_address)
+                .await
+                .unwrap()
+                .is_matched
+        );
 
         let unmatched_data_gas_limit = TransactionContext::default()
             .with_sender_address(sender_address)
             .with_gas_budget(gas_limit + 1)
             .with_move_call_package_addresses(vec![move_call_package_address]);
 
-        assert!(!rule.matches(&unmatched_data_gas_limit).await.unwrap());
+        assert!(
+            !rule
+                .matches(&unmatched_data_gas_limit)
+                .await
+                .unwrap()
+                .is_matched
+        );
     }
 
     #[tokio::test]
@@ -558,11 +715,19 @@ mod test {
         let data_with_not_matching_ptb_count =
             TransactionContext::default().with_ptb_command_count(5);
 
-        assert!(rule.matches(&data_with_matching_ptb_count).await.unwrap());
-        assert!(!rule
-            .matches(&data_with_not_matching_ptb_count)
-            .await
-            .unwrap());
+        assert!(
+            rule.matches(&data_with_matching_ptb_count)
+                .await
+                .unwrap()
+                .is_matched
+        );
+        assert!(
+            !rule
+                .matches(&data_with_not_matching_ptb_count)
+                .await
+                .unwrap()
+                .is_matched
+        );
     }
 
     #[tokio::test]
@@ -580,13 +745,13 @@ mod test {
             .with_sender_address(sender_address)
             .with_move_call_package_addresses(vec![move_call_package_address]);
 
-        assert!(rule.matches(&matched_data).await.unwrap());
+        assert!(rule.matches(&matched_data).await.unwrap().is_matched);
 
         let unmatched_data = TransactionContext::default()
             .with_sender_address(sender_address)
             .with_move_call_package_addresses(vec![IotaAddress::new([3; 32])]);
 
-        assert!(!rule.matches(&unmatched_data).await.unwrap());
+        assert!(!rule.matches(&unmatched_data).await.unwrap().is_matched);
     }
 
     #[tokio::test]
@@ -621,9 +786,29 @@ mod test {
             .with_gas_budget(200)
             .with_stats_tracker(stats_tracker.clone());
 
-        assert!(!rule.match_global_limits(&matched_data).await.unwrap().0);
-        assert!(rule.match_global_limits(&matched_data).await.unwrap().0);
-        assert!(!rule.match_global_limits(&unmatched_data).await.unwrap().0);
+        assert!(
+            !rule
+                .match_global_limits(&matched_data)
+                .await
+                .unwrap()
+                .0
+                .is_matched
+        );
+        assert!(
+            rule.match_global_limits(&matched_data)
+                .await
+                .unwrap()
+                .0
+                .is_matched
+        );
+        assert!(
+            !rule
+                .match_global_limits(&unmatched_data)
+                .await
+                .unwrap()
+                .0
+                .is_matched
+        );
     }
 
     #[tokio::test]
@@ -662,15 +847,17 @@ mod test {
             .build();
         let matched_data = TransactionContext::default()
             .with_transaction_data(serde_json::to_value(&transaction_data).unwrap());
-        assert!(matches!(rule.matches(&matched_data).await, Ok(true)));
+        assert!(rule.matches(&matched_data).await.unwrap().is_matched);
 
         // Test with unmatched sender address
         *transaction_data.sender_mut_for_testing() = IotaAddress::new([0x13; 32]);
         let unmatched_data = TransactionContext::default()
             .with_transaction_data(serde_json::to_value(&transaction_data).unwrap());
-        assert!(matches!(
-            rule.match_rego_expression(&unmatched_data),
-            Ok(false)
-        ));
+        assert!(
+            !rule
+                .match_rego_expression(&unmatched_data)
+                .unwrap()
+                .is_matched
+        );
     }
 }

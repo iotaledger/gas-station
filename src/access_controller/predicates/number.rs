@@ -23,6 +23,22 @@ pub enum ValueNumber<T> {
     LessThanOrEqual(T),
 }
 
+impl<T> std::fmt::Display for ValueNumber<T>
+where
+    T: Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ValueNumber::GreaterThan(number) => write!(f, "{OP_GT}{number}"),
+            ValueNumber::LessThan(number) => write!(f, "{OP_LT}{number}"),
+            ValueNumber::Equal(number) => write!(f, "{OP_EQ}{number}"),
+            ValueNumber::NotEqual(number) => write!(f, "{OP_NE}{number}"),
+            ValueNumber::GreaterThanOrEqual(number) => write!(f, "{OP_GE}{number}"),
+            ValueNumber::LessThanOrEqual(number) => write!(f, "{OP_LE}{number}"),
+        }
+    }
+}
+
 impl<T> From<T> for ValueNumber<T> {
     fn from(value: T) -> Self {
         ValueNumber::Equal(value)
