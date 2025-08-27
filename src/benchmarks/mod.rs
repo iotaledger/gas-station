@@ -88,7 +88,7 @@ impl BenchmarkMode {
                     let intent_msg = IntentMessage::new(Intent::iota_transaction(), &tx_data);
                     let user_sig = Signature::new_secure(&intent_msg, &keypair).into();
                     let result = client
-                        .execute_tx(reservation_id, &tx_data, &user_sig, None)
+                        .execute_tx(reservation_id, &tx_data, &user_sig, None, None)
                         .await;
                     if let Err(err) = result {
                         stats.write().update_error();

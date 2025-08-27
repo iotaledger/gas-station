@@ -43,6 +43,15 @@ pub struct ExecuteTxRequestPayload {
     /// Base64 encoded user signature.
     #[schema(content_encoding = "base64")]
     pub user_sig: String,
+    /// Request type used for transaction finality waiting.
+    pub request_type: Option<ExecuteTransactionRequestType>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ExecuteTransactionRequestType {
+    WaitForEffectsCert,
+    WaitForLocalExecution,
 }
 
 impl ExecuteTxHookRequest {

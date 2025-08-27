@@ -3,7 +3,8 @@
 
 use crate::read_auth_env;
 use crate::rpc::rpc_types::{
-    ExecuteTxRequest, ExecuteTxResponse, ReserveGasRequest, ReserveGasResponse,
+    ExecuteTransactionRequestType, ExecuteTxRequest, ExecuteTxResponse, ReserveGasRequest,
+    ReserveGasResponse,
 };
 use crate::types::ReservationID;
 use anyhow::bail;
@@ -58,10 +59,9 @@ impl GasStationRpcClient {
 
     pub async fn debug_health_check(&self) -> anyhow::Result<()> {
         let mut headers = HeaderMap::new();
-        headers.insert(
-            AUTHORIZATION,
-            format!("Bearer {}", read_auth_env()).parse().unwrap(),
-        );
+        if let Some(auth) = read_auth_env() {
+            headers.insert(AUTHORIZATION, format!("Bearer {}", auth).parse().unwrap());
+        }
         let response = self
             .client
             .post(format!("{}/debug_health_check", self.server_address))
@@ -89,10 +89,9 @@ impl GasStationRpcClient {
             reserve_duration_secs,
         };
         let mut headers = HeaderMap::new();
-        headers.insert(
-            AUTHORIZATION,
-            format!("Bearer {}", read_auth_env()).parse().unwrap(),
-        );
+        if let Some(auth) = read_auth_env() {
+            headers.insert(AUTHORIZATION, format!("Bearer {}", auth).parse().unwrap());
+        }
         let response = self
             .client
             .post(format!("{}/v1/reserve_gas", self.server_address))
@@ -127,17 +126,18 @@ impl GasStationRpcClient {
         reservation_id: ReservationID,
         tx_data: &TransactionData,
         user_sig: &GenericSignature,
+        request_type: Option<ExecuteTransactionRequestType>,
         headers: Option<HeaderMap>,
     ) -> anyhow::Result<IotaTransactionBlockEffects> {
         let mut headers = headers.unwrap_or_default();
-        headers.insert(
-            AUTHORIZATION,
-            format!("Bearer {}", read_auth_env()).parse().unwrap(),
-        );
+        if let Some(auth) = read_auth_env() {
+            headers.insert(AUTHORIZATION, format!("Bearer {}", auth).parse().unwrap());
+        }
         let request = ExecuteTxRequest {
             reservation_id,
             tx_bytes: Base64::from_bytes(&bcs::to_bytes(&tx_data).unwrap()),
             user_sig: Base64::from_bytes(user_sig.as_ref()),
+            request_type,
         };
         let response = self
             .client
@@ -157,10 +157,9 @@ impl GasStationRpcClient {
 
     pub async fn reload_access_controller(&self) -> anyhow::Result<()> {
         let mut headers = HeaderMap::new();
-        headers.insert(
-            AUTHORIZATION,
-            format!("Bearer {}", read_auth_env()).parse().unwrap(),
-        );
+        if let Some(auth) = read_auth_env() {
+            headers.insert(AUTHORIZATION, format!("Bearer {}", auth).parse().unwrap());
+        }
         let response = self
             .client
             .get(format!(

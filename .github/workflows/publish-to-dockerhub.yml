@@ -3,8 +3,8 @@ name: publish to DockerHub
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Tag to publish under, defaults to latest"
+      tags:
+        description: "Comma-separated list of tags to publish (e.g., '0.2,latest')"
         required: false
         default: latest
       branch:
@@ -38,14 +38,30 @@ jobs:
           username: ${{ secrets.IOTALEDGER_DOCKER_USERNAME }}
           password: ${{ secrets.IOTALEDGER_DOCKER_PASSWORD }}
 
+      - name: Parse tags
+        id: parse-tags
+        run: |
+          # Convert comma-separated tags to array and build tag arguments
+          IFS=',' read -ra TAG_ARRAY <<< "${{ github.event.inputs.tags }}"
+          TAG_ARGS=""
+          for tag in "${TAG_ARRAY[@]}"; do
+            # trim leading/trailing whitespace
+            tag_trimmed=$(echo "$tag" | xargs)
+            if [ -n "$tag_trimmed" ]; then
+              TAG_ARGS="$TAG_ARGS -t ${{ matrix.image.repo }}:$tag_trimmed"
+            fi
+          done
+          echo "tag-args=$TAG_ARGS" >> $GITHUB_OUTPUT
+          echo "Tags to be used: $TAG_ARGS"
+
       - name: Build image with build.sh
         run: |
-          ENTRY_BINARY=${{ matrix.image.name }} docker/build.sh -t ${{ matrix.image.repo }}:${{ github.event.inputs.tag }}
+          ENTRY_BINARY=${{ matrix.image.name }} docker/build.sh ${{ steps.parse-tags.outputs.tag-args }}
 
-      - name: Push docker image
+      - name: Push docker images
         if: ${{ github.event.inputs.is-dry-run != 'true' }}
         run: |
-          docker push ${{ matrix.image.repo }}:${{ github.event.inputs.tag }}
+          docker push --all-tags ${{ matrix.image.repo }}
 
       # - name: Docker Hub Description for ${{ matrix.image.repo }}
       #   if: ${{ github.event.inputs.is-dry-run  == 'false'}}

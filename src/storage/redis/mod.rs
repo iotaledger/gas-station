@@ -240,7 +240,9 @@ impl Storage for RedisStorage {
 
     async fn check_health(&self) -> anyhow::Result<()> {
         let mut conn = self.conn_manager.clone();
-        redis::cmd("PING").query_async(&mut conn).await?;
+        redis::cmd("PING")
+            .query_async::<_, String>(&mut conn)
+            .await?;
         Ok(())
     }
 

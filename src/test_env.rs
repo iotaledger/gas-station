@@ -105,6 +105,27 @@ pub async fn start_rpc_server_for_testing(
     (test_cluster, container, server)
 }
 
+pub async fn start_rpc_server_for_testing_no_auth(
+    init_gas_amounts: Vec<u64>,
+    target_init_balance: u64,
+) -> (TestCluster, GasStationContainer, GasStationServer) {
+    let (test_cluster, container) = start_gas_station(init_gas_amounts, target_init_balance).await;
+    let localhost = localhost_for_testing();
+    let signer_address = container.get_signer_address();
+
+    let server = GasStationServer::new(
+        container.get_gas_station_arc(),
+        localhost.parse().unwrap(),
+        get_available_port(&localhost),
+        GasStationRpcMetrics::new_for_testing(),
+        Arc::new(ArcSwap::new(Arc::new(AccessController::default()))),
+        new_stats_tracker_for_testing(signer_address).await,
+        PathBuf::from_str(DEFAULT_TEST_CONFIG_PATH).unwrap(),
+    )
+    .await;
+    (test_cluster, container, server)
+}
+
 pub async fn start_rpc_server_for_testing_with_access_controller(
     init_gas_amounts: Vec<u64>,
     target_init_balance: u64,

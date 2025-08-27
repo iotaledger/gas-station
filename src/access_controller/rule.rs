@@ -21,6 +21,7 @@ use super::predicates::{
 };
 use crate::{
     access_controller::hook::{HookAction, HookActionHeaders},
+    rpc::rpc_types::ExecuteTransactionRequestType,
     tracker::{
         stats_tracker_storage::{Aggregate, AggregateType},
         StatsTracker,
@@ -306,6 +307,7 @@ pub struct TransactionContext {
     pub reservation_id: u64,
     pub tx_bytes: Base64,
     pub user_sig: Base64,
+    pub request_type: Option<ExecuteTransactionRequestType>,
     pub headers: HeaderMap,
 }
 
@@ -325,6 +327,7 @@ impl Default for TransactionContext {
                 .expect("empty string should be valid base64"),
             user_sig: Base64::try_from(String::default())
                 .expect("empty string should be valid base64"),
+            request_type: None,
             headers: HeaderMap::default(),
         }
     }
@@ -338,6 +341,7 @@ impl TransactionContext {
         reservation_id: u64,
         tx_bytes: Base64,
         user_sig: Base64,
+        request_type: Option<ExecuteTransactionRequestType>,
         headers: HeaderMap,
     ) -> Self {
         let ptb_command_count = match transaction_data {
@@ -361,6 +365,7 @@ impl TransactionContext {
             reservation_id,
             tx_bytes,
             user_sig,
+            request_type,
             headers,
         }
     }
@@ -410,6 +415,11 @@ impl TransactionContext {
 
     pub fn with_user_sig(mut self, user_sig: Base64) -> Self {
         self.user_sig = user_sig;
+        self
+    }
+
+    pub fn with_request_type(mut self, request_type: ExecuteTransactionRequestType) -> Self {
+        self.request_type = Some(request_type);
         self
     }
 

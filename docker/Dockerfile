@@ -1,6 +1,6 @@
 FROM --platform=$BUILDPLATFORM tonistiigi/xx AS xx
 
-FROM --platform=$BUILDPLATFORM  rust:1.85-bullseye AS chef
+FROM --platform=$BUILDPLATFORM  rust:1.86-bullseye AS chef
 
 # setup xx
 # copy xx scripts to your build stage
