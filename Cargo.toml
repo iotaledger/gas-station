@@ -61,10 +61,12 @@ url = { version = "2.5.4", features = ["serde"] }
 
 
 [dev-dependencies]
+indoc = "2"
 rand = "0.8.5"
 
 iota-swarm-config = { git = "https://github.com/iotaledger/iota", tag = "v0.10.3-rc", package = "iota-swarm-config" }
 test-cluster = { git = "https://github.com/iotaledger/iota", tag = "v0.10.3-rc", package = "test-cluster" }
+wiremock = "0.6.3"
 
 [profile.release]
 panic = "abort"
@@ -73,3 +75,11 @@ panic = "abort"
 [[example]]
 name = "sponsored_transaction"
 path = "examples/rust/sponsored_transaction.rs"
+
+[[example]]
+name = "hook_with_request_headers"
+path = "examples/rust/hook_with_request_headers.rs"
+
+[[example]]
+name = "hook_with_config_headers"
+path = "examples/rust/hook_with_config_headers.rs"
