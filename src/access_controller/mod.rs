@@ -95,7 +95,7 @@ impl AccessController {
                             // call hook and take defined result or continue with next rule
                             let response = hook_action.call_hook(ctx).await?;
                             debug!("Called hook: {}, for transaction with digest: {}. Got decision: {:?}, with user message: {:?}",
-                                    hook_action.0,
+                                    hook_action.url(),
                                     ctx.transaction_digest,
                                     response.decision,
                                     response.user_message,
@@ -187,10 +187,15 @@ impl TransactionExecutionResult {
 
 #[cfg(test)]
 mod test {
+    use std::collections::BTreeMap;
+
+    use indoc::indoc;
     use iota_types::base_types::IotaAddress;
+    use url::Url;
 
     use crate::access_controller::{
         decision::Decision,
+        hook::{HookAction, HookActionHeaders},
         predicates::{Action, ValueIotaAddress},
         AccessController,
     };
@@ -445,14 +450,14 @@ mod test {
 
     #[test]
     fn deserialize_access_controller() {
-        let yaml = r#"
-access-policy: "deny-all"
-rules:
-      - sender-address: ['0x0101010101010101010101010101010101010101010101010101010101010101']
-        transaction-gas-budget: <=10000
-        ptb-command-count: <=5
-        action: allow
-"#;
+        let yaml = indoc! {r#"
+          access-policy: "deny-all"
+          rules:
+            - sender-address: ['0x0101010101010101010101010101010101010101010101010101010101010101']
+              transaction-gas-budget: <=10000
+              ptb-command-count: <=5
+              action: allow
+        "#};
         let ac: AccessController = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(ac.access_policy, AccessPolicy::DenyAll);
         assert_eq!(ac.rules.len(), 1);
@@ -487,14 +492,15 @@ rules:
 
         assert_eq!(
             yaml,
-            r#"---
-access-policy: deny-all
-rules:
-  - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
-    transaction-gas-budget: "<=10000"
-    ptb-command-count: "<=5"
-    action: allow
-"#
+            indoc! {r#"
+              ---
+              access-policy: deny-all
+              rules:
+                - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
+                  transaction-gas-budget: "<=10000"
+                  ptb-command-count: "<=5"
+                  action: allow
+            "#}
         );
     }
 
@@ -512,25 +518,27 @@ rules:
 
         assert_eq!(
             yaml,
-            r#"---
-access-policy: deny-all
-rules:
-  - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
-    move-call-package-address: "0x0202020202020202020202020202020202020202020202020202020202020202"
-    action: allow
-"#
+            indoc! {r#"
+              ---
+              access-policy: deny-all
+              rules:
+                - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
+                  move-call-package-address: "0x0202020202020202020202020202020202020202020202020202020202020202"
+                  action: allow
+            "#}
         );
     }
 
     #[test]
     fn deserialize_access_controller_with_move_call_package_address() {
-        let yaml = r#"
-access-policy: "deny-all"
-rules:
-      - sender-address: ['0x0101010101010101010101010101010101010101010101010101010101010101']
-        move-call-package-address: ['0x0202020202020202020202020202020202020202020202020202020202020202']
-        action: allow
-"#;
+        let yaml = indoc! {r#"
+          ---
+          access-policy: "deny-all"
+          rules:
+            - sender-address: ['0x0101010101010101010101010101010101010101010101010101010101010101']
+              move-call-package-address: ['0x0202020202020202020202020202020202020202020202020202020202020202']
+              action: allow
+          "#};
         let ac: AccessController = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(ac.access_policy, AccessPolicy::DenyAll);
         assert_eq!(ac.rules.len(), 1);
@@ -543,6 +551,72 @@ rules:
             Some(ValueIotaAddress::List(vec![IotaAddress::new([2; 32])]))
         );
         assert_eq!(ac.rules[0].action, Action::Allow);
+    }
+
+    #[test]
+    fn serialize_access_controller_with_detailed_hook_action() {
+        let ac = AccessController::new(
+            AccessPolicy::DenyAll,
+            [AccessRuleBuilder::new()
+                .hook(
+                    Url::parse("http://example.org/").unwrap(),
+                    Some({
+                        let mut headers = BTreeMap::new();
+                        headers.insert("foo".to_string(), vec!["bar".to_string()]);
+                        headers
+                    }),
+                )
+                .unwrap()
+                .build()],
+        );
+
+        let yaml = serde_yaml::to_string(&ac).unwrap();
+
+        assert_eq!(
+            yaml,
+            indoc! {r###"
+              ---
+              access-policy: deny-all
+              rules:
+                - sender-address: "*"
+                  action:
+                    url: "http://example.org/"
+                    headers:
+                      foo:
+                        - bar
+            "###}
+        );
+    }
+
+    #[test]
+    fn deserialize_access_controller_with_detailed_hook_action() {
+        let yaml = indoc! {r#"
+          access-policy: deny-all
+          rules:
+          - action:
+              url: http://127.0.0.1:8080
+              headers:
+                foo:
+                - bar
+        "#};
+
+        let ac: AccessController = serde_yaml::from_str(yaml).unwrap();
+
+        assert_eq!(ac.access_policy, AccessPolicy::DenyAll);
+        assert_eq!(ac.rules.len(), 1);
+        assert_eq!(ac.rules[0].sender_address, ValueIotaAddress::All);
+        let mut headers = HookActionHeaders::new();
+        headers.insert("foo".to_string(), vec!["bar".to_string()]);
+        assert_eq!(
+            ac.rules[0].action,
+            Action::HookAction(
+                HookAction::new_detailed(
+                    Url::parse("http://127.0.0.1:8080/").unwrap(),
+                    Some(headers)
+                )
+                .unwrap()
+            )
+        );
     }
 
     #[tokio::test]
@@ -632,89 +706,97 @@ rules:
     }
 
     mod hook {
-        use axum::http::{HeaderMap, HeaderValue};
         use url::Url;
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
 
-        use crate::access_controller::hook::{
-            ExecuteTxOkResponse, SkippableDecision, TEST_ERROR_HEADER, TEST_RESPONSE_HEADER,
-        };
+        use crate::access_controller::hook::{ExecuteTxOkResponse, SkippableDecision};
 
         use super::*;
 
-        fn get_headers_with_test_response(
-            decision: SkippableDecision,
-            user_message: Option<String>,
-        ) -> HeaderMap {
-            let response = ExecuteTxOkResponse {
-                decision,
-                user_message,
-            };
-            let mut headers = HeaderMap::new();
-            headers.insert(
-                TEST_RESPONSE_HEADER,
-                HeaderValue::from_str(&serde_json::to_string(&response).unwrap()).unwrap(),
-            );
+        async fn get_mock_server_ok(decision: &SkippableDecision) -> (MockServer, Url) {
+            let endpoint = "/hello";
+            let mock_server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path(endpoint))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(ExecuteTxOkResponse {
+                        decision: decision.clone(),
+                        user_message: None,
+                    }),
+                )
+                .mount(&mock_server)
+                .await;
+            let url = Url::parse(&format!("{}{}", &mock_server.uri(), endpoint)).unwrap();
 
-            headers
+            (mock_server, url)
+        }
+
+        async fn get_mock_server_bad_request() -> (MockServer, Url, &'static str) {
+            let endpoint = "/hello";
+            let error = "error sent back from hook server";
+            let mock_server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path(endpoint))
+                .respond_with(ResponseTemplate::new(400).set_body_string(error))
+                .mount(&mock_server)
+                .await;
+            let url = Url::parse(&format!("{}{}", &mock_server.uri(), endpoint)).unwrap();
+
+            (mock_server, url, error)
         }
 
         #[tokio::test]
         async fn test_hook_can_allow_tx() {
-            let hook_rule = AccessRuleBuilder::new()
-                .hook(Url::parse("https://example.net").unwrap())
-                .build();
-            // "calling" the test hook action with this context will return `SkippableDecision::Allow`
-            let allow_ctx = TransactionContext::default().with_headers(
-                get_headers_with_test_response(SkippableDecision::Allow, None),
-            );
+            let decision = SkippableDecision::Allow;
+            let (mock_server, url) = get_mock_server_ok(&decision).await;
+            let hook_rule = AccessRuleBuilder::new().hook(url, None).unwrap().build();
+            let ctx = TransactionContext::default();
 
             let ac_allow_all = AccessController::new(AccessPolicy::AllowAll, [hook_rule.clone()]);
             let ac_deny_all = AccessController::new(AccessPolicy::DenyAll, [hook_rule.clone()]);
 
             assert!(matches!(
-                ac_allow_all.check_access(&allow_ctx).await,
+                ac_allow_all.check_access(&ctx).await,
                 Ok(Decision::Allow)
             ));
+            assert_eq!(mock_server.received_requests().await.unwrap().len(), 1);
             assert!(matches!(
-                ac_deny_all.check_access(&allow_ctx).await,
+                ac_deny_all.check_access(&ctx).await,
                 Ok(Decision::Allow)
             ));
+            assert_eq!(mock_server.received_requests().await.unwrap().len(), 2);
         }
 
         #[tokio::test]
         async fn test_hook_can_deny_tx() {
-            let hook_rule = AccessRuleBuilder::new()
-                .hook(Url::parse("https://example.net").unwrap())
-                .build();
-            // "calling" the test hook action with this context will return `SkippableDecision::Deny`
-            let deny_ctx = TransactionContext::default().with_headers(
-                get_headers_with_test_response(SkippableDecision::Deny, None),
-            );
+            let decision = SkippableDecision::Deny;
+            let (mock_server, url) = get_mock_server_ok(&decision).await;
+            let hook_rule = AccessRuleBuilder::new().hook(url, None).unwrap().build();
+            let ctx = TransactionContext::default();
 
             let ac_allow_all = AccessController::new(AccessPolicy::AllowAll, [hook_rule.clone()]);
             let ac_deny_all = AccessController::new(AccessPolicy::DenyAll, [hook_rule.clone()]);
 
             assert!(matches!(
-                ac_allow_all.check_access(&deny_ctx).await,
+                ac_allow_all.check_access(&ctx).await,
                 Ok(Decision::Deny)
             ));
+            assert_eq!(mock_server.received_requests().await.unwrap().len(), 1);
             assert!(matches!(
-                ac_deny_all.check_access(&deny_ctx).await,
+                ac_deny_all.check_access(&ctx).await,
                 Ok(Decision::Deny)
             ));
         }
 
         #[tokio::test]
         async fn test_hook_can_forward_decision_to_next_rule() {
-            let hook_rule = AccessRuleBuilder::new()
-                .hook(Url::parse("https://example.net").unwrap())
-                .build();
+            let decision = SkippableDecision::NoDecision;
+            let (mock_server, url) = get_mock_server_ok(&decision).await;
+            let hook_rule = AccessRuleBuilder::new().hook(url, None).unwrap().build();
             let allow_rule = AccessRuleBuilder::new().allow().build();
             let deny_rule = AccessRuleBuilder::new().deny().build();
-            // "calling" the test hook action with this context will return `SkippableDecision::NoDecision`
-            let no_decision_ctx = TransactionContext::default().with_headers(
-                get_headers_with_test_response(SkippableDecision::NoDecision, None),
-            );
+            let ctx = TransactionContext::default();
 
             let ac_allow_by_second_rule =
                 AccessController::new(AccessPolicy::DenyAll, [hook_rule.clone(), allow_rule]);
@@ -722,58 +804,41 @@ rules:
                 AccessController::new(AccessPolicy::AllowAll, [hook_rule.clone(), deny_rule]);
 
             assert!(matches!(
-                ac_allow_by_second_rule.check_access(&no_decision_ctx).await,
+                ac_allow_by_second_rule.check_access(&ctx).await,
                 Ok(Decision::Allow)
             ));
+            assert_eq!(mock_server.received_requests().await.unwrap().len(), 1);
             assert!(matches!(
-                ac_deny_by_second_rule.check_access(&no_decision_ctx).await,
+                ac_deny_by_second_rule.check_access(&ctx).await,
                 Ok(Decision::Deny)
             ));
+            assert_eq!(mock_server.received_requests().await.unwrap().len(), 2);
         }
 
         #[tokio::test]
         async fn test_hook_can_forward_own_error_messages() {
-            let hook_rule = AccessRuleBuilder::new()
-                .hook(Url::parse("https://example.net").unwrap())
-                .build();
-            // "calling" the test hook action with this context will return an error
-            let error_ctx = TransactionContext::default().with_headers({
-                let mut headers = HeaderMap::new();
-                headers.insert(
-                    TEST_ERROR_HEADER,
-                    HeaderValue::from_str("error sent back from hook server").unwrap(),
-                );
-                headers
-            });
+            let (mock_server, url, error) = get_mock_server_bad_request().await;
+            let hook_rule = AccessRuleBuilder::new().hook(url, None).unwrap().build();
+            let ctx = TransactionContext::default();
 
             let ac_error = AccessController::new(AccessPolicy::DenyAll, [hook_rule.clone()]);
-            let result = ac_error.check_access(&error_ctx).await;
+            let result = ac_error.check_access(&ctx).await;
 
             assert!(matches!(result, Err(_)));
             assert_eq!(
                 result.unwrap_err().to_string(),
-                "hook call failed with status 400 Bad Request; error sent back from hook server"
-                    .to_string()
+                format!("hook call failed with status 400 Bad Request; {error}")
             );
+            assert_eq!(mock_server.received_requests().await.unwrap().len(), 1);
         }
 
         #[tokio::test]
         async fn test_hook_is_not_called_if_a_previous_rule_applies() {
-            let hook_rule = AccessRuleBuilder::new()
-                .hook(Url::parse("https://example.net").unwrap())
-                .build();
+            let (mock_server, url, _) = get_mock_server_bad_request().await;
+            let hook_rule = AccessRuleBuilder::new().hook(url, None).unwrap().build();
             let allow_rule = AccessRuleBuilder::new().allow().build();
             let deny_rule = AccessRuleBuilder::new().deny().build();
-            // "calling" the test hook action with this context will return an error
-            // this should be skipped as the first rule in the list should already apply
-            let error_ctx = TransactionContext::default().with_headers({
-                let mut headers = HeaderMap::new();
-                headers.insert(
-                    TEST_ERROR_HEADER,
-                    HeaderValue::from_str("this error should not be thrown").unwrap(),
-                );
-                headers
-            });
+            let ctx = TransactionContext::default();
 
             let ac_allow_by_first_rule =
                 AccessController::new(AccessPolicy::DenyAll, [allow_rule, hook_rule.clone()]);
@@ -781,78 +846,60 @@ rules:
                 AccessController::new(AccessPolicy::AllowAll, [deny_rule, hook_rule.clone()]);
 
             assert!(matches!(
-                ac_allow_by_first_rule.check_access(&error_ctx).await,
+                ac_allow_by_first_rule.check_access(&ctx).await,
                 Ok(Decision::Allow)
             ));
+            assert_eq!(mock_server.received_requests().await.unwrap().len(), 0);
             assert!(matches!(
-                ac_deny_by_first_rule.check_access(&error_ctx).await,
+                ac_deny_by_first_rule.check_access(&ctx).await,
                 Ok(Decision::Deny)
             ));
+            assert_eq!(mock_server.received_requests().await.unwrap().len(), 0);
         }
 
         #[tokio::test]
         async fn test_hook_is_called_if_another_rule_term_applies() {
+            let (mock_server, url, error) = get_mock_server_bad_request().await;
             let sender_address = IotaAddress::new([1; 32]);
             let hook_rule = AccessRuleBuilder::new()
                 .sender_address(sender_address)
-                .hook(Url::parse("https://example.net").unwrap())
+                .hook(url, None)
+                .unwrap()
                 .build();
-            // "calling" the test hook action with this context will return an error
-            // this should be skipped as the first term in the rule should already stop rule evaluation
-            let sender_address_hook_error_ctx = TransactionContext::default()
-                .with_sender_address(sender_address)
-                .with_headers({
-                    let mut headers = HeaderMap::new();
-                    headers.insert(
-                        TEST_ERROR_HEADER,
-                        HeaderValue::from_str("sender matched, so we'll see this error").unwrap(),
-                    );
-                    headers
-                });
+            let ctx = TransactionContext::default().with_sender_address(sender_address);
 
             let ac_blocked_for_sender =
                 AccessController::new(AccessPolicy::DenyAll, [hook_rule.clone()]);
-            let result = ac_blocked_for_sender
-                .check_access(&sender_address_hook_error_ctx)
-                .await;
+            let result = ac_blocked_for_sender.check_access(&ctx).await;
 
             assert!(matches!(result, Err(_)));
             assert_eq!(
                 result.unwrap_err().to_string(),
-                "hook call failed with status 400 Bad Request; sender matched, so we'll see this error".to_string()
+                format!("hook call failed with status 400 Bad Request; {error}")
             );
+            assert_eq!(mock_server.received_requests().await.unwrap().len(), 1);
         }
 
         #[tokio::test]
         async fn test_hook_is_not_called_if_another_rule_term_does_not_apply() {
+            let (mock_server, url, _) = get_mock_server_bad_request().await;
             let sender_address = IotaAddress::new([1; 32]);
             let blocked_address = IotaAddress::new([2; 32]);
             let hook_rule = AccessRuleBuilder::new()
                 .sender_address(sender_address)
-                .hook(Url::parse("https://example.net").unwrap())
+                .hook(url, None)
+                .unwrap()
                 .build();
-            // "calling" the test hook action with this context will return an error
-            // this should be skipped as the first term in the rule should already stop rule evaluation
-            let blocked_address_hook_error_ctx = TransactionContext::default()
-                .with_sender_address(blocked_address)
-                .with_headers({
-                    let mut headers = HeaderMap::new();
-                    headers.insert(
-                        TEST_ERROR_HEADER,
-                        HeaderValue::from_str("this error should not be thrown").unwrap(),
-                    );
-                    headers
-                });
+            let ctx = TransactionContext::default().with_sender_address(blocked_address);
 
             let ac_blocked_for_sender =
                 AccessController::new(AccessPolicy::DenyAll, [hook_rule.clone()]);
 
             assert!(matches!(
-                ac_blocked_for_sender
-                    .check_access(&blocked_address_hook_error_ctx)
-                    .await,
+                ac_blocked_for_sender.check_access(&ctx).await,
                 Ok(Decision::Deny)
             ));
+            assert_eq!(mock_server.received_requests().await.unwrap().len(), 0);
         }
     }
 }

@@ -3,9 +3,9 @@
 
 //! Types related to hook server. Kept in sync with API spec.
 
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
+
+use super::HookActionHeaders;
 
 use crate::rpc::rpc_types::ExecuteTransactionRequestType;
 
@@ -22,7 +22,7 @@ pub struct ExecuteTxHookRequest {
 #[serde(rename_all = "camelCase")]
 pub struct ExecuteTxGasStationRequest {
     pub payload: ExecuteTxRequestPayload,
-    pub headers: HashMap<String, Vec<String>>,
+    pub headers: HookActionHeaders,
 }
 
 /// Data originally sent to IOTA Gas Station.
@@ -51,7 +51,7 @@ pub struct ExecuteTxOkResponse {
 }
 
 /// "allow"/"deny" transaction or take "noDecision" and proceed with other rules.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SkippableDecision {
     Allow,
