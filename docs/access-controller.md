@@ -6,11 +6,11 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
 
 |  parameter                  | mandatory  | possible values                                                |
 |-----------------------------| -----------|----------------------------------------------------------------|
-| `sender-address`            |  yes       | `'0x0000...'`, `[0x0000.., 0x1111...]`, `'*'`                  |
-| `gas-budget`                |  no        | `'=100'`, `'<100'`,  `'<=100'`, `'>100'`, `'>=100'`, `'!=100'` |
-| `move-call-package-address` |  no        | `'0x0000...'`, `[0x0000..., 0x1111...]`, `'*'`                 |
-| `ptb-command-count`         |  no        | `'=10'`, `'<10'`,  `'<=10'`, `'>10'`, `'>=10'`, `'!=10'`       |
-| `action`                    |  yes       | `'allow'`, `'deny'`, [Hook Server URL](#hook-server)           |
+| `sender-address`            |  yes       | `"0x0000..."`, `["0x0000..", "0x1111..."]`, `"*"`              |
+| `transaction-gas-budget`    |  no        | `"=100"`, `"<100"`,  `"<=100"`, `">100"`, `">=100"`, `"!=100"` |
+| `move-call-package-address` |  no        | `"0x0000..."`, `["0x0000...", "0x1111..."]`, `"*"`             |
+| `ptb-command-count`         |  no        | `"=10"`, `"<10"`,  `"<=10"`, `">10"`, `">=10"`, `"!=10"`       |
+| `action`                    |  yes       | `allow`, `deny`, [Hook Server URL](#hook-server)               |
 | `gas_usage`                 |  no        | See [Gas Usage Filter](#gas-usage-filter)                      |
 | `rego_expression`           |  no        | See [Gas Rego Expression](#rego-expression-filter)             |
 
@@ -26,7 +26,7 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
       rules:
          - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
            move-call-package-address: "0x0202020202020202020202020202020202020202020202020202020202020202"
-           action: allow # allowed actions: 'allow', 'deny', a hook url (see "Hook Server" section)
+           action: allow # allowed actions: `allow`, `deny`, a hook url (see "Hook Server" section)
    ```
 
 ---
@@ -54,7 +54,7 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
       access-policy: deny-all
       rules:
          - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
-           transaction-gas-budget: <1000000 # allowed operators: =, !=, <, >, <=, >=
+           transaction-gas-budget: "<1000000" # allowed operators: =, !=, <, >, <=, >=
            action: allow
    ```
 
@@ -69,11 +69,11 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
       access-policy: deny-all
       rules:
          - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
-           transaction-gas-budget: <=10000000
+           transaction-gas-budget: "<=10000000"
            action: allow
 
-         - sender-address: '*'
-           transaction-gas-budget: <500000
+         - sender-address: "*"
+           transaction-gas-budget: "<500000"
            action: allow
    ```
 
@@ -90,7 +90,7 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
       access-policy: deny-all
       rules:
          - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
-           ptb-command-count: <=1 # allowed operators: =, !=, <, >, <=, >=
+           ptb-command-count: "<=1" # allowed operators: =, !=, <, >, <=, >=
            action: allow
    ```
 
@@ -288,7 +288,7 @@ access-controller:
     - sender-address: "*"
       rego-expression:
         location-type: file
-        path: "./source_file.rego"
+        path: ./source_file.rego
         rego-rule-path: data.matchers.move_call_matches
       action: allow
 ```
@@ -303,7 +303,7 @@ access-controller:
     rego-expression:
         location-type: redis
         url: "redis://localhost"
-        redis-key: source.rego
+        redis-key: "source.rego"
         rego-rule-path: data.matchers.move_call_matches
       action: allow
 ```
@@ -355,11 +355,11 @@ access-controller:
   rules:
     - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
       gas-usage:
-        window: 1 day
+        window: 1day
         value: ">1000000"
       action: deny
 
-    - sender-address: '*'
+    - sender-address: "*"
       action: allow
 ```
 
@@ -376,8 +376,8 @@ access-controller:
     - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
       move-call-package-address: "0x0202020202020202020202020202020202020202020202020202020202020202"
       gas-usage:
-        value: <1000000
-        window: 1 day
+        value: "<1000000"
+        window: 1day
       action: allow
 ```
 
@@ -393,8 +393,8 @@ access-controller:
   rules:
     - sender-address: "*"
       gas-usage:
-        value: <1000000
-        window: 1 day
+        value: "<1000000"
+        window: 1day
         count-by: [ sender-address ]
       action: allow
 ```
@@ -445,7 +445,7 @@ access-controller:
   access-policy: deny-all
   rules:
     - sender-address: "*"
-      action: http://127.0.0.1:8080
+      action: "http://127.0.0.1:8080"
 ```
 
 or even shorter:
@@ -454,7 +454,7 @@ or even shorter:
 access-controller:
   access-policy: deny-all
   rules:
-    - action: http://127.0.0.1:8080
+    - action: "http://127.0.0.1:8080"
 ```
 
 ---
@@ -466,8 +466,8 @@ As you usually might want to reduce the number of calls against the hook a bit, 
       access-policy: deny-all
       rules:
         - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
-          transaction-gas-budget: '<1000000' # allowed operators: =, !=, <, >, <=, >=
-          action: http://127.0.0.1:8080
+          transaction-gas-budget: "<1000000" # allowed operators: =, !=, <, >, <=, >=
+          action: "http://127.0.0.1:8080"
 ```
 
 ---
@@ -479,13 +479,13 @@ Hook actions don't have to be used as standalone rules and can integrate seamles
       access-policy: deny-all
       rules:
         - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
-          transaction-gas-budget: '<1000000'
+          transaction-gas-budget: "<1000000"
           action: allow
-        - action: http://127.0.0.1:8080
+        - action: "http://127.0.0.1:8080"
         - sender-address: "*"
           gas-usage:
-            value: '<1000000'
-            window: 1 day
+            value: "<1000000"
+            window: 1day
             count-by: [ sender-address ]
 ```
 
