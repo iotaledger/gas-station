@@ -5,10 +5,10 @@
 //! It provides a way to control the constraints for executing transactions, ensuring that only authorized addresses can perform specific actions.
 
 pub mod decision;
-pub mod decision_report;
 pub mod hook;
 pub mod policy;
 pub mod predicates;
+pub mod reports;
 pub mod rule;
 
 use std::{collections::HashMap, fmt::Formatter, sync::Arc};
@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tracing::{debug, trace};
 
-use crate::{access_controller::decision_report::AccessReport, tracker::StatsTracker};
+use crate::{access_controller::reports::AccessReport, tracker::StatsTracker};
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
@@ -94,7 +94,7 @@ impl AccessController {
                 rule_report.add_predicate_reports(matching_result.0.predicate_reports);
 
                 if matching_result.0.is_matched {
-                    rule_report.set_final_action(Some(rule.action.clone()));
+                    rule_report.set_applied_action(Some(rule.action.clone()));
 
                     maybe_decision = match &rule.action {
                         Action::Allow => Some(Decision::Allow),
@@ -108,6 +108,9 @@ impl AccessController {
                                     response.decision,
                                     response.user_message,
                                 );
+                            if let Some(user_message) = response.user_message {
+                                rule_report.set_applied_action_details(user_message);
+                            }
                             match response.decision {
                                 SkippableDecision::Allow => Some(Decision::Allow),
                                 SkippableDecision::Deny => Some(Decision::Deny),
