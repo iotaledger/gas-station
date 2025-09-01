@@ -27,7 +27,7 @@ services:
     environment:
       - CONFIG_PATH=/app/config.yaml
       - RUST_BACKTRACE=1
-      - GAS_STATION_AUTH=${GAS_STATION_AUTH}
+      - GAS_STATION_AUTH=${GAS_STATION_AUTH:-}
     volumes:
       - ${LOCAL_CONFIG_PATH:-./config.yaml}:/app/config.yaml
 
