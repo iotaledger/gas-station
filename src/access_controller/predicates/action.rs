@@ -34,6 +34,7 @@ impl std::fmt::Display for Action {
         }
     }
 }
+
 #[cfg(test)]
 mod test {
     use url::Url;
