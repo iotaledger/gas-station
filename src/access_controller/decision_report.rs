@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use crate::access_controller::{decision::Decision, predicates::Action};
 
-/// The AccessControllerDecisionReport is a struct that contains all information about the decision made by the access controller.
+/// The AccessReport is a struct that contains all information about the decision made by the access controller.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccessReport {
     pub access_decision: Decision,
