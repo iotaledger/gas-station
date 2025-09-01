@@ -25,6 +25,7 @@ use tokio::sync::Mutex;
 use tracing::{debug, trace};
 
 use crate::{access_controller::decision_report::AccessReport, tracker::StatsTracker};
+
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub struct AccessController {
