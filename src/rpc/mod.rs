@@ -20,8 +20,8 @@ mod tests {
     use crate::rpc::ExecuteTransactionRequestType;
     use crate::test_env::{
         create_test_transaction, start_rpc_server_for_testing,
-        start_rpc_server_for_testing_no_auth, start_rpc_server_for_testing_with_access_controller,
-        DEFAULT_TEST_CONFIG_PATH,
+        start_rpc_server_for_testing_empty_auth, start_rpc_server_for_testing_no_auth,
+        start_rpc_server_for_testing_with_access_controller, DEFAULT_TEST_CONFIG_PATH,
     };
     use crate::AUTH_ENV_NAME;
     use iota_config::Config;
@@ -70,6 +70,19 @@ mod tests {
     async fn test_no_auth() {
         let (_test_cluster, _container, server) =
             start_rpc_server_for_testing_no_auth(vec![NANOS_PER_IOTA; 10], NANOS_PER_IOTA).await;
+
+        let client = server.get_local_client();
+        client.health().await.unwrap();
+
+        let (_sponsor, _res_id, gas_coins) = client.reserve_gas(NANOS_PER_IOTA, 10).await.unwrap();
+        assert_eq!(gas_coins.len(), 1);
+        assert!(client.reserve_gas(NANOS_PER_IOTA, 10).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_empty_auth() {
+        let (_test_cluster, _container, server) =
+            start_rpc_server_for_testing_empty_auth(vec![NANOS_PER_IOTA; 10], NANOS_PER_IOTA).await;
 
         let client = server.get_local_client();
         client.health().await.unwrap();
