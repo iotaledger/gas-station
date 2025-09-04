@@ -5,21 +5,19 @@ import {
     GetPublicKeyCommand,
 } from "@aws-sdk/client-kms";
 
-import { Secp256k1PublicKey } from "@mysten/sui.js/keypairs/secp256k1";
-import { fromB64, toB64 } from "@mysten/sui.js/utils";
+import { Secp256k1PublicKey } from "@iota/iota-sdk/keypairs/secp256k1";
+import { fromBase64, toB64 } from "@iota/iota-sdk/utils";
 
 import {
-    toSerializedSignature,
     SIGNATURE_FLAG_TO_SCHEME,
     SignatureScheme,
     SignatureFlag,
-    SerializedSignature,
+    toSerializedSignature,
     messageWithIntent,
-    IntentScope,
-} from "@mysten/sui.js/cryptography";
+} from "@iota/iota-sdk/cryptography";
 
-import { TransactionBlock } from "@mysten/sui.js/transactions";
-import { getFullnodeUrl, SuiClient } from "@mysten/sui.js/client";
+import { Transaction } from "@iota/iota-sdk/transactions";
+import { getFullnodeUrl, IotaClient } from "@iota/iota-sdk/client";
 import { blake2b } from "@noble/hashes/blake2b";
 
 import { secp256k1 } from "@noble/curves/secp256k1";
@@ -77,7 +75,7 @@ function createAWSKMSClient() {
 
 export async function getPublicKey(keyId: string) {
     // gets AWS KMS Public Key in DER format
-    // returns Sui Public Key
+    // returns IOTA Public Key
 
     // AWS KMS client configuration
     const client = createAWSKMSClient();
@@ -100,20 +98,20 @@ export async function getPublicKey(keyId: string) {
             derElement.tagClass === asn1ts.ASN1TagClass.universal &&
             derElement.construction === asn1ts.ASN1Construction.constructed
         ) {
-            let components = derElement.components;
-            let publicKeyElement = components[1];
+            let sequence = derElement.sequence;
+            let publicKeyElement = sequence[1];
 
-            let rawPublicKey = publicKeyElement.bitString; // bitString creates a Uint8ClampedArray;
+            let rawPublicKey = new Uint8ClampedArray(publicKeyElement.bitString.map(b => b ? 1 : 0)); // Convert boolean[] to Uint8ClampedArray
 
             const compressedKey = compressPublicKeyClamped(rawPublicKey);
 
-            const sui_public_key = rawPublicKey
+            const iota_public_key = rawPublicKey
                 ? new Secp256k1PublicKey(compressedKey)
                 : "";
-            if (sui_public_key instanceof Secp256k1PublicKey) {
-                console.log("Sui Public Key:", sui_public_key.toSuiAddress());
+            if (iota_public_key instanceof Secp256k1PublicKey) {
+                console.log("IOTA Public Key:", iota_public_key.toIotaAddress());
             }
-            return sui_public_key;
+            return iota_public_key;
         } else {
             throw new Error("Unexpected ASN.1 structure");
         }
@@ -124,7 +122,7 @@ export async function getPublicKey(keyId: string) {
 }
 
 function getConcatenatedSignature(signature: Uint8Array): Uint8Array {
-    // creates signature consumable by Sui 'toSerializedSignature' call
+    // creates signature consumable by IOTA 'toSerializedSignature' call
 
     // start processing signature
     // populate concatenatedSignature with [r,s] from DER signature
@@ -156,14 +154,14 @@ function getConcatenatedSignature(signature: Uint8Array): Uint8Array {
 
 async function getSerializedSignature(
     signature: Uint8Array,
-    sui_pubkey: Secp256k1PublicKey,
+    iota_pubkey: Secp256k1PublicKey,
 ) {
     // create serialized signature from [r,s] and public key
-    // Sui Serialized Signature format: `flag || sig || pk`.
-    const flag = sui_pubkey ? sui_pubkey.flag() : 1;
+    // IOTA Serialized Signature format: `flag || sig || pk`.
+    const flag = iota_pubkey ? iota_pubkey.flag() : 1;
 
     // Check if flag is one of the allowed values and cast to SignatureFlag
-    const allowedFlags: SignatureFlag[] = [0, 1, 2, 3, 5];
+    const allowedFlags: SignatureFlag[] = [0, 1, 2, 3, 6];
     const isAllowedFlag = allowedFlags.includes(flag as SignatureFlag);
 
     const signature_scheme: SignatureScheme = isAllowedFlag
@@ -171,10 +169,10 @@ async function getSerializedSignature(
         : "Secp256k1";
 
     const publicKeyToUse =
-        sui_pubkey instanceof Secp256k1PublicKey ? sui_pubkey : undefined;
+        iota_pubkey instanceof Secp256k1PublicKey ? iota_pubkey : undefined;
 
     // Call toSerializedSignature
-    const serializedSignature: SerializedSignature = toSerializedSignature({
+    const serializedSignature = toSerializedSignature({
         signatureScheme: signature_scheme,
         signature: signature,
         publicKey: publicKeyToUse,
@@ -183,8 +181,8 @@ async function getSerializedSignature(
 }
 
 export async function signAndVerify(tx_bytes: Uint8Array) {
-    // sign sui transaction using AWS KMS
-    // verify sui transaction using sui public key
+    // sign iota transaction using AWS KMS
+    // verify iota transaction using iota public key
     // verify signature using AWS KMS
 
     const keyId = process.env.AWS_KMS_KEY_ID || "";
@@ -192,7 +190,7 @@ export async function signAndVerify(tx_bytes: Uint8Array) {
 
     // add intent Message to Transaction Bytes
     const intentMessage = messageWithIntent(
-        IntentScope.TransactionData,
+        "TransactionData",
         tx_bytes,
     );
     // digest needs to be hash of intent message
@@ -226,14 +224,14 @@ export async function signAndVerify(tx_bytes: Uint8Array) {
 
         console.log("Serialized Signature:", serializedSignature);
 
-        // verify signature with sui
+        // verify signature with iota
         if (publicKeyToUse !== undefined) {
-            console.log("Verifying Sui Signature against TX");
-            const isValid = await publicKeyToUse.verifyTransactionBlock(
+            console.log("Verifying IOTA Signature against TX");
+            const isValid = await publicKeyToUse.verifyTransaction(
                 tx_bytes,
                 serializedSignature,
             );
-            console.log("Sui Signature valid:", isValid);
+            console.log("IOTA Signature valid:", isValid);
         }
 
         // Verify the signature in KMS
