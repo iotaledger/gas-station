@@ -1,0 +1,295 @@
+name: Retag Docker Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_tag:
+        description: "Source tag to retag from (e.g., 'latest', '0.2.0')"
+        required: true
+      target_tags:
+        description: "Comma-separated list of target tags (e.g., '0.2.1,stable'). Leave empty to only remove the source tag."
+        required: false
+        default: ""
+      repository:
+        description: "Docker repository to retag"
+        required: true
+        default: "iotaledger/gas-station"
+        type: choice
+        options:
+          - "iotaledger/gas-station"
+          - "iotaledger/gas-station-tool"
+      is_dry_run:
+        description: "Run in dry-run mode (don't actually push)"
+        type: boolean
+        required: false
+        default: true
+      remove_source_image:
+        description: "Remove the source image from Docker Hub after successful retagging"
+        type: boolean
+        required: false
+        default: false
+
+jobs:
+  retag_images:
+    environment: release
+    name: Retag Docker Images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567
+        with:
+          username: ${{ secrets.IOTALEDGER_DOCKER_USERNAME }}
+          password: ${{ secrets.IOTALEDGER_DOCKER_PASSWORD }}
+
+      - name: Parse target tags
+        id: parse-target-tags
+        run: |
+          # Convert comma-separated tags to array
+          target_tags_input="${{ github.event.inputs.target_tags }}"
+
+          if [ -z "$target_tags_input" ] || [ "$target_tags_input" = "" ]; then
+            echo "No target tags provided"
+            echo '[]' > target_tags.json
+            echo "mode=no-targets" >> $GITHUB_OUTPUT
+            echo "Target tags: (none)"
+          else
+            IFS=',' read -ra TAG_ARRAY <<< "$target_tags_input"
+            TARGET_TAGS=()
+            for tag in "${TAG_ARRAY[@]}"; do
+              # trim leading/trailing whitespace
+              tag_trimmed=$(echo "$tag" | xargs)
+              if [ -n "$tag_trimmed" ]; then
+                TARGET_TAGS+=("$tag_trimmed")
+              fi
+            done
+
+            # Convert array to JSON for easier handling in subsequent steps
+            printf '%s\n' "${TARGET_TAGS[@]}" | jq -R . | jq -s . > target_tags.json
+            echo "mode=retag" >> $GITHUB_OUTPUT
+            echo "Target tags: ${TARGET_TAGS[*]}"
+          fi
+
+      # To be able to retag, we need to pull the source image
+      - name: Pull source image
+        if: steps.parse-target-tags.outputs.mode == 'retag'
+        run: |
+          echo "Pulling source image: ${{ github.event.inputs.repository }}:${{ github.event.inputs.source_tag }}"
+          docker pull ${{ github.event.inputs.repository }}:${{ github.event.inputs.source_tag }}
+
+      - name: Retag and push images
+        id: retag-push
+        if: steps.parse-target-tags.outputs.mode == 'retag'
+        run: |
+          source_tag="${{ github.event.inputs.source_tag }}"
+          repository="${{ github.event.inputs.repository }}"
+          is_dry_run="${{ github.event.inputs.is_dry_run }}"
+
+          # Read target tags from JSON
+          target_tags=$(cat target_tags.json | jq -r '.[]')
+
+          echo "Source: $repository:$source_tag"
+          echo "Target tags:"
+          echo "$target_tags"
+          echo "Dry run: $is_dry_run"
+
+          success_count=0
+          total_count=0
+
+          for target_tag in $target_tags; do
+            total_count=$((total_count + 1))
+            echo ""
+            echo "Processing target tag: $target_tag"
+
+            # Tag the image
+            echo "Tagging $repository:$source_tag as $repository:$target_tag"
+            if docker tag "$repository:$source_tag" "$repository:$target_tag"; then
+              echo "✓ Successfully tagged $repository:$target_tag"
+
+              # Push the image (unless dry run)
+              if [ "$is_dry_run" = "true" ]; then
+                echo "DRY RUN: Would push $repository:$target_tag"
+                success_count=$((success_count + 1))
+              else
+                echo "Pushing $repository:$target_tag..."
+                if docker push "$repository:$target_tag"; then
+                  echo "✓ Successfully pushed $repository:$target_tag"
+                  success_count=$((success_count + 1))
+                else
+                  echo "✗ Failed to push $repository:$target_tag"
+                fi
+              fi
+            else
+              echo "✗ Failed to tag $repository:$target_tag"
+            fi
+          done
+
+          echo ""
+          echo "Summary: $success_count/$total_count tags processed successfully"
+          echo "success-count=$success_count" >> $GITHUB_OUTPUT
+          echo "total-count=$total_count" >> $GITHUB_OUTPUT
+
+      - name: Remove source tag only
+        id: remove-only
+        if: steps.parse-target-tags.outputs.mode == 'no-targets' && github.event.inputs.remove_source_image == 'true'
+        run: |
+          source_tag="${{ github.event.inputs.source_tag }}"
+          repository="${{ github.event.inputs.repository }}"
+          is_dry_run="${{ github.event.inputs.is_dry_run }}"
+
+          echo "=== REMOVAL ONLY MODE ==="
+          echo "Repository: $repository"
+          echo "Source tag to remove: $source_tag"
+          echo "Dry run: $is_dry_run"
+
+          if [ "$is_dry_run" = "true" ]; then
+            echo "DRY RUN: Would remove $repository:$source_tag from Docker Hub"
+            echo "success-count=1" >> $GITHUB_OUTPUT
+            echo "total-count=1" >> $GITHUB_OUTPUT
+          else
+            echo "Proceeding with removal of $repository:$source_tag from Docker Hub"
+            echo "success-count=1" >> $GITHUB_OUTPUT
+            echo "total-count=1" >> $GITHUB_OUTPUT
+          fi
+
+      # Turns out there is no easy way to remove a tag from Docker Hub. So we use the API to do it.
+      - name: Remove source image from Docker Hub
+        # It starts when retag mode (first line) or remove mode (second line)
+        if: |
+          (github.event.inputs.remove_source_image == 'true' && github.event.inputs.is_dry_run != 'true' && steps.retag-push.outputs.success-count > 0) ||
+          (steps.parse-target-tags.outputs.mode == 'no-targets' && github.event.inputs.remove_source_image == 'true' && github.event.inputs.is_dry_run != 'true')
+        run: |
+          repository="${{ github.event.inputs.repository }}"
+          source_tag="${{ github.event.inputs.source_tag }}"
+
+          echo "Removing source image from Docker Hub: $repository:$source_tag"
+
+          # Get the repository name without the organization
+          repo_name=$(echo "$repository" | cut -d'/' -f2)
+          org_name=$(echo "$repository" | cut -d'/' -f1)
+
+          # Use Docker Hub API to delete the tag (simplified approach)
+          echo "Deleting tag $source_tag from Docker Hub..."
+
+          # Get Docker Hub token
+          token_response=$(curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -d '{"username": "'${{ secrets.IOTALEDGER_DOCKER_USERNAME }}'", "password": "'${{ secrets.IOTALEDGER_DOCKER_PASSWORD }}'"}' \
+            https://hub.docker.com/v2/users/login/)
+
+          token=$(echo "$token_response" | jq -r '.token // empty')
+
+          if [ -n "$token" ] && [ "$token" != "null" ]; then
+            echo "Successfully authenticated with Docker Hub"
+
+            # Delete the tag using Docker Hub API
+            delete_response=$(curl -s -w "\n%{http_code}" -X DELETE \
+              -H "Authorization: JWT $token" \
+              "https://hub.docker.com/v2/repositories/$org_name/$repo_name/tags/$source_tag/")
+
+            http_code=$(echo "$delete_response" | tail -n1)
+            response_body=$(echo "$delete_response" | head -n -1)
+
+            if [ "$http_code" = "204" ]; then
+              echo "✅ Successfully removed $repository:$source_tag from Docker Hub"
+            else
+              echo "❌ Failed to remove $repository:$source_tag from Docker Hub"
+              echo "HTTP Code: $http_code"
+              echo "Response: $response_body"
+              echo "Note: You may need to manually remove the image from Docker Hub"
+            fi
+          else
+            echo "❌ Failed to authenticate with Docker Hub"
+            echo "Response: $token_response"
+            echo "Note: Please check your Docker Hub credentials"
+          fi
+
+      - name: Clean up local images
+        if: always()
+        run: |
+          repository="${{ github.event.inputs.repository }}"
+          source_tag="${{ github.event.inputs.source_tag }}"
+          mode="${{ steps.parse-target-tags.outputs.mode }}"
+
+          echo "Cleaning up local images..."
+
+          if [ "$mode" = "retag" ]; then
+            # Remove target tag images
+            target_tags=$(cat target_tags.json | jq -r '.[]')
+            for target_tag in $target_tags; do
+              echo "Removing local image: $repository:$target_tag"
+              docker rmi "$repository:$target_tag" 2>/dev/null || true
+            done
+
+            # Remove source image
+            echo "Removing source image: $repository:$source_tag"
+            docker rmi "$repository:$source_tag" 2>/dev/null || true
+          elif [ "$mode" = "no-targets" ]; then
+            # In no-targets mode, we didn't pull any images locally
+            echo "No local images to clean up (no target tags provided)"
+          fi
+
+          echo "Cleanup completed"
+
+      - name: Report results
+        if: always()
+        run: |
+          mode="${{ steps.parse-target-tags.outputs.mode }}"
+          is_dry_run="${{ github.event.inputs.is_dry_run }}"
+          remove_source="${{ github.event.inputs.remove_source_image }}"
+
+          if [ "$mode" = "retag" ]; then
+            success_count="${{ steps.retag-push.outputs.success-count }}"
+            total_count="${{ steps.retag-push.outputs.total-count }}"
+
+            echo ""
+            echo "=== RETAGGING SUMMARY ==="
+            echo "Repository: ${{ github.event.inputs.repository }}"
+            echo "Source tag: ${{ github.event.inputs.source_tag }}"
+            echo "Target tags: ${{ github.event.inputs.target_tags }}"
+            echo "Mode: $([ "$is_dry_run" = "true" ] && echo "DRY RUN" || echo "LIVE")"
+            echo "Remove source: $([ "$remove_source" = "true" ] && echo "YES" || echo "NO")"
+            echo "Retag Success: $success_count/$total_count"
+
+            if [ "$success_count" -eq "$total_count" ] && [ "$total_count" -gt 0 ]; then
+              echo "✅ All retagging operations completed successfully!"
+              if [ "$remove_source" = "true" ] && [ "$is_dry_run" != "true" ]; then
+                echo "Source image removal was performed"
+              fi
+              exit 0
+            else
+              echo "❌ Some retagging operations failed"
+              exit 1
+            fi
+          elif [ "$mode" = "no-targets" ]; then
+            if [ "$remove_source" = "true" ]; then
+              success_count="${{ steps.remove-only.outputs.success-count }}"
+              total_count="${{ steps.remove-only.outputs.total-count }}"
+
+              echo ""
+              echo "=== REMOVAL SUMMARY ==="
+              echo "Repository: ${{ github.event.inputs.repository }}"
+              echo "Source tag to remove: ${{ github.event.inputs.source_tag }}"
+              echo "Mode: $([ "$is_dry_run" = "true" ] && echo "DRY RUN" || echo "LIVE")"
+              echo "Removal Success: $success_count/$total_count"
+
+              if [ "$success_count" -eq "$total_count" ] && [ "$total_count" -gt 0 ]; then
+                echo "✅ Tag removal operation completed successfully!"
+                if [ "$is_dry_run" != "true" ]; then
+                  echo "Source image removal was performed"
+                fi
+                exit 0
+              else
+                echo "❌ Tag removal operation failed"
+                exit 1
+              fi
+            else
+              echo ""
+              echo "=== NO OPERATION SUMMARY ==="
+              echo "Repository: ${{ github.event.inputs.repository }}"
+              echo "Source tag: ${{ github.event.inputs.source_tag }}"
+              echo "Target tags: (none provided)"
+              echo "Remove source: NO"
+              echo "No operations performed - nothing to do"
+              exit 0
+            fi
+          fi
