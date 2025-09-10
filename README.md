@@ -1,5 +1,5 @@
 <div align="center">
-  <img src=".github/imgs/banner_gas_station.svg" alt="banner" />
+  <img src=".github/banner_gas_station.png" alt="banner" />
 </div>
 
 # IOTA Gas Station
