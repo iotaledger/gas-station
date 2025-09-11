@@ -54,4 +54,4 @@ npx ts-node gasStationTest.ts
 
 ## Common Issues
 
-If you encounter any problems please check [Common Issues](../../docs/troubleshooting.md) section.
+If you encounter any problems please check [Common Issues](../../docs/common-issues.md) section.
