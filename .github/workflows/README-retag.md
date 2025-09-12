@@ -16,7 +16,7 @@
 
 - Source tag: `0.2.0`
 - Target tags: `0.2.0-fixed,stable`
-- Repository: `atoicafe/gas-station-tool`
+- Repository: `iotaledger/gas-station-tool`
 
 ### Retag and clean up old version
 
