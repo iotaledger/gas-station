@@ -22,7 +22,7 @@
 
 - Source tag: `0.1.9`
 - Target tags: `0.2.0,latest`
-- Repository: `atoicafe/gas-station`
+- Repository: `iotaledger/gas-station`
 - Remove source image: `true` (removes `0.1.9` from Docker Hub)
 
 ### Remove a specific tag only
