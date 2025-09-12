@@ -36,5 +36,5 @@
 
 - Source tag: `0.1.9`
 - Target tags: (leave empty)
-- Repository: `atoicafe/gas-station`
+- Repository: `iotaledger/gas-station`
 - Remove source image: `false` (no operation performed)
