@@ -1,4 +1,5 @@
 // Copyright (c) Mysten Labs, Inc.
+// Modifications Copyright (c) 2025 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::access_controller::AccessController;
@@ -68,8 +69,12 @@ impl Default for GasStationConfig {
 #[serde_as]
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub enum GasStationStorageConfig {
-    Redis { redis_url: String },
+    Redis {
+        #[serde(alias = "redis-url")]
+        redis_url: String,
+    },
 }
 
 impl Default for GasStationStorageConfig {
@@ -83,9 +88,15 @@ impl Default for GasStationStorageConfig {
 #[serde_as]
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub enum TxSignerConfig {
-    Local { keypair: IotaKeyPair },
-    Sidecar { sidecar_url: String },
+    Local {
+        keypair: IotaKeyPair,
+    },
+    Sidecar {
+        #[serde(alias = "sidecar-url")]
+        sidecar_url: String,
+    },
 }
 
 impl Default for TxSignerConfig {
@@ -124,5 +135,71 @@ impl Default for CoinInitConfig {
             target_init_balance: DEFAULT_INIT_COIN_BALANCE,
             refresh_interval_sec: DEFAULT_COIN_POOL_REFRESH_INTERVAL_SEC,
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use indoc::indoc;
+
+    #[test]
+    fn test_deserialize_config_urls_kebeb_case() {
+        let yaml = indoc! {r#"
+            signer-config:
+                sidecar:
+                    sidecar-url: http://localhost:3000
+            rpc-host-ip: 0.0.0.0
+            rpc-port: 9527
+            metrics-port: 9184
+            storage-config:
+                redis:
+                    redis-url: "redis://localhost:6379"
+            fullnode-url: "https://api.devnet.iota.cafe"
+            daily-gas-usage-cap: 1500000000000
+        "#};
+        let config: GasStationConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            config.signer_config,
+            TxSignerConfig::Sidecar {
+                sidecar_url: "http://localhost:3000".to_string()
+            }
+        );
+        assert_eq!(
+            config.storage_config,
+            GasStationStorageConfig::Redis {
+                redis_url: "redis://localhost:6379".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn test_deserialize_config_urls_camel_case() {
+        let yaml = indoc! {r#"
+            signer-config:
+                sidecar:
+                    sidecar_url: http://localhost:3000
+            rpc-host-ip: 0.0.0.0
+            rpc-port: 9527
+            metrics-port: 9184
+            storage-config:
+                redis:
+                    redis_url: "redis://localhost:6379"
+            fullnode-url: "https://api.devnet.iota.cafe"
+            daily-gas-usage-cap: 1500000000000
+        "#};
+        let config: GasStationConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            config.signer_config,
+            TxSignerConfig::Sidecar {
+                sidecar_url: "http://localhost:3000".to_string()
+            }
+        );
+        assert_eq!(
+            config.storage_config,
+            GasStationStorageConfig::Redis {
+                redis_url: "redis://localhost:6379".to_string()
+            }
+        );
     }
 }
