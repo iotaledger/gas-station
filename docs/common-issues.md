@@ -36,7 +36,8 @@ redis-cli FLUSHALL
 When executing a transaction, you get a 403 HTTP response with the message: `Access Denied by Access Controller`
 
 **Explanation:**
-The Access Controller in Gas Station is a robust tool designed to enable the creation of highly intricate filtering logic. However, with its complexity and flexibility, there is a chance that you might misunderstand or overlook certain behaviors of the rule-matching system. It is likely that you may have neglected some aspect of the access controller that is preventing your request from being processed.
+
+The Access Controller in Gas Station is a robust tool designed to enable the creation of highly intricate filtering logic. However, with its complexity and flexibility, it can become hard to pin down why a certain transaction was rejected or allowed. This might become even more likely in larger and/or more fine granular rule sets.
 
 **Solution:**
 
