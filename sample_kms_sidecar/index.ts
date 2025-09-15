@@ -1,5 +1,5 @@
 import express from "express";
-import { fromB64 } from "@iota/iota-sdk/utils";
+import { fromBase64 } from "@iota/iota-sdk/utils";
 import { Secp256k1PublicKey } from "@iota/iota-sdk/keypairs/secp256k1";
 import { getPublicKey, signAndVerify } from "./awsUtils.js";
 
@@ -36,7 +36,7 @@ async function main() {
                     .send("Missing transaction bytes or keyId");
             }
 
-            const txBytesArray = fromB64(txBytes);
+            const txBytesArray = fromBase64(txBytes);
             const signature = await signAndVerify(txBytesArray);
 
             res.json({ signature });
