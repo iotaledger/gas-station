@@ -39,12 +39,6 @@ npm run build
 npm start
 ```
 
-### Watch Mode (for development)
-
-```bash
-npm run watch
-```
-
 ## API Endpoints
 
 - `GET /` - Health check endpoint
@@ -58,10 +52,3 @@ curl -X POST http://localhost:3000/aws-kms/sign-transaction \
   -H "Content-Type: application/json" \
   -d '{"txBytes": "base64-encoded-transaction-bytes"}'
 ```
-
-## Project Structure
-
-- `index.ts` - Main Express server with API endpoints
-- `awsUtils.ts` - AWS KMS integration and IOTA signature utilities
-- `package.json` - Project dependencies and scripts
-- `tsconfig.json` - TypeScript configuration
