@@ -28,3 +28,34 @@ If you have a local instance or an instance with persistent storage, you can use
 ```bash
 redis-cli FLUSHALL
 ```
+
+## Access Denied by Access Controller
+
+**Problem:**
+
+When executing a transaction, you get a 403 HTTP response with the message: `Access Denied by Access Controller`
+
+**Explanation:**
+
+The Access Controller in Gas Station is a robust tool designed to enable the creation of highly intricate filtering logic. However, with its complexity and flexibility, it can become hard to pin down why a certain transaction was rejected or allowed. This might become even more likely in larger and/or more fine granular rule sets.
+
+**Solution:**
+
+The IOTA Gas Station [PR](https://github.com/iotaledger/gas-station/pull/114) introduces the ability to inspect in detail the behavior of the Access Controller.
+
+To see a detailed report of the transaction, you must enable the `tracing` level for the access controller module. This can be done using the `RUST_LOG` environment variable.
+
+If you start the binary directly:
+
+```log
+   RUST_LOG=iota_gas_station::access_controller=trace ./iota-gas-station
+```
+
+In case you use Docker Compose, please edit the docker-compose file:
+
+```yaml
+  iota-gas-station:
+  ...
+    environment:
+    - RUST_LOG=iota_gas_station::access_controller=trace
+```
