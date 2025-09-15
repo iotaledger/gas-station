@@ -96,7 +96,7 @@ rpc-port: 9527
 metrics-port: 9184
 storage-config:
   redis:
-    redis_url: "redis://127.0.0.1"
+    redis-url: "redis://127.0.0.1"
 fullnode-url: "https://api.testnet.iota.cafe"
 coin-init-config:
   target-init-balance: 100000000
@@ -114,7 +114,7 @@ access-controller:
 | `rpc-host-ip`                           | IP address for the RPC server                                       | `0.0.0.0`                        |
 | `rpc-port`                              | Port for the RPC server                                             | `9527`                           |
 | `metrics-port`                          | Port for collecting and exposing metrics                            | `9184`                           |
-| `storage-config.redis.redis_url`        | Redis connection URL                                                | `redis://127.0.0.1`              |
+| `storage-config.redis.redis-url`        | Redis connection URL                                                | `redis://127.0.0.1`              |
 | `fullnode-url`                          | URL of the IOTA full node                                           | `https://api.testnet.iota.cafe`  |
 | `coin-init-config.target-init-balance`  | Initial balance to maintain                                         | `100000000`                      |
 | `coin-init-config.refresh-interval-sec` | Interval in seconds to refresh balance                              | `86400`                          |
