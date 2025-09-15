@@ -11,8 +11,8 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
 | `move-call-package-address` |  no        | `"0x0000..."`, `["0x0000...", "0x1111..."]`, `"*"`             |
 | `ptb-command-count`         |  no        | `"=10"`, `"<10"`,  `"<=10"`, `">10"`, `">=10"`, `"!=10"`       |
 | `action`                    |  yes       | `allow`, `deny`, [Hook Server URL](#hook-server)               |
-| `gas_usage`                 |  no        | See [Gas Usage Filter](#gas-usage-filter)                      |
-| `rego_expression`           |  no        | See [Gas Rego Expression](#rego-expression-filter)             |
+| `gas-usage`                 |  no        | See [Gas Usage Filter](#gas-usage-filter)                      |
+| `rego-expression`           |  no        | See [Gas Rego Expression](#rego-expression-filter)             |
 
 ## Access Controller Examples
 
