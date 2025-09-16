@@ -37,7 +37,7 @@ The **Gas Station Server** includes an **Access Controller** mechanism to manage
 
    ```yaml
    access-controller:
-      access-policy: deny-all
+      access-policy: allow-all
       rules:
          - sender-address: "0x0101010101010101010101010101010101010101010101010101010101010101"
            action: deny
