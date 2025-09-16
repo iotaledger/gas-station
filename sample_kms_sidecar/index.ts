@@ -1,7 +1,7 @@
 import express from "express";
-import { fromB64 } from "@mysten/sui.js/utils";
-import { Secp256k1PublicKey } from "@mysten/sui.js/keypairs/secp256k1";
-import { getPublicKey, signAndVerify } from "./awsUtils";
+import { fromBase64 } from "@iota/iota-sdk/utils";
+import { Secp256k1PublicKey } from "@iota/iota-sdk/keypairs/secp256k1";
+import { getPublicKey, signAndVerify } from "./awsUtils.js";
 
 async function main() {
     const app = express();
@@ -18,8 +18,8 @@ async function main() {
             const publicKeyToUse = publicKey instanceof Secp256k1PublicKey
                 ? publicKey
                 : undefined;
-            const suiPubkeyAddress = publicKeyToUse.toSuiAddress();
-            res.json({ suiPubkeyAddress });
+            const iotaPubkeyAddress = publicKeyToUse?.toIotaAddress();
+            res.json({ iotaPubkeyAddress: iotaPubkeyAddress });
         } catch (error) {
             console.error(error);
             res.status(500).send("Internal server error");
@@ -36,7 +36,7 @@ async function main() {
                     .send("Missing transaction bytes or keyId");
             }
 
-            const txBytesArray = fromB64(txBytes);
+            const txBytesArray = fromBase64(txBytes);
             const signature = await signAndVerify(txBytesArray);
 
             res.json({ signature });
