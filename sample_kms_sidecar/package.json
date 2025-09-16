@@ -6,8 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
-    "watch": "ts-node --watch index.ts"
+    "start": "node dist/index.js"
   },
   "keywords": [
     "iota",
