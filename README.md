@@ -38,7 +38,7 @@ cd gas-station/docker
 
    **Note:** If the generated private key pair doesn’t meet your requirements, replace it with your own keys.
 
-3. **Set Up Authentication:** Define a bearer token for the Gas Station API using the `GAS_STATION_AUTH` environment variable.
+3. **Set Up Authentication:** Define a bearer token for the Gas Station API using the `GAS_STATION_AUTH` environment variable. This token must be provided in all requests to the gas station, except for the `/` and `/version` endpoints.
 
 4. **Start the Gas Station**
 
