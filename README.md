@@ -43,7 +43,7 @@ cd gas-station/docker
 4. **Start the Gas Station**
 
 ```sh
-GAS_STATION_AUTH=[bearer_token] docker-compose up
+GAS_STATION_AUTH=[bearer_token] docker compose up
 ```
 
 
