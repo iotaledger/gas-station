@@ -107,19 +107,19 @@ access-controller:
 ```
 
 ### Configuration parameters
-
-| Parameter                               | Description                                                         | Example                          |
-| --------------------------------------- | ------------------------------------------------------------------- | -------------------------------- |
-| `signer-config`                         | Configuration of signer. It can be a local or an external KMS.      |  See [down below](#signer-configuration)|
-| `rpc-host-ip`                           | IP address for the RPC server                                       | `0.0.0.0`                        |
-| `rpc-port`                              | Port for the RPC server                                             | `9527`                           |
-| `metrics-port`                          | Port for collecting and exposing metrics                            | `9184`                           |
-| `storage-config.redis.redis-url`        | Redis connection URL                                                | `redis://127.0.0.1`              |
-| `fullnode-url`                          | URL of the IOTA full node                                           | `https://api.testnet.iota.cafe`  |
-| `coin-init-config.target-init-balance`  | Initial balance to maintain                                         | `100000000`                      |
-| `coin-init-config.refresh-interval-sec` | Interval in seconds to refresh balance                              | `86400`                          |
-| `daily-gas-usage-cap`                   | Maximum allowed daily gas usage                                     | `1500000000000`                  |
-| `access-controller.access-policy`       | Access policy mode.                                                 | `disabled`, `allow-all`, `deny-all`. See [this link](./docs/access-controller.md) to learn more|
+`
+| Parameter                               | Description                                                               | Example                                                                                         |
+| --------------------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `signer-config`                         | Configuration of signer. It can be a local or an external KMS.            | See [down below](#signer-configuration)                                                         |
+| `rpc-host-ip`                           | IP address for the RPC server                                             | `0.0.0.0`                                                                                       |
+| `rpc-port`                              | Port for the RPC server                                                   | `9527`                                                                                          |
+| `metrics-port`                          | Port for collecting and exposing metrics                                  | `9184`                                                                                          |
+| `storage-config.redis.redis-url`        | Redis connection URL                                                      | `redis://127.0.0.1`                                                                             |
+| `fullnode-url`                          | URL of the IOTA full node                                                 | `https://api.testnet.iota.cafe`                                                                 |
+| `coin-init-config.target-init-balance`  | Target balance for the new coins when we splitting new gas coins in NANOs | `100000000`                                                                                     |
+| `coin-init-config.refresh-interval-sec` | Interval in seconds to refresh balance and check for new coins to split   | `86400`                                                                                         |
+| `daily-gas-usage-cap`                   | Maximum allowed daily gas usage                                           | `1500000000000`                                                                                 |
+| `access-controller.access-policy`       | Access policy mode.                                                       | `disabled`, `allow-all`, `deny-all`. See [this link](./docs/access-controller.md) to learn more |
 
 #### Signer Configuration
 
