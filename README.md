@@ -38,12 +38,12 @@ cd gas-station/docker
 
    **Note:** If the generated private key pair doesn’t meet your requirements, replace it with your own keys.
 
-3. **Set Up Authentication:** Define a bearer token for the Gas Station API using the `GAS_STATION_AUTH` environment variable.
+3. **Set Up Authentication:** Define a bearer token for the Gas Station API using the `GAS_STATION_AUTH` environment variable. If set, this token must be provided in all requests to the Gas Station, except for the `/` and `/version` endpoints. It can also be omitted to disable default authentication, e.g. if one wants to add a custom authentication to the server. In this case, requests against the Gas Station can be made without an authentication token.
 
 4. **Start the Gas Station**
 
 ```sh
-GAS_STATION_AUTH=[bearer_token] docker-compose up
+GAS_STATION_AUTH=[bearer_token] docker compose up
 ```
 
 
@@ -107,19 +107,19 @@ access-controller:
 ```
 
 ### Configuration parameters
-
-| Parameter                               | Description                                                         | Example                          |
-| --------------------------------------- | ------------------------------------------------------------------- | -------------------------------- |
-| `signer-config`                         | Configuration of signer. It can be a local or an external KMS.      |  See [down below](#signer-configuration)|
-| `rpc-host-ip`                           | IP address for the RPC server                                       | `0.0.0.0`                        |
-| `rpc-port`                              | Port for the RPC server                                             | `9527`                           |
-| `metrics-port`                          | Port for collecting and exposing metrics                            | `9184`                           |
-| `storage-config.redis.redis-url`        | Redis connection URL                                                | `redis://127.0.0.1`              |
-| `fullnode-url`                          | URL of the IOTA full node                                           | `https://api.testnet.iota.cafe`  |
-| `coin-init-config.target-init-balance`  | Initial balance to maintain                                         | `100000000`                      |
-| `coin-init-config.refresh-interval-sec` | Interval in seconds to refresh balance                              | `86400`                          |
-| `daily-gas-usage-cap`                   | Maximum allowed daily gas usage                                     | `1500000000000`                  |
-| `access-controller.access-policy`       | Access policy mode.                                                 | `disabled`, `allow-all`, `deny-all`. See [this link](./docs/access-controller.md) to learn more|
+`
+| Parameter                               | Description                                                               | Example                                                                                         |
+| --------------------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `signer-config`                         | Configuration of signer. It can be a local or an external KMS.            | See [down below](#signer-configuration)                                                         |
+| `rpc-host-ip`                           | IP address for the RPC server                                             | `0.0.0.0`                                                                                       |
+| `rpc-port`                              | Port for the RPC server                                                   | `9527`                                                                                          |
+| `metrics-port`                          | Port for collecting and exposing metrics                                  | `9184`                                                                                          |
+| `storage-config.redis.redis-url`        | Redis connection URL                                                      | `redis://127.0.0.1`                                                                             |
+| `fullnode-url`                          | URL of the IOTA full node                                                 | `https://api.testnet.iota.cafe`                                                                 |
+| `coin-init-config.target-init-balance`  | Target balance for the new coins when we splitting new gas coins in NANOs | `100000000`                                                                                     |
+| `coin-init-config.refresh-interval-sec` | Interval in seconds to refresh balance and check for new coins to split   | `86400`                                                                                         |
+| `daily-gas-usage-cap`                   | Maximum allowed daily gas usage                                           | `1500000000000`                                                                                 |
+| `access-controller.access-policy`       | Access policy mode.                                                       | `disabled`, `allow-all`, `deny-all`. See [this link](./docs/access-controller.md) to learn more |
 
 #### Signer Configuration
 

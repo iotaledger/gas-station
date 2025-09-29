@@ -45,7 +45,7 @@ Configuration assumes that you use the localnet IOTA network on your machine.
 - Start the Docker Compose environment
 
   ```shell
-  docker-compose up
+  docker compose up
   ```
 
 ## License
