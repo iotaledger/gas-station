@@ -17,7 +17,7 @@ This system package is available on every IOTA network instance (devnet, testnet
 
 ## Prerequisites
 
-1. A running instance of the `IOTA Gas Station` is required. To learn how to set up the Gas Station, please follow this [link](../../GETTING_STARTED.md).
+1. A running instance of the `IOTA Gas Station` is required. To learn how to set up the Gas Station, please follow this [link](../../README.md#how-to-run-with-docker).
 
    You should have:
    - The URL of the gas station instance.

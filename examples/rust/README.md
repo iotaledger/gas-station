@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-1. Ensure the IOTA Gas Station is up and running. To learn how to set up the Gas Station, please follow this [link](../../GETTING_STARTED.md).
+1. Ensure the IOTA Gas Station is up and running. To learn how to set up the Gas Station, please follow this [link](../../README.md#how-to-run-with-docker).
 2. The expected address of the Gas Station is `http://localhost:9527`. Modify this if necessary.
 
 ## How to run
