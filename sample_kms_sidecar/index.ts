@@ -11,7 +11,7 @@ async function main() {
         res.send("KMS Signer Demo!");
     });
 
-    app.get("/aws-kms/get-pubkey-address", async (req, res) => {
+    app.get("/get-pubkey-address", async (req, res) => {
         try {
             const keyId = process.env.AWS_KMS_KEY_ID || "";
             const publicKey = await getPublicKey(keyId);
@@ -26,7 +26,7 @@ async function main() {
         }
     });
 
-    app.post("/aws-kms/sign-transaction", async (req, res) => {
+    app.post("/sign-transaction", async (req, res) => {
         try {
             const { txBytes } = req.body;
 

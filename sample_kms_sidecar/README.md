@@ -42,13 +42,13 @@ npm start
 ## API Endpoints
 
 - `GET /` - Health check endpoint
-- `GET /aws-kms/get-pubkey-address` - Get the IOTA address for the KMS public key
-- `POST /aws-kms/sign-transaction` - Sign a IOTA transaction using KMS
+- `GET /get-pubkey-address` - Get the IOTA address for the KMS public key
+- `POST /sign-transaction` - Sign a IOTA transaction using KMS
 
 ### Sign Transaction Example
 
 ```bash
-curl -X POST http://localhost:3000/aws-kms/sign-transaction \
+curl -X POST http://localhost:3000/sign-transaction \
   -H "Content-Type: application/json" \
   -d '{"txBytes": "base64-encoded-transaction-bytes"}'
 ```
