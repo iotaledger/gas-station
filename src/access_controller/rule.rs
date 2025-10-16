@@ -368,21 +368,12 @@ impl AccessRule {
                 .update_aggr(rule_meta.clone(), &aggr, ctx.transaction_budget as i64)
                 .await
                 .context("Updating aggregate failed")?;
-            let is_matched = gas_limit.value.matches(total_gas_claim as u64);
-            // If not matched then we need to 'restore' the state of aggregate,
-            // because the rule will not be applied. And also there is no need to create
-            // a confirmation request that 'fixes' the state of aggregate.
-            if !is_matched {
-                ctx.stats_tracker
-                    .update_aggr(rule_meta.clone(), &aggr, -(ctx.transaction_budget as i64))
-                    .await
-                    .context("Restoring aggregate failed")?;
-            }
-            let confirmation_request = is_matched.then(|| GasUsageConfirmationRequest {
+            let confirmation_request = GasUsageConfirmationRequest {
                 rule_meta,
                 aggregate: aggr,
                 gas_usage: ctx.transaction_budget,
-            });
+            };
+            let is_matched = gas_limit.value.matches(total_gas_claim as u64);
             let result_reason = format!(
                 "total gas usage {} {}: {}",
                 total_gas_claim,
@@ -393,11 +384,10 @@ impl AccessRule {
                 },
                 gas_limit.value
             );
-
-            Ok((
+            return Ok((
                 PredicateReport::new(predicate_names::GAS_USAGE, is_matched, result_reason),
-                confirmation_request,
-            ))
+                Some(confirmation_request),
+            ));
         } else {
             // If the gas limit is not defined then the rule matches
             return Ok((

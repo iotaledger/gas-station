@@ -203,10 +203,12 @@ mod tests {
             .is_err());
     }
 
-    // The rule with gas-usage partially matches (sender address), but not action applied,
-    // and the another in order rule should be applied. Gas-usage counter should remain untouched.
+    // The rule with gas-usage matches (sender address), but not action applied
+    // due to of gas-limit constraint. The next in order rule should be applied with deny action.
+    // When there is a `deny` action, there is no gas usage, so the gas-usage counter
+    // from first rule should go back to its original state `0`
     #[tokio::test]
-    async fn test_access_denied_from_controller_gas_usage_partially_matches() {
+    async fn test_access_denied_from_controller_by_another_rule() {
         let rule_gas_usage = AccessRuleBuilder::new()
             .gas_limit(ValueAggregate::new(
                 Duration::from_secs(120),
@@ -214,7 +216,7 @@ mod tests {
             ))
             .allow()
             .build();
-        let rule_allow_any = AccessRuleBuilder::new().allow().build();
+        let rule_allow_any = AccessRuleBuilder::new().deny().build();
         let rules = [rule_gas_usage.clone(), rule_allow_any];
         let (test_cluster, container, server) =
             start_rpc_server_for_testing_with_access_controller(
@@ -244,7 +246,7 @@ mod tests {
         assert!(client
             .execute_tx(reservation_id, &tx_data, &user_sig, None, None)
             .await
-            .is_ok());
+            .is_err());
 
         let value = fetch_redis_val::<i64>(&redis_key);
         assert_eq!(value, 0);
