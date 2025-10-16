@@ -317,18 +317,21 @@ async fn execute_tx_impl(
     access_controller: Arc<ArcSwap<AccessController>>,
     ctx: TransactionContext,
 ) -> (StatusCode, Json<ExecuteTxResponse>) {
-    match access_controller.load().check_access(&ctx).await {
+    let transaction_digest = tx_data.digest();
+
+    let matching_result = match access_controller.load().check_access(&ctx).await {
         Ok(Decision::Allow) => {
             metrics.num_allowed_execute_tx_requests.inc();
+            None
         }
         Ok(Decision::Deny) => {
             metrics.num_failed_execute_tx_requests.inc();
-            return (
+            Some((
                 StatusCode::FORBIDDEN,
                 Json(ExecuteTxResponse::new_err(anyhow::anyhow!(
                     "Access denied by access controller"
                 ))),
-            );
+            ))
         }
         Err(err) => {
             let event_id = generate_event_id();
@@ -336,17 +339,30 @@ async fn execute_tx_impl(
                 "EventId={} Error while checking access: {:?}",
                 event_id, err
             );
-            return (
+            Some((
                 StatusCode::BAD_REQUEST,
                 Json(ExecuteTxResponse::new_err(anyhow::anyhow!(
                     "Error while checking access. EventId={}",
                     event_id
                 ))),
-            );
+            ))
         }
+    };
+
+    if let Some((status_code, error)) = matching_result {
+        let confirmation_result = access_controller
+            .load()
+            .confirm_transaction(
+                TransactionExecutionResult::new(transaction_digest),
+                &ctx.stats_tracker,
+            )
+            .await;
+        if let Err(err) = confirmation_result {
+            error!("Error while canceling transaction in AC: {:?}", err);
+        }
+        return (status_code, error);
     }
 
-    let transaction_digest = tx_data.digest();
     match gas_station
         .execute_transaction(ctx.reservation_id, tx_data, user_sig, ctx.request_type)
         .await
@@ -360,7 +376,6 @@ async fn execute_tx_impl(
             );
             trace!(target: "transactions", "{}", TxLogMessage::new(&effects));
 
-            metrics.num_successful_execute_tx_requests.inc();
             let confirmation_result = access_controller
                 .load()
                 .confirm_transaction(
@@ -374,7 +389,7 @@ async fn execute_tx_impl(
             if let Err(err) = confirmation_result {
                 error!("Error while confirming transaction in AC: {:?}", err);
             }
-
+            metrics.num_successful_execute_tx_requests.inc();
             (StatusCode::OK, Json(ExecuteTxResponse::new_ok(effects)))
         }
         Err(err) => {
