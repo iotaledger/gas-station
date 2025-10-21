@@ -319,7 +319,7 @@ async fn execute_tx_impl(
 ) -> (StatusCode, Json<ExecuteTxResponse>) {
     let transaction_digest = tx_data.digest();
 
-    let check_access_result = match access_controller.load().check_access(&ctx).await {
+    let is_rejected = match access_controller.load().check_access(&ctx).await {
         Ok(Decision::Allow) => {
             metrics.num_allowed_execute_tx_requests.inc();
             None
@@ -349,7 +349,7 @@ async fn execute_tx_impl(
         }
     };
 
-    if let Some((status_code, error)) = check_access_result {
+    if let Some((status_code, error)) = is_rejected {
         let confirmation_result = access_controller
             .load()
             .confirm_transaction(
