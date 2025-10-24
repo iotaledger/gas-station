@@ -1,6 +1,8 @@
 // Copyright (c) 2024 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::BTreeMap;
+
 use anyhow::{bail, Context};
 use axum::http::HeaderMap;
 use fastcrypto::encoding::Base64;
@@ -450,12 +452,24 @@ impl AccessRule {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RegoInputPayload {
     pub transaction_data: Value,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub http_headers: BTreeMap<String, Vec<String>>,
 }
 
 impl RegoInputPayload {
     pub fn from_context(ctx: &TransactionContext) -> Self {
         Self {
             transaction_data: ctx.transaction_data.clone(),
+            http_headers: ctx
+                .headers
+                .iter()
+                .map(|(key, value)| {
+                    (
+                        key.to_string(),
+                        vec![value.to_str().unwrap_or("").to_string()],
+                    )
+                })
+                .collect(),
         }
     }
 }
