@@ -21,7 +21,7 @@ use crate::{
     access_controller::{
         hook::{HookAction, HookActionHeaders},
         predicates::{
-            Action, LimitBy, RegoExpression, ValueAggregate, ValueIotaAddress, ValueNumber,
+            Action, CountBy, RegoExpression, ValueAggregate, ValueIotaAddress, ValueNumber,
         },
     },
     rpc::rpc_types::ExecuteTransactionRequestType,
@@ -342,8 +342,8 @@ impl AccessRule {
         if let Some(gas_limit) = self.gas_usage.as_ref() {
             for count_by in gas_limit.count_by.iter() {
                 let count_by_value = match count_by {
-                    LimitBy::SenderAddress => ctx.sender_address.to_string(),
-                    LimitBy::HttpHeader(header) => {
+                    CountBy::SenderAddress => ctx.sender_address.to_string(),
+                    CountBy::HttpHeader(header) => {
                         match ctx.headers.get(header.header_name.as_str()) {
                             Some(value) => value
                                 .to_str()
@@ -622,7 +622,7 @@ mod test {
     use crate::{
         access_controller::{
             predicates::{
-                Action, LimitBy, Location, RegoExpression, SourceWithData, ValueAggregate,
+                Action, CountBy, Location, RegoExpression, SourceWithData, ValueAggregate,
                 ValueIotaAddress, ValueNumber,
             },
             rule::{AccessRule, AccessRuleBuilder, TransactionContext},
@@ -791,7 +791,7 @@ mod test {
                     std::time::Duration::from_secs(10),
                     ValueNumber::GreaterThanOrEqual(300),
                 )
-                .with_count_by(vec![LimitBy::SenderAddress]),
+                .with_count_by(vec![CountBy::SenderAddress]),
             )
             .deny()
             .build();
@@ -895,7 +895,7 @@ mod test {
                     std::time::Duration::from_secs(10),
                     ValueNumber::LessThanOrEqual(300),
                 )
-                .with_count_by(vec![LimitBy::new_http_header("X-Account-Id")]),
+                .with_count_by(vec![CountBy::new_http_header("X-Account-Id")]),
             )
             .allow()
             .build();
