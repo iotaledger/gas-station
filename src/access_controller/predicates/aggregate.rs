@@ -33,8 +33,7 @@ impl ValueAggregate {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CountBy {
     SenderAddress,
     HttpHeader(CountByHttpHeader),
@@ -49,6 +48,35 @@ impl CountBy {
 
     pub fn new_sender_address() -> Self {
         CountBy::SenderAddress
+    }
+}
+
+impl Serialize for CountBy {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            CountBy::SenderAddress => serializer.serialize_str("sender-address"),
+            CountBy::HttpHeader(header) => serializer.serialize_str(&header.to_string()),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for CountBy {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        match s.as_str() {
+            "sender-address" => Ok(CountBy::SenderAddress),
+            _ if s.starts_with(HTTP_HEADER_PREFIX) => {
+                let header = CountByHttpHeader::from_str(&s).map_err(serde::de::Error::custom)?;
+                Ok(CountBy::HttpHeader(header))
+            }
+            _ => Err(serde::de::Error::custom(format!("Invalid CountBy: {}", s))),
+        }
     }
 }
 
@@ -150,11 +178,21 @@ mod test {
     use crate::access_controller::predicates::{ValueAggregate, ValueNumber};
 
     #[test]
-    fn test_serde_limit_by() {
-        let limit_by = CountBy::HttpHeader(CountByHttpHeader {
+    fn test_serde_count_by_sender_address() {
+        let count_by = CountBy::SenderAddress;
+        let json = serde_json::to_string(&count_by).unwrap();
+        assert_eq!(json, r#""sender-address""#);
+
+        let count_by: CountBy = serde_json::from_str(&json).unwrap();
+        assert_eq!(count_by, CountBy::SenderAddress);
+    }
+
+    #[test]
+    fn test_serde_count_by_http_header() {
+        let count_by = CountBy::HttpHeader(CountByHttpHeader {
             header_name: "X-Forwarded-For".to_string(),
         });
-        let json = serde_json::to_string(&limit_by).unwrap();
+        let json = serde_json::to_string(&count_by).unwrap();
         assert_eq!(json, r#""http-header::X-Forwarded-For""#);
 
         let limit_by: CountBy = serde_json::from_str(&json).unwrap();
