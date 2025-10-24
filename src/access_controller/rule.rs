@@ -899,6 +899,40 @@ mod test {
     }
 
     #[tokio::test]
+    async fn test_constraint_rego_expression_with_http_header() {
+        let rego_content = r#"
+            package test
+
+            default allow_account = false
+            allow_account if {
+                input.http_headers["x-account-id"][0] == "123"
+            }
+        "#;
+        let location = Location::new_memory(rego_content, "data.test.allow_account");
+        let mut source = SourceWithData::new(location);
+        source.fetch().await.unwrap();
+
+        let rego_expression =
+            RegoExpression::from_source(source).expect("Failed to create Rego expression");
+        let rule = AccessRuleBuilder::new()
+            .rego_expression(rego_expression)
+            .allow()
+            .build();
+
+        let matched_data = TransactionContext::default().with_headers(HeaderMap::from_iter([(
+            HeaderName::from_str("X-Account-Id").unwrap(),
+            HeaderValue::from_str("123").unwrap(),
+        )]));
+        assert!(rule.matches(&matched_data).await.unwrap().is_matched);
+
+        let unmatched_data = TransactionContext::default().with_headers(HeaderMap::from_iter([(
+            HeaderName::from_str("X-Account-Id").unwrap(),
+            HeaderValue::from_str("456").unwrap(),
+        )]));
+        assert!(!rule.matches(&unmatched_data).await.unwrap().is_matched);
+    }
+
+    #[tokio::test]
     async fn test_constraint_gas_usage_with_http_header() {
         let sender_address = random_address();
         let sponsor_address = random_address();
