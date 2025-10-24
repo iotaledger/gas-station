@@ -1,8 +1,10 @@
-use std::time::Duration;
+use std::{str::FromStr, time::Duration};
 
 use serde::{Deserialize, Serialize};
 
 use super::ValueNumber;
+
+const HTTP_HEADER_PREFIX: &str = "http-header::";
 
 /// ValueAggregate is a struct that represents an aggregate value with a specified window and limit.
 /// It must use persistent storage [`Tracker`] to store the aggregate value.
@@ -31,17 +33,90 @@ impl ValueAggregate {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum LimitBy {
     SenderAddress,
+    HttpHeader(CountByHttpHeader),
+}
+
+impl LimitBy {
+    pub fn new_http_header(header_name: impl AsRef<str>) -> Self {
+        LimitBy::HttpHeader(CountByHttpHeader {
+            header_name: header_name.as_ref().to_string(),
+        })
+    }
+
+    pub fn new_sender_address() -> Self {
+        LimitBy::SenderAddress
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CountByHttpHeader {
+    pub header_name: String,
+}
+
+impl Serialize for CountByHttpHeader {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for CountByHttpHeader {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(CountByHttpHeader::from_str(&s).unwrap())
+    }
+}
+
+// The HttpHeader should be serialized to string like: http-header::<header-name>
+impl FromStr for CountByHttpHeader {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts = s.split(HTTP_HEADER_PREFIX).collect::<Vec<&str>>();
+        if parts.len() != 2 {
+            return Err(anyhow::anyhow!("Invalid HttpHeader: {}", s));
+        }
+        Ok(CountByHttpHeader {
+            header_name: parts[1].to_string(),
+        })
+    }
+}
+
+impl From<&CountByHttpHeader> for String {
+    fn from(header: &CountByHttpHeader) -> Self {
+        format!("{HTTP_HEADER_PREFIX}{}", header.header_name)
+    }
+}
+
+impl TryFrom<&String> for CountByHttpHeader {
+    type Error = anyhow::Error;
+
+    fn try_from(s: &String) -> Result<Self, Self::Error> {
+        CountByHttpHeader::from_str(&s).map_err(|e| anyhow::anyhow!("Invalid HttpHeader: {}", e))
+    }
 }
 
 impl ToString for LimitBy {
     fn to_string(&self) -> String {
         match self {
             LimitBy::SenderAddress => "sender-address".to_string(),
+            LimitBy::HttpHeader(header) => header.to_string(),
         }
+    }
+}
+
+impl ToString for CountByHttpHeader {
+    fn to_string(&self) -> String {
+        self.into()
     }
 }
 
@@ -71,7 +146,25 @@ mod serde_duration {
 
 #[cfg(test)]
 mod test {
+    use super::{CountByHttpHeader, LimitBy};
     use crate::access_controller::predicates::{ValueAggregate, ValueNumber};
+
+    #[test]
+    fn test_serde_limit_by() {
+        let limit_by = LimitBy::HttpHeader(CountByHttpHeader {
+            header_name: "X-Forwarded-For".to_string(),
+        });
+        let json = serde_json::to_string(&limit_by).unwrap();
+        assert_eq!(json, r#""http-header::X-Forwarded-For""#);
+
+        let limit_by: LimitBy = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            limit_by,
+            LimitBy::HttpHeader(CountByHttpHeader {
+                header_name: "X-Forwarded-For".to_string(),
+            })
+        );
+    }
 
     #[test]
     fn test_deserialize_value_aggregate() {

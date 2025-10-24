@@ -1,7 +1,7 @@
 // Copyright (c) 2024 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::Context;
+use anyhow::{bail, Context};
 use axum::http::HeaderMap;
 use fastcrypto::encoding::Base64;
 use iota_types::{
@@ -343,6 +343,17 @@ impl AccessRule {
             for count_by in gas_limit.count_by.iter() {
                 let count_by_value = match count_by {
                     LimitBy::SenderAddress => ctx.sender_address.to_string(),
+                    LimitBy::HttpHeader(header) => {
+                        match ctx.headers.get(header.header_name.as_str()) {
+                            Some(value) => value
+                                .to_str()
+                                .context("Failed to convert header value to string")?
+                                .to_string(),
+                            None => {
+                                bail!("Header not found: {}", header.header_name)
+                            }
+                        }
+                    }
                 };
                 (&mut rule_to_hash).insert(count_by.to_string(), Value::String(count_by_value));
             }
@@ -597,8 +608,9 @@ fn get_move_call_package_addresses(transaction_data: &TransactionData) -> Vec<Io
 #[cfg(test)]
 mod test {
 
-    use std::vec;
+    use std::{str::FromStr, vec};
 
+    use axum::http::{HeaderMap, HeaderName, HeaderValue};
     use iota_types::{
         base_types::IotaAddress,
         transaction::{
@@ -868,6 +880,74 @@ mod test {
             !rule
                 .match_rego_expression(&unmatched_data)
                 .unwrap()
+                .is_matched
+        );
+    }
+
+    #[tokio::test]
+    async fn test_constraint_gas_usage_with_http_header() {
+        let sender_address = random_address();
+        let sponsor_address = random_address();
+        let stats_tracker = new_stats_tracker_for_testing(sponsor_address).await;
+        let rule = AccessRuleBuilder::new()
+            .gas_limit(
+                ValueAggregate::new(
+                    std::time::Duration::from_secs(10),
+                    ValueNumber::LessThanOrEqual(300),
+                )
+                .with_count_by(vec![LimitBy::new_http_header("X-Account-Id")]),
+            )
+            .allow()
+            .build();
+
+        let account_1_ctx = TransactionContext::default()
+            .with_headers(HeaderMap::from_iter([(
+                HeaderName::from_str("X-Account-Id").unwrap(),
+                HeaderValue::from_str("123").unwrap(),
+            )]))
+            .with_gas_budget(300)
+            .with_stats_tracker(stats_tracker.clone())
+            .with_sender_address(sender_address);
+        let account_2_ctx = TransactionContext::default()
+            .with_headers(HeaderMap::from_iter([(
+                HeaderName::from_str("X-Account-Id").unwrap(),
+                HeaderValue::from_str("456").unwrap(),
+            )]))
+            .with_gas_budget(300)
+            .with_stats_tracker(stats_tracker)
+            .with_sender_address(sender_address);
+
+        // Even though the transactions come from the same sender, they should
+        // be distinguished by the account ID. Each account ID should have a separate
+        // gas usage limit and should be separately blocked after its limit is used.
+        assert!(
+            rule.match_global_limits(&account_1_ctx)
+                .await
+                .unwrap()
+                .0
+                .is_matched
+        );
+        assert!(
+            !rule
+                .match_global_limits(&account_1_ctx)
+                .await
+                .unwrap()
+                .0
+                .is_matched
+        );
+        assert!(
+            rule.match_global_limits(&account_2_ctx)
+                .await
+                .unwrap()
+                .0
+                .is_matched
+        );
+        assert!(
+            !rule
+                .match_global_limits(&account_2_ctx)
+                .await
+                .unwrap()
+                .0
                 .is_matched
         );
     }
