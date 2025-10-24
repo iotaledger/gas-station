@@ -23,8 +23,9 @@ impl SourceWithData {
     }
     // Fetch the data from the location.
     pub async fn fetch(&mut self) -> Result<(), anyhow::Error> {
-        self.data = Some(self.location.fetch_bytes().await?);
-        trace!("Fetched data from location: {:?}", self.data);
+        let data = self.location.fetch_bytes().await?;
+        trace!("Fetched data from location: {} bytes", data.len());
+        self.data = Some(data);
         Ok(())
     }
 

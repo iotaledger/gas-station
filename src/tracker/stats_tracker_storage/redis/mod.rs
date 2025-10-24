@@ -51,8 +51,7 @@ impl StatsTrackerStorage for RedisStatsTrackerStorage {
         aggr: &Aggregate,
         value: i64,
     ) -> Result<i64> {
-        let hash = generate_hash_from_key(key);
-        let key = format!("{}:{}:{}", aggr.name, aggr.aggr_type, hash);
+        let key = get_redis_aggr_key(&aggr.name, aggr.aggr_type, key);
 
         match aggr.aggr_type {
             AggregateType::Sum => {
@@ -69,6 +68,15 @@ impl StatsTrackerStorage for RedisStatsTrackerStorage {
             }
         }
     }
+}
+
+pub(crate) fn get_redis_aggr_key(
+    aggr_name: &str,
+    aggr_type: AggregateType,
+    key: &[(String, Value)],
+) -> String {
+    let hash = generate_hash_from_key(key);
+    format!("{}:{}:{}", aggr_name, aggr_type, hash)
 }
 
 // we should generate the canonical hash key from the given key
@@ -125,23 +133,14 @@ mod test {
         .into_iter()
         .collect::<Vec<_>>();
 
-        let result = storage
-            .update_aggr(&key_meta, &aggregate, 1)
-            .await
-            .unwrap();
+        let result = storage.update_aggr(&key_meta, &aggregate, 1).await.unwrap();
         assert_eq!(result, 1);
 
-        let result = storage
-            .update_aggr(&key_meta, &aggregate, 2)
-            .await
-            .unwrap();
+        let result = storage.update_aggr(&key_meta, &aggregate, 2).await.unwrap();
         assert_eq!(result, 3);
 
         time::sleep(window_size + Duration::from_secs(1)).await;
-        let result = storage
-            .update_aggr(&key_meta, &aggregate, 2)
-            .await
-            .unwrap();
+        let result = storage.update_aggr(&key_meta, &aggregate, 2).await.unwrap();
         assert_eq!(result, 2);
     }
 

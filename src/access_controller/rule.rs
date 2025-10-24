@@ -31,7 +31,7 @@ use crate::{
     },
 };
 
-mod predicate_names {
+pub(crate) mod predicate_names {
     pub const SENDER_ADDRESS: &str = "sender_address";
     pub const GAS_BUDGET: &str = "gas_budget";
     pub const MOVE_CALL_PACKAGE_ADDRESS: &str = "move_call_package_address";
@@ -328,7 +328,10 @@ impl AccessRule {
     }
 
     /// Returns the rule meta data as a JSON object. The rule meta is used to calculate the hash of the rule.
-    fn get_rule_meta(&self, ctx: &TransactionContext) -> Result<Map<String, Value>, anyhow::Error> {
+    pub fn get_rule_meta(
+        &self,
+        ctx: &TransactionContext,
+    ) -> Result<Map<String, Value>, anyhow::Error> {
         let json_rule =
             serde_json::to_value(self.clone()).context("Failed to serialize rule to JSON")?;
         let mut rule_to_hash = json_rule
@@ -354,7 +357,7 @@ impl AccessRule {
         if let Some(gas_limit) = self.gas_usage.as_ref() {
             let rule_meta = self
                 .get_rule_meta(ctx)
-                .context("Failed to calculate rule meta")?;
+                .context("Failed to calculate rule meta for gas limit")?;
 
             let aggr = Aggregate::with_name(predicate_names::GAS_USAGE)
                 .with_aggr_type(AggregateType::Sum)
@@ -365,19 +368,24 @@ impl AccessRule {
                 .update_aggr(rule_meta.clone(), &aggr, ctx.transaction_budget as i64)
                 .await
                 .context("Updating aggregate failed")?;
-
             let confirmation_request = GasUsageConfirmationRequest {
                 rule_meta,
                 aggregate: aggr,
                 gas_usage: ctx.transaction_budget,
             };
-
+            let is_matched = gas_limit.value.matches(total_gas_claim as u64);
+            let result_reason = format!(
+                "total gas usage {} {}: {}",
+                total_gas_claim,
+                if is_matched {
+                    "matches"
+                } else {
+                    "does not match"
+                },
+                gas_limit.value
+            );
             return Ok((
-                PredicateReport::new(
-                    predicate_names::GAS_USAGE,
-                    gas_limit.value.matches(total_gas_claim as u64),
-                    format!("gas usage {} matches: {}", total_gas_claim, gas_limit.value),
-                ),
+                PredicateReport::new(predicate_names::GAS_USAGE, is_matched, result_reason),
                 Some(confirmation_request),
             ));
         } else {
