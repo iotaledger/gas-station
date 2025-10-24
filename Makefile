@@ -1,3 +1,6 @@
+test:
+	cargo nextest run -j 1
+
 redis-start:
 	docker run -d --name gas-station-redis -p 6379:6379 redis:7.2.5
 

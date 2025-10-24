@@ -23,6 +23,7 @@ use iota_types::crypto::get_account_key_pair;
 use iota_types::gas_coin::NANOS_PER_IOTA;
 use iota_types::signature::GenericSignature;
 use iota_types::transaction::{TransactionData, TransactionDataAPI};
+use redis::{Commands, FromRedisValue};
 use serde_json::Value;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -209,4 +210,25 @@ impl StatsTrackerStorage for MockedStatsTrackerStorage {
 
 pub fn mocked_stats_tracker() -> StatsTracker {
     StatsTracker::new(Arc::new(MockedStatsTrackerStorage {}))
+}
+
+pub fn fetch_redis_val<T: FromRedisValue>(redis_key: &str) -> T {
+    let default_redis_url = match GasStationStorageConfig::default() {
+        GasStationStorageConfig::Redis { redis_url } => redis_url,
+    };
+    let redis_client = redis::Client::open(default_redis_url).unwrap();
+    let mut redis_connection = redis_client.get_connection().unwrap();
+    let value: T = redis_connection.get(redis_key).unwrap();
+    value
+}
+
+pub fn remove_redis_key<K: FromRedisValue>(redis_key: &str) {
+    let default_redis_url = match GasStationStorageConfig::default() {
+        GasStationStorageConfig::Redis { redis_url } => redis_url,
+    };
+    let redis_client = redis::Client::open(default_redis_url).unwrap();
+    let mut redis_connection = redis_client.get_connection().unwrap();
+    redis_connection
+        .del::<String, K>(redis_key.to_string())
+        .unwrap();
 }

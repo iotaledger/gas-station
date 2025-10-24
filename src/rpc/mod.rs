@@ -19,10 +19,12 @@ mod tests {
     use crate::config::GasStationConfig;
     use crate::rpc::ExecuteTransactionRequestType;
     use crate::test_env::{
-        create_test_transaction, start_rpc_server_for_testing,
+        create_test_transaction, fetch_redis_val, remove_redis_key, start_rpc_server_for_testing,
         start_rpc_server_for_testing_no_auth, start_rpc_server_for_testing_with_access_controller,
         DEFAULT_TEST_CONFIG_PATH,
     };
+    use crate::tracker::stats_tracker_storage::redis::get_redis_aggr_key;
+    use crate::tracker::stats_tracker_storage::AggregateType;
     use crate::AUTH_ENV_NAME;
     use iota_config::Config;
     use iota_json_rpc_types::IotaTransactionBlockEffectsAPI;
@@ -186,6 +188,55 @@ mod tests {
             .execute_tx(reservation_id, &tx_data, &user_sig, None, None)
             .await
             .is_err());
+    }
+
+    // The rule with gas-usage matches (sender address), but not action applied
+    // due to of gas-limit constraint. The next in order rule should be applied with deny action.
+    // When there is a `deny` action, there is no gas usage, so the gas-usage counter
+    // from first rule should go back to its original state `0`
+    #[tokio::test]
+    async fn test_access_denied_from_controller_by_another_rule() {
+        let rule_gas_usage = AccessRuleBuilder::new()
+            .gas_limit(ValueAggregate::new(
+                Duration::from_secs(120),
+                ValueNumber::LessThanOrEqual(3333),
+            ))
+            .allow()
+            .build();
+        let rule_allow_any = AccessRuleBuilder::new().deny().build();
+        let rules = [rule_gas_usage.clone(), rule_allow_any];
+        let (test_cluster, container, server) =
+            start_rpc_server_for_testing_with_access_controller(
+                vec![NANOS_PER_IOTA; 60],
+                NANOS_PER_IOTA,
+                AccessController::new(AccessPolicy::DenyAll, rules),
+            )
+            .await;
+
+        let rule_meta = rule_gas_usage.get_rule_meta(&Default::default()).unwrap();
+        let signer_address = container.get_signer_address();
+        let rule_key = get_redis_aggr_key(
+            "gas_usage",
+            AggregateType::Sum,
+            rule_meta.clone().into_iter().collect::<Vec<_>>().as_slice(),
+        );
+        let redis_key = format!("{}:{}", signer_address, rule_key);
+
+        // We want to make sure the redis key is not present
+        remove_redis_key::<i64>(&redis_key);
+
+        let client = server.get_local_client();
+        let (sponsor, reservation_id, gas_coins) =
+            client.reserve_gas(NANOS_PER_IOTA, 10).await.unwrap();
+        let (tx_data, user_sig) = create_test_transaction(&test_cluster, sponsor, gas_coins).await;
+
+        assert!(client
+            .execute_tx(reservation_id, &tx_data, &user_sig, None, None)
+            .await
+            .is_err());
+
+        let value = fetch_redis_val::<i64>(&redis_key);
+        assert_eq!(value, 0);
     }
 
     #[tokio::test]
