@@ -515,6 +515,182 @@ As this might look a bit confusing, let's break this one down:
   - letting the next rule decide if the transaction should be executed or not
 - assuming, the hook decides not to decide about the transaction, we would now check the sender address based gas usage and decide based on this if the transaction is executed or not
 
+## Debugging Access Controller Filtering
+
+The Access Controller engine, which is part of the gas station, enables you to define complex filtering and limiting logic. As rule complexity increases, the likelihood of unintended behavior increases. To help diagnose and prevent such issues, the gas station provides a tracking mechanism that allows you to inspect exactly what happens when a transaction is processed by the access controller.
+
+**Prerequisites:**
+
+- Tracing must be enabled in the access controller. To learn how to enable tracing, see [Access Denied by Access Controller](./common-issues.md#access-denied-by-access-controller).
+
+### Simple Example
+
+Let's start with a very simple rule and assume you want to enable access for a selected address:
+
+```yaml
+access-controller:
+  access-policy: deny-all
+  rules:
+    - sender-address: ["0xa2e17e20f97355af6491580ff5c11ecefcdcf76ea224d163e5cb92389adf2311"]
+      action: allow
+```
+
+This configuration uses a whitelisting strategy: the default policy denies all transactions, and we define a rule that allows transactions from a specific address.
+
+When you call the `/execute_tx` endpoint with a transaction from the allowed sender address (`0xa2e17e20f97355af6491580ff5c11ecefcdcf76ea224d163e5cb92389adf2311`), you should see the following output:
+
+```log
+2025-09-28T13:51:33.092979Z TRACE iota_gas_station::access_controller:
+=================================
+Access Report for transaction:
+{
+  "V1": {
+    "kind": {
+      "ProgrammableTransaction": {
+        "commands": []
+      }
+    },
+    "sender": "0xa2e17e20f97355af6491580ff5c11ecefcdcf76ea224d163e5cb92389adf2311",
+    ...
+  }
+}
+Rule 1:
+        sender_address                 : [MATCHED] : sender address 0xa2e17e20f97355af6491580ff5c11ecefcdcf76ea224d163e5cb92389adf2311 is in the list: 'List([0xa2e17e20f97355af6491580ff5c11ecefcdcf76ea224d163e5cb92389adf2311])'
+        gas_budget                     : [MATCHED] : gas budget is not defined
+        move_call_package_address      : [MATCHED] : move call package address is not defined
+        ptb_command_count              : [MATCHED] : ptb command count is not defined
+        rego_expression                : [MATCHED] : rego expression is not defined
+        gas_usage                      : [MATCHED] : gas usage is not defined
+        ---> Action applied: ✅ Allow
+🟢 Allow
+```
+
+The output contains two sections:
+
+- A dump of the transaction being evaluated by the access controller
+- Detailed execution results for each rule processed by the access controller engine
+
+Since we have only one rule, only one rule is shown in the output. As you can see, the rule displays all available predicates, including those you didn't explicitly define in the configuration. This is because an undefined predicate in a rule means "accept everything" for that predicate. All possible predicates that can be added to a rule are listed, including the `sender-address` that we explicitly defined.
+
+Predicates act as **matchers**: all predicates in a rule must match for the rule's action to be applied. Since all predicates matched in this case, the `allow` action is applied and the transaction will be accepted by the access controller.
+
+It's important to note that the order of printed predicates reflects the order in which they are executed by the access controller engine.
+
+### Multiple rules
+
+Next, let's examine what happens when the sender address does not match the allowed list:
+
+```log
+2025-09-28T13:51:33.092979Z TRACE iota_gas_station::access_controller:
+=================================
+Access Report for transaction:
+{
+  ...
+}
+
+Rule 1:
+        sender_address                 : [NOT MATCHED] : sender address 0xe3071870e0bf9f5a5e9c1985775b61da9c83ccbf1423d7293d8f5de16858d7f5 is not in the list: 'List([0xa2e17e20f97355af6491580ff5c11ecefcdcf76ea224d163e5cb92389adf2311])'
+        ---> Action applied: [No action applied]
+🔴 Deny (Default policy applied)
+```
+
+In this situation, the sender address does not match the allowed list. The remaining predicates are not evaluated because the access controller engine uses short-circuit evaluation: once a predicate fails to match, it stops evaluating the remaining predicates in that rule to avoid unnecessary computation. The engine then moves to the next rule. Since there is no next rule, the default policy (deny-all) is applied and the transaction is rejected.
+
+Now that we've covered the basic tracing output for both allowed and denied transactions, let's examine a more complex example:
+
+```yaml
+access-controller:
+  access-policy: deny-all
+  rules:
+    - sender-address: ["0xe3071870e0bf9f5a5e9c1985775b61da9c83ccbf1423d7293d8f5de16858d7f5"]
+      action: allow
+    - sender-address: "*"
+      gas-usage:
+        value: <=6000000
+        window: 1day
+      move-call-package-address: "0x8a7f6cb67600e9c676dee1d8e7dcc178fad4b2dd4af7513b313eda3d2a2f91bd"
+      action: allow
+```
+
+This configuration demonstrates a more complex scenario: Rule 1 allows a specific sender address with no gas usage restrictions. Rule 2 applies to all other senders (`*`), allowing them to call a specific package address, but with a daily gas usage limit of 6,000,000.
+
+```log
+2025-09-28T13:51:33.092979Z TRACE iota_gas_station::access_controller:
+=================================
+Access Report for transaction:
+{
+  ...
+}
+
+Rule 1:
+        sender_address                 : [NOT MATCHED] : sender address 0xa2e17e20f97355af6491580ff5c11ecefcdcf76ea224d163e5cb92389adf2311 is not in the list: 'List([0xa2e17e20f97355af6491580ff5c11ecefcdcf76ea224d163e5cb92389adf2312])'
+        ---> Action applied: [No action applied]
+
+Rule 2:
+        sender_address                 : [MATCHED] : sender address 0xa2e17e20f97355af6491580ff5c11ecefcdcf76ea224d163e5cb92389adf2311 is in the list: 'List([0xa2e17e20f97355af6491580ff5c11ecefcdcf76ea224d163e5cb92389adf2311])'
+        gas_budget                     : [MATCHED] : gas budget is not defined
+        move_call_package_address      : [MATCHED] : move call package address [0x03b64c746b4a04313bf93e2b53490a1091be7c59c18105eef67f985ec1a0a430] is in the list: 'Single(0x03b64c746b4a04313bf93e2b53490a1091be7c59c18105eef67f985ec1a0a430)'
+        ptb_command_count              : [MATCHED] : ptb command count is not defined
+        rego_expression                : [MATCHED] : rego expression is not defined
+        gas_usage                      : [MATCHED] : total gas usage 5000000 matches: <=6000000
+        ---> Action applied: ✅ Allow
+🟢 Allow
+```
+
+In this scenario with two rules, the output shows the following behavior. Rule 1 is evaluated first, but the sender address doesn't match the specified address, so the rule is skipped and no action is applied. The engine then evaluates Rule 2. All predicates in Rule 2 match: the sender address matches (because Rule 2 uses `"*"` to allow any sender), the package address matches, and the gas usage is within the allowed limit (5,000,000 ≤ 6,000,000). Therefore, the `allow` action from Rule 2 is applied to the transaction.
+
+Note that the gas usage counter is shared across all gas station instances, so the reported gas usage reflects the current aggregated state across your entire gas station deployment, not just the current instance.
+
+### Using hooks
+
+Access Controller tracing also supports custom messages when using hooks. If a hook response includes the `message` property, that message will be displayed in the trace output along with the action. Let's extend the previous example by replacing the `allow` action in Rule 2 with a hook:
+
+Access Controller configuration:
+
+```yaml
+access-controller:
+  access-policy: deny-all
+  rules:
+    - sender-address: ["0xe3071870e0bf9f5a5e9c1985775b61da9c83ccbf1423d7293d8f5de16858d7f5"]
+      action: allow
+    - sender-address: "*"
+      gas-usage:
+        value: <=6000000
+        window: 1day
+      move-call-package-address: "0x8a7f6cb67600e9c676dee1d8e7dcc178fad4b2dd4af7513b313eda3d2a2f91bd"
+      action: "http://127.0.0.1:8080"
+```
+
+Tracing message:
+
+```log
+2025-09-28T13:51:33.092979Z TRACE iota_gas_station::access_controller:
+=================================
+Access Report for transaction:
+{
+  ...
+}
+
+Rule 1:
+        sender_address                 : [NOT MATCHED] : sender address 0xa2e17e20f97355af6491580ff5c11ecefcdcf76ea224d163e5cb92389adf2311 is not in the list: 'List([0xa2e17e20f97355af6491580ff5c11ecefcdcf76ea224d163e5cb92389adf2312])'
+        ---> Action applied: [No action applied]
+
+Rule 2:
+        sender_address                 : [MATCHED] : sender address 0xa2e17e20f97355af6491580ff5c11ecefcdcf76ea224d163e5cb92389adf2311 is in the list: 'List([0xa2e17e20f97355af6491580ff5c11ecefcdcf76ea224d163e5cb92389adf2311])'
+        gas_budget                     : [MATCHED] : gas budget is not defined
+        move_call_package_address      : [MATCHED] : move call package address [0x03b64c746b4a04313bf93e2b53490a1091be7c59c18105eef67f985ec1a0a430] is in the list: 'Single(0x03b64c746b4a04313bf93e2b53490a1091be7c59c18105eef67f985ec1a0a430)'
+        ptb_command_count              : [MATCHED] : ptb command count is not defined
+        rego_expression                : [MATCHED] : rego expression is not defined
+        gas_usage                      : [MATCHED] : total gas usage 5000000 matches: <=6000000
+        ---> Action applied: 🔗 http://127.0.0.1:8080/ (Details: hook message: deny transaction)
+🔴 Deny
+```
+
+The trace output shows that all predicates in Rule 2 match, so the hook action is triggered. The hook executes its own internal logic and responds with a `deny` action. Additionally, the hook returns a custom message ("hook message: deny transaction"), which is displayed in the trace output alongside the action details.
+
+As demonstrated in these examples, the tracing mechanism enables you to analyze the behavior of the access controller at a very granular level. This granular visibility provides you with precise control over permission management in your gas station deployment.
+
 ## Learn More
 
 For more information about how the rules are processed, please refer to [this link](https://docs.iota.org/operator/gas-station/architecture/features#access-controller).
+
