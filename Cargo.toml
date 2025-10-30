@@ -10,13 +10,13 @@ repository = "https://github.com/iotaledger/gas-station"
 
 fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "69d496c71fb37e3d22fe85e5bbfd4256d61422b9" }
 
-iota-metrics = { git = "https://github.com/iotaledger/iota", tag = "v1.7.0", package = "iota-metrics" }
-iota-config = { git = "https://github.com/iotaledger/iota", tag = "v1.7.0", package = "iota-config" }
-iota-json-rpc-types = { git = "https://github.com/iotaledger/iota", tag = "v1.7.0", package = "iota-json-rpc-types" }
-iota-sdk = { git = "https://github.com/iotaledger/iota", tag = "v1.7.0", package = "iota-sdk" }
-iota-types = { git = "https://github.com/iotaledger/iota", tag = "v1.7.0", package = "iota-types" }
-shared-crypto = { git = "https://github.com/iotaledger/iota", tag = "v1.7.0", package = "shared-crypto" }
-telemetry-subscribers = { git = "https://github.com/iotaledger/iota", tag = "v1.7.0", package = "telemetry-subscribers" }
+iota-metrics = { git = "https://github.com/iotaledger/iota", tag = "v1.9.2", package = "iota-metrics" }
+iota-config = { git = "https://github.com/iotaledger/iota", tag = "v1.9.2", package = "iota-config" }
+iota-json-rpc-types = { git = "https://github.com/iotaledger/iota", tag = "v1.9.2", package = "iota-json-rpc-types" }
+iota-sdk = { git = "https://github.com/iotaledger/iota", tag = "v1.9.2", package = "iota-sdk" }
+iota-types = { git = "https://github.com/iotaledger/iota", tag = "v1.9.2", package = "iota-types" }
+shared-crypto = { git = "https://github.com/iotaledger/iota", tag = "v1.9.2", package = "shared-crypto" }
+telemetry-subscribers = { git = "https://github.com/iotaledger/iota", tag = "v1.9.2", package = "telemetry-subscribers" }
 
 
 anyhow = "1.0.75"
@@ -64,8 +64,8 @@ url = { version = "2.5.4", features = ["serde"] }
 indoc = "2"
 rand = "0.8.5"
 wiremock = "0.6.3"
-iota-swarm-config = { git = "https://github.com/iotaledger/iota", tag = "v1.7.0", package = "iota-swarm-config" }
-test-cluster = { git = "https://github.com/iotaledger/iota", tag = "v1.7.0", package = "test-cluster" }
+iota-swarm-config = { git = "https://github.com/iotaledger/iota", tag = "v1.9.2", package = "iota-swarm-config" }
+test-cluster = { git = "https://github.com/iotaledger/iota", tag = "v1.9.2", package = "test-cluster" }
 
 [profile.release]
 panic = "abort"
