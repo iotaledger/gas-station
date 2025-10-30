@@ -130,7 +130,7 @@ impl AccessController {
             for req in requests {
                 let diff = if let Some(real_gas_usage) = result.gas_usage {
                     let reserved_gas_usage = req.gas_usage;
-                    let diff = reserved_gas_usage - real_gas_usage;
+                    let diff = reserved_gas_usage.saturating_sub(real_gas_usage);
                     debug!("Transaction with id: {transaction_digest} confirmed, reserved gas usage: {reserved_gas_usage}, real gas usage: {real_gas_usage}, diff: {diff}");
                     diff
                 } else {

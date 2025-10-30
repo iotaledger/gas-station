@@ -188,7 +188,10 @@ impl AccessRule {
     }
 
     /// Returns the rule meta data as a JSON object. The rule meta is used to calculate the hash of the rule.
-    fn get_rule_meta(&self, ctx: &TransactionContext) -> Result<Map<String, Value>, anyhow::Error> {
+    pub fn get_rule_meta(
+        &self,
+        ctx: &TransactionContext,
+    ) -> Result<Map<String, Value>, anyhow::Error> {
         let json_rule =
             serde_json::to_value(self.clone()).context("Failed to serialize rule to JSON")?;
         let mut rule_to_hash = json_rule
