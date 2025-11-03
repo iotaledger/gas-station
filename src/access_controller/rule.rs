@@ -1,6 +1,8 @@
 // Copyright (c) 2024 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::BTreeMap;
+
 use anyhow::Context;
 use axum::http::HeaderMap;
 use fastcrypto::encoding::Base64;
@@ -10,6 +12,7 @@ use iota_types::{
     signature::GenericSignature,
     transaction::{TransactionData, TransactionDataAPI, TransactionDataV1, TransactionKind},
 };
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use serde_with::skip_serializing_none;
@@ -17,12 +20,13 @@ use tracing::trace;
 use url::Url;
 
 use crate::{
-    access_controller::reports::{PredicateReport, RuleReport},
     access_controller::{
         hook::{HookAction, HookActionHeaders},
         predicates::{
-            Action, LimitBy, RegoExpression, ValueAggregate, ValueIotaAddress, ValueNumber,
+            Action, CountBy, RegoExpression, ValueAggregate, ValueIotaAddress, ValueNumber,
         },
+        reports::{PredicateReport, RuleReport},
+        utils::header_map_to_btree_map,
     },
     rpc::rpc_types::ExecuteTransactionRequestType,
     tracker::{
@@ -342,7 +346,18 @@ impl AccessRule {
         if let Some(gas_limit) = self.gas_usage.as_ref() {
             for count_by in gas_limit.count_by.iter() {
                 let count_by_value = match count_by {
-                    LimitBy::SenderAddress => ctx.sender_address.to_string(),
+                    CountBy::SenderAddress => ctx.sender_address.to_string(),
+                    CountBy::HttpHeader(header) => {
+                        // in case when there are multiple header values, we join them by the comma
+                        // we also sort the values to make sure the same header values are hashed the same way
+                        let values = ctx.headers.get_all(header.header_name.as_str());
+                        values
+                            .iter()
+                            .map(|value| value.to_str().unwrap_or("").to_string())
+                            .sorted()
+                            .collect::<Vec<String>>()
+                            .join(",")
+                    }
                 };
                 (&mut rule_to_hash).insert(count_by.to_string(), Value::String(count_by_value));
             }
@@ -439,12 +454,15 @@ impl AccessRule {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RegoInputPayload {
     pub transaction_data: Value,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub http_headers: BTreeMap<String, Vec<String>>,
 }
 
 impl RegoInputPayload {
     pub fn from_context(ctx: &TransactionContext) -> Self {
         Self {
             transaction_data: ctx.transaction_data.clone(),
+            http_headers: header_map_to_btree_map(&ctx.headers),
         }
     }
 }
@@ -597,8 +615,9 @@ fn get_move_call_package_addresses(transaction_data: &TransactionData) -> Vec<Io
 #[cfg(test)]
 mod test {
 
-    use std::vec;
+    use std::{str::FromStr, vec};
 
+    use axum::http::{HeaderMap, HeaderName, HeaderValue};
     use iota_types::{
         base_types::IotaAddress,
         transaction::{
@@ -610,7 +629,7 @@ mod test {
     use crate::{
         access_controller::{
             predicates::{
-                Action, LimitBy, Location, RegoExpression, SourceWithData, ValueAggregate,
+                Action, CountBy, Location, RegoExpression, SourceWithData, ValueAggregate,
                 ValueIotaAddress, ValueNumber,
             },
             rule::{AccessRule, AccessRuleBuilder, TransactionContext},
@@ -779,7 +798,7 @@ mod test {
                     std::time::Duration::from_secs(10),
                     ValueNumber::GreaterThanOrEqual(300),
                 )
-                .with_count_by(vec![LimitBy::SenderAddress]),
+                .with_count_by(vec![CountBy::SenderAddress]),
             )
             .deny()
             .build();
@@ -868,6 +887,143 @@ mod test {
             !rule
                 .match_rego_expression(&unmatched_data)
                 .unwrap()
+                .is_matched
+        );
+    }
+
+    #[tokio::test]
+    async fn test_constraint_rego_expression_with_http_header() {
+        let rego_content = r#"
+            package test
+
+            default allow_account = false
+            allow_account if {
+                input.http_headers["x-account-id"][0] == "123"
+            }
+        "#;
+        let location = Location::new_memory(rego_content, "data.test.allow_account");
+        let mut source = SourceWithData::new(location);
+        source.fetch().await.unwrap();
+
+        let rego_expression =
+            RegoExpression::from_source(source).expect("Failed to create Rego expression");
+        let rule = AccessRuleBuilder::new()
+            .rego_expression(rego_expression)
+            .allow()
+            .build();
+
+        let matched_data = TransactionContext::default().with_headers(HeaderMap::from_iter([(
+            HeaderName::from_str("X-Account-Id").unwrap(),
+            HeaderValue::from_str("123").unwrap(),
+        )]));
+        assert!(rule.matches(&matched_data).await.unwrap().is_matched);
+
+        let unmatched_data = TransactionContext::default().with_headers(HeaderMap::from_iter([(
+            HeaderName::from_str("X-Account-Id").unwrap(),
+            HeaderValue::from_str("456").unwrap(),
+        )]));
+        assert!(!rule.matches(&unmatched_data).await.unwrap().is_matched);
+    }
+
+    #[tokio::test]
+    async fn test_constraint_rego_expression_with_multiple_http_header_values() {
+        let rego_content = r#"
+            package test
+
+            default allow_account = false
+            allow_account if {
+                input.http_headers["x-account-id"][0] == "123"
+                input.http_headers["x-account-id"][1] == "456"
+            }
+        "#;
+        let location = Location::new_memory(rego_content, "data.test.allow_account");
+        let mut source = SourceWithData::new(location);
+        source.fetch().await.unwrap();
+
+        let rego_expression =
+            RegoExpression::from_source(source).expect("Failed to create Rego expression");
+        let rule = AccessRuleBuilder::new()
+            .rego_expression(rego_expression)
+            .allow()
+            .build();
+
+        let matched_data = TransactionContext::default().with_headers(HeaderMap::from_iter([
+            (
+                HeaderName::from_str("X-Account-Id").unwrap(),
+                HeaderValue::from_str("123").unwrap(),
+            ),
+            (
+                HeaderName::from_str("X-Account-Id").unwrap(),
+                HeaderValue::from_str("456").unwrap(),
+            ),
+        ]));
+        assert!(rule.matches(&matched_data).await.unwrap().is_matched);
+    }
+
+    #[tokio::test]
+    async fn test_constraint_gas_usage_with_http_header() {
+        let sender_address = random_address();
+        let sponsor_address = random_address();
+        let stats_tracker = new_stats_tracker_for_testing(sponsor_address).await;
+        let rule = AccessRuleBuilder::new()
+            .gas_limit(
+                ValueAggregate::new(
+                    std::time::Duration::from_secs(10),
+                    ValueNumber::LessThanOrEqual(300),
+                )
+                .with_count_by(vec![CountBy::new_http_header("X-Account-Id")]),
+            )
+            .allow()
+            .build();
+
+        let account_1_ctx = TransactionContext::default()
+            .with_headers(HeaderMap::from_iter([(
+                HeaderName::from_str("X-Account-Id").unwrap(),
+                HeaderValue::from_str("123").unwrap(),
+            )]))
+            .with_gas_budget(300)
+            .with_stats_tracker(stats_tracker.clone())
+            .with_sender_address(sender_address);
+        let account_2_ctx = TransactionContext::default()
+            .with_headers(HeaderMap::from_iter([(
+                HeaderName::from_str("X-Account-Id").unwrap(),
+                HeaderValue::from_str("456").unwrap(),
+            )]))
+            .with_gas_budget(300)
+            .with_stats_tracker(stats_tracker)
+            .with_sender_address(sender_address);
+
+        // Even though the transactions come from the same sender, they should
+        // be distinguished by the account ID. Each account ID should have a separate
+        // gas usage limit and should be separately blocked after its limit is used.
+        assert!(
+            rule.match_global_limits(&account_1_ctx)
+                .await
+                .unwrap()
+                .0
+                .is_matched
+        );
+        assert!(
+            !rule
+                .match_global_limits(&account_1_ctx)
+                .await
+                .unwrap()
+                .0
+                .is_matched
+        );
+        assert!(
+            rule.match_global_limits(&account_2_ctx)
+                .await
+                .unwrap()
+                .0
+                .is_matched
+        );
+        assert!(
+            !rule
+                .match_global_limits(&account_2_ctx)
+                .await
+                .unwrap()
+                .0
                 .is_matched
         );
     }

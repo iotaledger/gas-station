@@ -106,6 +106,10 @@ Below is an example JSON payload against which a Rego rule is evaluated:
 
 ```json
 {
+  "http_headers" : {
+    "content-type":  [ "application/json"]
+  },
+
   "transaction_data": {
     "V1": {
       "kind": {
@@ -330,7 +334,7 @@ The **Gas Usage Limit** feature enables you to track gas consumption based on pr
 gas-usage:
   value: [range_of_numbers]
   window: [duration]
-  count-by: [ sender-address ] # optional
+  count-by: [ sender-address, http-header::header_name ] # optional
 ```
 
 > **Note:** The syntax of `duration` follows the specification used in the [`humantime`](https://docs.rs/humantime/latest/humantime/index.html) crate
@@ -398,6 +402,38 @@ access-controller:
         count-by: [ sender-address ]
       action: allow
 ```
+
+**4. Limit Gas Usage per HTTP Header**
+
+When implementing multi-tenant or account-based gas station usage, you can track gas consumption per account using HTTP headers. This allows each account to have its own gas usage limit, even when using the same sender address.
+
+The account ID is passed via an HTTP header (e.g., `X-Account-Id`) by your account management system:
+
+```http
+POST /v1/execute_tx
+X-Account-Id: 123
+Content-Type: application/json
+
+{
+  "transaction": "..."
+}
+```
+
+Configure the access controller to count gas usage separately for each unique header value:
+
+```yaml
+access-controller:
+  access-policy: deny-all
+  rules:
+    - sender-address: "*"
+      gas-usage:
+        value: "<1000000"
+        window: 1day
+        count-by: [ http-header::x-account-id ]
+      action: allow
+```
+
+This configuration ensures that, each unique `X-Account-Id` value gets its own 1,000,000 gas limit per day
 
 ## Hook Server
 

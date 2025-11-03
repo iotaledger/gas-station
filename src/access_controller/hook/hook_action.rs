@@ -12,19 +12,13 @@ use super::{
     HookActionConfig, HookActionDetailed, HookActionHeaders,
 };
 
-use crate::access_controller::rule::TransactionContext;
+use crate::access_controller::{rule::TransactionContext, utils::header_map_to_btree_map};
 
 const HOOK_REQUEST_TIMEOUT_SECONDS: u64 = 60;
 
 fn header_map_to_hash_map(ctx: &TransactionContext) -> HookActionHeaders {
-    let mut header_hashmap: HookActionHeaders = HookActionHeaders::new();
-    for (k, v) in ctx.headers.clone() {
-        let k = k.map(|v| v.to_string()).unwrap_or_default();
-        let v = String::from_utf8_lossy(v.as_bytes()).into_owned();
-        header_hashmap.entry(k).or_insert_with(Vec::new).push(v);
-    }
-
-    header_hashmap
+    let headers = header_map_to_btree_map(&ctx.headers);
+    headers.into()
 }
 
 fn build_execute_tx_hook_request_payload(ctx: &TransactionContext) -> ExecuteTxHookRequest {

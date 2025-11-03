@@ -10,6 +10,7 @@ pub mod policy;
 pub mod predicates;
 pub mod reports;
 pub mod rule;
+pub mod utils;
 
 use std::{collections::HashMap, fmt::Formatter, sync::Arc};
 

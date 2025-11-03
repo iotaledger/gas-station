@@ -1,8 +1,14 @@
+// Copyright (c) 2025 IOTA Stiftung
+// SPDX-License-Identifier: Apache-2.0
+
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use super::ValueNumber;
+use crate::access_controller::predicates::aggregate::count_by::CountBy;
+use crate::access_controller::predicates::number::ValueNumber;
+
+pub mod count_by;
 
 /// ValueAggregate is a struct that represents an aggregate value with a specified window and limit.
 /// It must use persistent storage [`Tracker`] to store the aggregate value.
@@ -13,7 +19,7 @@ pub struct ValueAggregate {
     pub window: Duration,
     pub value: ValueNumber<u64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub count_by: Vec<LimitBy>,
+    pub count_by: Vec<CountBy>,
 }
 
 impl ValueAggregate {
@@ -25,23 +31,9 @@ impl ValueAggregate {
         }
     }
 
-    pub fn with_count_by(mut self, group_by: Vec<LimitBy>) -> Self {
+    pub fn with_count_by(mut self, group_by: Vec<CountBy>) -> Self {
         self.count_by = group_by;
         self
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum LimitBy {
-    SenderAddress,
-}
-
-impl ToString for LimitBy {
-    fn to_string(&self) -> String {
-        match self {
-            LimitBy::SenderAddress => "sender-address".to_string(),
-        }
     }
 }
 
