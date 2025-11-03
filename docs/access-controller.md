@@ -429,7 +429,7 @@ access-controller:
       gas-usage:
         value: "<1000000"
         window: 1day
-        count-by: http-header::x-account-id
+        count-by: [ http-header::x-account-id ]
       action: allow
 ```
 
