@@ -1,6 +1,8 @@
-use std::str::FromStr;
+// Copyright (c) 2025 IOTA Stiftung
+// SPDX-License-Identifier: Apache-2.0
 
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 
 const HTTP_HEADER_PREFIX: &str = "http-header::";
 

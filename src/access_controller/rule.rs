@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use anyhow::{bail, Context};
+use anyhow::Context;
 use axum::http::HeaderMap;
 use fastcrypto::encoding::Base64;
 use iota_types::{
@@ -20,12 +20,13 @@ use tracing::trace;
 use url::Url;
 
 use crate::{
-    access_controller::reports::{PredicateReport, RuleReport},
     access_controller::{
         hook::{HookAction, HookActionHeaders},
         predicates::{
             Action, CountBy, RegoExpression, ValueAggregate, ValueIotaAddress, ValueNumber,
         },
+        reports::{PredicateReport, RuleReport},
+        utils::header_map_to_btree_map,
     },
     rpc::rpc_types::ExecuteTransactionRequestType,
     tracker::{
@@ -417,6 +418,8 @@ impl AccessRule {
     ) -> Result<PredicateReport, anyhow::Error> {
         if let Some(rego_expression) = self.rego_expression.as_ref() {
             let input_payload = RegoInputPayload::from_context(ctx);
+            println!("input_payload: {:#?}", input_payload);
+
             let input_string = serde_json::to_string_pretty(&input_payload)
                 .context("Failed to serialize input payload to JSON")?;
             let result = rego_expression
@@ -461,16 +464,7 @@ impl RegoInputPayload {
     pub fn from_context(ctx: &TransactionContext) -> Self {
         Self {
             transaction_data: ctx.transaction_data.clone(),
-            http_headers: ctx
-                .headers
-                .iter()
-                .map(|(key, value)| {
-                    (
-                        key.to_string(),
-                        vec![value.to_str().unwrap_or("").to_string()],
-                    )
-                })
-                .collect(),
+            http_headers: header_map_to_btree_map(&ctx.headers),
         }
     }
 }
@@ -931,6 +925,41 @@ mod test {
             HeaderValue::from_str("456").unwrap(),
         )]));
         assert!(!rule.matches(&unmatched_data).await.unwrap().is_matched);
+    }
+
+    #[tokio::test]
+    async fn test_constraint_rego_expression_with_multiple_http_header_values() {
+        let rego_content = r#"
+            package test
+
+            default allow_account = false
+            allow_account if {
+                input.http_headers["x-account-id"][0] == "123"
+                input.http_headers["x-account-id"][1] == "456"
+            }
+        "#;
+        let location = Location::new_memory(rego_content, "data.test.allow_account");
+        let mut source = SourceWithData::new(location);
+        source.fetch().await.unwrap();
+
+        let rego_expression =
+            RegoExpression::from_source(source).expect("Failed to create Rego expression");
+        let rule = AccessRuleBuilder::new()
+            .rego_expression(rego_expression)
+            .allow()
+            .build();
+
+        let matched_data = TransactionContext::default().with_headers(HeaderMap::from_iter([
+            (
+                HeaderName::from_str("X-Account-Id").unwrap(),
+                HeaderValue::from_str("123").unwrap(),
+            ),
+            (
+                HeaderName::from_str("X-Account-Id").unwrap(),
+                HeaderValue::from_str("456").unwrap(),
+            ),
+        ]));
+        assert!(rule.matches(&matched_data).await.unwrap().is_matched);
     }
 
     #[tokio::test]
