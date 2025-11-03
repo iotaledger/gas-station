@@ -8,7 +8,10 @@ mod number;
 mod rego_expression;
 mod source;
 pub use action::Action;
-pub use aggregate::{CountBy, CountByHttpHeader, ValueAggregate};
+pub use aggregate::{
+    count_by::{CountBy, CountByHttpHeader},
+    ValueAggregate,
+};
 pub use iota_address::ValueIotaAddress;
 pub use number::ValueNumber;
 pub use rego_expression::RegoExpression;
