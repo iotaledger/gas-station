@@ -12,6 +12,7 @@ use iota_types::{
     signature::GenericSignature,
     transaction::{TransactionData, TransactionDataAPI, TransactionDataV1, TransactionKind},
 };
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use serde_with::skip_serializing_none;
@@ -346,15 +347,15 @@ impl AccessRule {
                 let count_by_value = match count_by {
                     CountBy::SenderAddress => ctx.sender_address.to_string(),
                     CountBy::HttpHeader(header) => {
-                        match ctx.headers.get(header.header_name.as_str()) {
-                            Some(value) => value
-                                .to_str()
-                                .context("Failed to convert header value to string")?
-                                .to_string(),
-                            None => {
-                                bail!("Header not found: {}", header.header_name)
-                            }
-                        }
+                        // in case when there are multiple header values, we join them by the comma
+                        // we also sort the values to make sure the same header values are hashed the same way
+                        let values = ctx.headers.get_all(header.header_name.as_str());
+                        values
+                            .iter()
+                            .map(|value| value.to_str().unwrap_or("").to_string())
+                            .sorted()
+                            .collect::<Vec<String>>()
+                            .join(",")
                     }
                 };
                 (&mut rule_to_hash).insert(count_by.to_string(), Value::String(count_by_value));
