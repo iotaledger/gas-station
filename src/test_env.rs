@@ -3,7 +3,7 @@
 
 use crate::access_controller::AccessController;
 use crate::config::{CoinInitConfig, GasStationStorageConfig, DEFAULT_DAILY_GAS_USAGE_CAP};
-use crate::gas_station::gas_station_core::GasStationContainer;
+use crate::gas_station::gas_station_core::{GasStationContainer, GasStationRescanConfig};
 use crate::gas_station_initializer::GasStationInitializer;
 use crate::iota_client::IotaClient;
 use crate::metrics::{GasStationCoreMetrics, GasStationRpcMetrics};
@@ -29,6 +29,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use test_cluster::{TestCluster, TestClusterBuilder};
+use tokio::sync::mpsc::channel;
 use tracing::debug;
 
 pub const DEFAULT_TEST_CONFIG_PATH: &str = "./test-env-config.yaml";
@@ -63,6 +64,8 @@ pub async fn start_gas_station(
     debug!("Starting storage. Sponsor address: {:?}", sponsor_address);
     let storage = connect_storage_for_testing(sponsor_address).await;
     let iota_client = IotaClient::new(&fullnode_url, None).await;
+    let mut rescan_config = GasStationRescanConfig::new(target_init_coin_balance);
+    let rescan_trigger_receiver = rescan_config.create_receiver();
     GasStationInitializer::start(
         iota_client.clone(),
         storage.clone(),
@@ -71,6 +74,7 @@ pub async fn start_gas_station(
             ..Default::default()
         },
         signer.clone(),
+        rescan_trigger_receiver,
     )
     .await;
     let station = GasStationContainer::new(
@@ -79,6 +83,7 @@ pub async fn start_gas_station(
         iota_client,
         DEFAULT_DAILY_GAS_USAGE_CAP,
         GasStationCoreMetrics::new_for_testing(),
+        rescan_config,
     )
     .await;
     (test_cluster, station)
