@@ -20,8 +20,9 @@ use iota_types::transaction::{
 use std::sync::Arc;
 use std::time::Duration;
 use tap::TapFallible;
+use tokio::sync::mpsc::Receiver;
 use tokio::task::JoinHandle;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use super::gas_usage_cap::GasUsageCap;
 
@@ -40,6 +41,7 @@ pub struct GasStation {
     iota_client: IotaClient,
     metrics: Arc<GasStationCoreMetrics>,
     gas_usage_cap: Arc<GasUsageCap>,
+    rescan_config: GasStationRescanConfig,
 }
 
 impl GasStation {
@@ -49,6 +51,7 @@ impl GasStation {
         iota_client: IotaClient,
         metrics: Arc<GasStationCoreMetrics>,
         gas_usage_cap: Arc<GasUsageCap>,
+        rescan_config: GasStationRescanConfig,
     ) -> Arc<Self> {
         let pool = Self {
             signer,
@@ -56,6 +59,7 @@ impl GasStation {
             iota_client,
             metrics,
             gas_usage_cap,
+            rescan_config,
         };
 
         Arc::new(pool)
@@ -77,7 +81,7 @@ impl GasStation {
         self.metrics.reserve_gas_latency_ms.observe(elapsed as u64);
         self.metrics
             .reserved_gas_coin_count_per_request
-            .observe(gas_coins.len() as u64);
+            .observe(gas_coins.len().try_into().unwrap_or(u64::MAX));
         Ok((
             sponsor,
             reservation_id,
@@ -161,10 +165,24 @@ impl GasStation {
             }
         };
         let smashed_coin_count = payment_count - updated_coins.len();
-        // Regardless of whether the transaction succeeded, we need to release the coins.
-        // Otherwise, we lose track of them. This is because `ready_for_execution` already takes
-        // the coins out of the pool and will not be covered by the auto-release mechanism.
-        self.release_gas_coins(updated_coins).await;
+        // before the we re-add the coins to the pool we check if the coins size go over 200*target_init_balance
+        let does_contain_big_coins = updated_coins
+            .iter()
+            .any(|coin| coin.balance > 200 * self.rescan_config.target_init_balance);
+        if does_contain_big_coins {
+            warn!("Big coins detected in transaction execution. Triggering rescan to split the coins. If this happens frequently, please adjust the target_init_balance or maximum budget per transaction");
+            self.rescan_config.trigger_rescan().await;
+        } else {
+            // Regardless of whether the transaction succeeded, we need to release the coins.
+            // Otherwise, we lose track of them. This is because `ready_for_execution` already takes
+            // the coins out of the pool and will not be covered by the auto-release mechanism.
+            info!(
+                ?reservation_id,
+                "Releasing {} coins back to the pool",
+                updated_coins.len()
+            );
+            self.release_gas_coins(updated_coins).await;
+        }
         if smashed_coin_count > 0 {
             info!(
                 ?reservation_id,
@@ -348,6 +366,7 @@ impl GasStationContainer {
         iota_client: IotaClient,
         gas_usage_daily_cap: u64,
         metrics: Arc<GasStationCoreMetrics>,
+        rescan_config: GasStationRescanConfig,
     ) -> Self {
         let inner = GasStation::new(
             signer,
@@ -355,6 +374,7 @@ impl GasStationContainer {
             iota_client,
             metrics,
             Arc::new(GasUsageCap::new(gas_usage_daily_cap)),
+            rescan_config,
         )
         .await;
         let (cancel_sender, cancel_receiver) = tokio::sync::oneshot::channel();
@@ -380,5 +400,49 @@ impl GasStationContainer {
 impl Drop for GasStationContainer {
     fn drop(&mut self) {
         self.cancel_sender.take().unwrap().send(()).unwrap();
+    }
+}
+
+#[derive(Clone)]
+pub struct GasStationRescanConfig {
+    pub target_init_balance: u64,
+    trigger_rescan_sender: Option<tokio::sync::mpsc::Sender<()>>,
+}
+
+impl GasStationRescanConfig {
+    pub fn new(target_init_balance: u64) -> Self {
+        Self {
+            target_init_balance,
+            trigger_rescan_sender: None,
+        }
+    }
+
+    pub fn with_trigger_rescan_sender(
+        mut self,
+        trigger_rescan_sender: tokio::sync::mpsc::Sender<()>,
+    ) -> Self {
+        self.trigger_rescan_sender = Some(trigger_rescan_sender);
+        self
+    }
+
+    pub fn create_receiver(&mut self) -> Receiver<()> {
+        // the buffer size is 5 to create a throttling mechanism.
+        // If new requests are received while the buffer is full, the requests will be dropped.
+        let (sender, receiver) = tokio::sync::mpsc::channel::<()>(5);
+        self.trigger_rescan_sender = Some(sender);
+        receiver
+    }
+
+    pub async fn trigger_rescan(&self) {
+        if let Some(trigger_rescan_sender) = self.trigger_rescan_sender.as_ref() {
+            match trigger_rescan_sender.try_send(()) {
+                Ok(()) => {}
+                Err(error) => {
+                    warn!("Failed to send rescan trigger: {:?}", error);
+                }
+            }
+        } else {
+            warn!("No trigger rescan sender found. Please set it up before triggering rescan");
+        }
     }
 }
