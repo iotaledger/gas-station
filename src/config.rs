@@ -118,7 +118,7 @@ impl TxSignerConfig {
 }
 
 #[serde_as]
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct CoinInitConfig {
     /// When we split a new gas coin, what is the target balance for the new coins, in NANOs.
