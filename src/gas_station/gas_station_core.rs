@@ -1,6 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::gas_station::rescan_trigger::RescanGasObjectsTrigger;
+use crate::gas_station_initializer::NEW_COIN_BALANCE_FACTOR_THRESHOLD;
 use crate::iota_client::IotaClient;
 use crate::metrics::GasStationCoreMetrics;
 use crate::rpc::rpc_types::ExecuteTransactionRequestType;
@@ -17,10 +19,10 @@ use iota_types::signature::GenericSignature;
 use iota_types::transaction::{
     Argument, Command, Transaction, TransactionData, TransactionDataAPI, TransactionKind,
 };
+use std::cmp::min;
 use std::sync::Arc;
 use std::time::Duration;
 use tap::TapFallible;
-use tokio::sync::mpsc::Receiver;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
@@ -41,7 +43,7 @@ pub struct GasStation {
     iota_client: IotaClient,
     metrics: Arc<GasStationCoreMetrics>,
     gas_usage_cap: Arc<GasUsageCap>,
-    rescan_config: GasStationRescanConfig,
+    rescan_config: RescanGasObjectsTrigger,
 }
 
 impl GasStation {
@@ -51,7 +53,7 @@ impl GasStation {
         iota_client: IotaClient,
         metrics: Arc<GasStationCoreMetrics>,
         gas_usage_cap: Arc<GasUsageCap>,
-        rescan_config: GasStationRescanConfig,
+        rescan_config: RescanGasObjectsTrigger,
     ) -> Arc<Self> {
         let pool = Self {
             signer,
@@ -146,6 +148,13 @@ impl GasStation {
                         new_balance as u64
                     );
                 }
+                self.metrics
+                    .gas_usage_per_transaction
+                    .observe(effects.gas_cost_summary().net_gas_usage() as u64);
+                self.metrics
+                    .reserved_gas_real_gas_usage_delta
+                    // If a refund occurs, ensure that the delta does not exceed the original total balance of the gas coins
+                    .observe(min(new_balance, total_gas_coin_balance as i64) as u64);
                 vec![GasCoin {
                     object_ref: new_gas_coin,
                     balance: new_balance as u64,
@@ -165,13 +174,19 @@ impl GasStation {
             }
         };
         let smashed_coin_count = payment_count - updated_coins.len();
-        // before the we re-add the coins to the pool we check if the coins size go over 200*target_init_balance
-        let does_contain_big_coins = updated_coins
-            .iter()
-            .any(|coin| coin.balance > 200 * self.rescan_config.target_init_balance);
-        if does_contain_big_coins {
-            warn!("Big coins detected in transaction execution. Triggering rescan to split the coins. If this happens frequently, please adjust the target_init_balance or maximum budget per transaction");
+        // Before returning the coins to the pool, verify if any coin exceeds
+        // NEW_COIN_BALANCE_FACTOR_THRESHOLD times the target initial balance.
+        let contains_oversized_coins = updated_coins.iter().any(|coin| {
+            coin.balance
+                > NEW_COIN_BALANCE_FACTOR_THRESHOLD * self.rescan_config.target_init_balance
+        });
+        if contains_oversized_coins {
+            warn!("Oversized coins found during transaction execution. Initiating rescan to split these coins. If this occurs frequently, consider adjusting target_init_balance or the maximum transaction budget.");
             self.rescan_config.trigger_rescan().await;
+            self.metrics
+                .oversized_gas_coins_count
+                .with_label_values(&[&sponsor.to_string()])
+                .inc_by(updated_coins.len() as u64);
         } else {
             // Regardless of whether the transaction succeeded, we need to release the coins.
             // Otherwise, we lose track of them. This is because `ready_for_execution` already takes
@@ -366,7 +381,7 @@ impl GasStationContainer {
         iota_client: IotaClient,
         gas_usage_daily_cap: u64,
         metrics: Arc<GasStationCoreMetrics>,
-        rescan_config: GasStationRescanConfig,
+        rescan_config: RescanGasObjectsTrigger,
     ) -> Self {
         let inner = GasStation::new(
             signer,
@@ -400,49 +415,5 @@ impl GasStationContainer {
 impl Drop for GasStationContainer {
     fn drop(&mut self) {
         self.cancel_sender.take().unwrap().send(()).unwrap();
-    }
-}
-
-#[derive(Clone)]
-pub struct GasStationRescanConfig {
-    pub target_init_balance: u64,
-    trigger_rescan_sender: Option<tokio::sync::mpsc::Sender<()>>,
-}
-
-impl GasStationRescanConfig {
-    pub fn new(target_init_balance: u64) -> Self {
-        Self {
-            target_init_balance,
-            trigger_rescan_sender: None,
-        }
-    }
-
-    pub fn with_trigger_rescan_sender(
-        mut self,
-        trigger_rescan_sender: tokio::sync::mpsc::Sender<()>,
-    ) -> Self {
-        self.trigger_rescan_sender = Some(trigger_rescan_sender);
-        self
-    }
-
-    pub fn create_receiver(&mut self) -> Receiver<()> {
-        // the buffer size is 5 to create a throttling mechanism.
-        // If new requests are received while the buffer is full, the requests will be dropped.
-        let (sender, receiver) = tokio::sync::mpsc::channel::<()>(5);
-        self.trigger_rescan_sender = Some(sender);
-        receiver
-    }
-
-    pub async fn trigger_rescan(&self) {
-        if let Some(trigger_rescan_sender) = self.trigger_rescan_sender.as_ref() {
-            match trigger_rescan_sender.try_send(()) {
-                Ok(()) => {}
-                Err(error) => {
-                    warn!("Failed to send rescan trigger: {:?}", error);
-                }
-            }
-        } else {
-            warn!("No trigger rescan sender found. Please set it up before triggering rescan");
-        }
     }
 }

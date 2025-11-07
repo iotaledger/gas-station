@@ -22,12 +22,12 @@ use std::sync::Arc;
 use std::time::Duration;
 use tap::TapFallible;
 use tokio::task::JoinHandle;
-use tokio::time::Instant;
+use tokio::time::{Instant, MissedTickBehavior};
 use tracing::{debug, error, info};
 
 /// Any coin owned by the sponsor address with balance above target_init_coin_balance * NEW_COIN_BALANCE_FACTOR_THRESHOLD
 /// is considered a new coin, and we will try to split it into smaller coins with balance close to target_init_coin_balance.
-const NEW_COIN_BALANCE_FACTOR_THRESHOLD: u64 = 200;
+pub const NEW_COIN_BALANCE_FACTOR_THRESHOLD: u64 = 200;
 
 /// Assume that initializing the Gas Station (i.e. splitting coins) will take at most 12 hours.
 const MAX_INIT_DURATION_SEC: u64 = 60 * 60 * 12;
@@ -219,22 +219,24 @@ impl GasStationInitializer {
     ) {
         let mut ticker =
             tokio::time::interval(Duration::from_secs(coin_init_config.refresh_interval_sec));
+        ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         loop {
-            tokio::select! {
-                 Some(_) = rescan_trigger_receiver.recv() => {
-                    info!("Rescan trigger received. Rescaning for new coins");
-                    Self::run_once(
-                        iota_client.clone(),
-                        &storage,
-                        RunMode::Refresh,
-                        coin_init_config.target_init_balance,
-                        &signer,
-                    )
-                    .await;
-                 }
+            let wake_reason = tokio::select! {
+                Some(_) = rescan_trigger_receiver.recv() => {
+                    Some("Rescan trigger received. Rescanning for new coins")
+                }
                 _ = ticker.tick() => {
-                    info!("Coin init task waking up and looking for new coins to initialize");
+                    Some("Coin init task waking up and looking for new coins to initialize")
+                }
+                _ = &mut cancel_receiver => {
+                    None
+                }
+            };
+
+            match wake_reason {
+                Some(reason) => {
+                    info!("{}", reason);
                     Self::run_once(
                         iota_client.clone(),
                         &storage,
@@ -244,7 +246,7 @@ impl GasStationInitializer {
                     )
                     .await;
                 }
-                _ = &mut cancel_receiver => {
+                None => {
                     info!("Coin init task is cancelled");
                     break;
                 }

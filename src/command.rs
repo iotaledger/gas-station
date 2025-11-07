@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::config::GasStationConfig;
-use crate::gas_station::gas_station_core::{GasStationContainer, GasStationRescanConfig};
+use crate::gas_station::gas_station_core::GasStationContainer;
+use crate::gas_station::rescan_trigger::RescanGasObjectsTrigger;
 use crate::gas_station_initializer::GasStationInitializer;
 use crate::iota_client::IotaClient;
 use crate::metrics::{GasStationCoreMetrics, GasStationRpcMetrics, StorageMetrics};
@@ -71,7 +72,7 @@ impl Command {
         let storage = connect_storage(&gas_station_config, sponsor_address, storage_metrics).await;
         let iota_client = IotaClient::new(&fullnode_url, fullnode_basic_auth).await;
 
-        let mut rescan_config = GasStationRescanConfig::new(
+        let mut rescan_config = RescanGasObjectsTrigger::new(
             coin_init_config
                 .clone()
                 .unwrap_or_default()
