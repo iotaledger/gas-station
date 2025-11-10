@@ -10,13 +10,13 @@ repository = "https://github.com/iotaledger/gas-station"
 
 fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "5f2c63266a065996d53f98156f0412782b468597" }
 
-iota-metrics = { git = "https://github.com/iotaledger/iota", tag = "v0.10.3-rc", package = "iota-metrics" }
-iota-config = { git = "https://github.com/iotaledger/iota", tag = "v0.10.3-rc", package = "iota-config" }
-iota-json-rpc-types = { git = "https://github.com/iotaledger/iota", tag = "v0.10.3-rc", package = "iota-json-rpc-types" }
-iota-sdk = { git = "https://github.com/iotaledger/iota", tag = "v0.10.3-rc", package = "iota-sdk" }
-iota-types = { git = "https://github.com/iotaledger/iota", tag = "v0.10.3-rc", package = "iota-types" }
-shared-crypto = { git = "https://github.com/iotaledger/iota", tag = "v0.10.3-rc", package = "shared-crypto" }
-telemetry-subscribers = { git = "https://github.com/iotaledger/iota", tag = "v0.10.3-rc", package = "telemetry-subscribers" }
+iota-metrics = { git = "https://github.com/iotaledger/iota", tag = "v1.10.0", package = "iota-metrics" }
+iota-config = { git = "https://github.com/iotaledger/iota", tag = "v1.10.0", package = "iota-config" }
+iota-json-rpc-types = { git = "https://github.com/iotaledger/iota", tag = "v1.10.0", package = "iota-json-rpc-types" }
+iota-sdk = { git = "https://github.com/iotaledger/iota", tag = "v1.10.0", package = "iota-sdk" }
+iota-types = { git = "https://github.com/iotaledger/iota", tag = "v1.10.0", package = "iota-types" }
+shared-crypto = { git = "https://github.com/iotaledger/iota", tag = "v1.10.0", package = "shared-crypto" }
+telemetry-subscribers = { git = "https://github.com/iotaledger/iota", tag = "v1.10.0", package = "telemetry-subscribers" }
 
 
 anyhow = "1.0.75"
@@ -34,7 +34,7 @@ hostname = "0.4.0"
 itertools = "0.14.0"
 once_cell = "1.19.0"
 parking_lot = "0.12.1"
-prometheus = "0.13.3"
+prometheus = "0.14.0"
 rand = { version = "0.8.5", features = ["small_rng"] }
 redis = { version = "0.24.0", features = [
   "default",
@@ -62,9 +62,9 @@ url = { version = "2.5.4", features = ["serde"] }
 
 [dev-dependencies]
 rand = "0.8.5"
-
-iota-swarm-config = { git = "https://github.com/iotaledger/iota", tag = "v0.10.3-rc", package = "iota-swarm-config" }
-test-cluster = { git = "https://github.com/iotaledger/iota", tag = "v0.10.3-rc", package = "test-cluster" }
+wiremock = "0.6.3"
+iota-swarm-config = { git = "https://github.com/iotaledger/iota", tag = "v1.10.0", package = "iota-swarm-config" }
+test-cluster = { git = "https://github.com/iotaledger/iota", tag = "v1.10.0", package = "test-cluster" }
 
 [profile.release]
 panic = "abort"

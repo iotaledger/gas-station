@@ -49,6 +49,10 @@ jobs:
       #   uses: pierotofy/set-swap-space@master
       #   with:
       #     swap-size-gb: 256
+      - name: Install protobuf
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
 
       - name: Setup nextest
         uses: taiki-e/install-action@nextest
