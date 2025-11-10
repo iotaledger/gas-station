@@ -164,18 +164,16 @@ enum RunMode {
 }
 
 enum WakeReason {
-    RescanTrigger,
-    CoinInit,
+    ForcedTrigger,
+    Scheduled,
     Cancel,
 }
 
 impl WakeReason {
     fn reason(&self) -> &str {
         match self {
-            WakeReason::RescanTrigger => "Rescan trigger received. Rescanning for new coins",
-            WakeReason::CoinInit => {
-                "Coin init task waking up and looking for new coins to initialize"
-            }
+            WakeReason::ForcedTrigger => "Forced trigger received. Rescanning for new coins",
+            WakeReason::Scheduled => "Scheduled trigger received. Rescanning for new coins",
             WakeReason::Cancel => "Coin init task is cancelled",
         }
     }
@@ -242,10 +240,10 @@ impl GasStationInitializer {
         loop {
             let wake_reason = tokio::select! {
                 Some(_) = rescan_trigger_receiver.recv() => {
-                    WakeReason::RescanTrigger
+                    WakeReason::ForcedTrigger
                 }
                 _ = ticker.tick() => {
-                    WakeReason::CoinInit
+                    WakeReason::Scheduled
                 }
                 _ = &mut cancel_receiver => {
                     WakeReason::Cancel
@@ -253,7 +251,7 @@ impl GasStationInitializer {
             };
 
             match wake_reason {
-                WakeReason::RescanTrigger | WakeReason::CoinInit => {
+                WakeReason::ForcedTrigger | WakeReason::Scheduled => {
                     info!("{}", wake_reason.reason());
                     Self::run_once(
                         iota_client.clone(),
