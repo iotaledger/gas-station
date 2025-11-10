@@ -163,6 +163,24 @@ enum RunMode {
     Refresh,
 }
 
+enum WakeReason {
+    RescanTrigger,
+    CoinInit,
+    Cancel,
+}
+
+impl WakeReason {
+    fn reason(&self) -> &str {
+        match self {
+            WakeReason::RescanTrigger => "Rescan trigger received. Rescanning for new coins",
+            WakeReason::CoinInit => {
+                "Coin init task waking up and looking for new coins to initialize"
+            }
+            WakeReason::Cancel => "Coin init task is cancelled",
+        }
+    }
+}
+
 pub struct GasStationInitializer {
     _task_handle: JoinHandle<()>,
     // This is always Some. It is None only after the drop method is called.
@@ -224,19 +242,19 @@ impl GasStationInitializer {
         loop {
             let wake_reason = tokio::select! {
                 Some(_) = rescan_trigger_receiver.recv() => {
-                    Some("Rescan trigger received. Rescanning for new coins")
+                    WakeReason::RescanTrigger
                 }
                 _ = ticker.tick() => {
-                    Some("Coin init task waking up and looking for new coins to initialize")
+                    WakeReason::CoinInit
                 }
                 _ = &mut cancel_receiver => {
-                    None
+                    WakeReason::Cancel
                 }
             };
 
             match wake_reason {
-                Some(reason) => {
-                    info!("{}", reason);
+                WakeReason::RescanTrigger | WakeReason::CoinInit => {
+                    info!("{}", wake_reason.reason());
                     Self::run_once(
                         iota_client.clone(),
                         &storage,
@@ -246,8 +264,8 @@ impl GasStationInitializer {
                     )
                     .await;
                 }
-                None => {
-                    info!("Coin init task is cancelled");
+                WakeReason::Cancel => {
+                    info!("{}", wake_reason.reason());
                     break;
                 }
             }
