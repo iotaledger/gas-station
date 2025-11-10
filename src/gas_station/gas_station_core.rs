@@ -176,17 +176,20 @@ impl GasStation {
         let smashed_coin_count = payment_count - updated_coins.len();
         // Before returning the coins to the pool, verify if any coin exceeds
         // NEW_COIN_BALANCE_FACTOR_THRESHOLD times the target initial balance.
-        let contains_oversized_coins = updated_coins.iter().any(|coin| {
-            coin.balance
-                > NEW_COIN_BALANCE_FACTOR_THRESHOLD * self.rescan_config.target_init_balance
-        });
-        if contains_oversized_coins {
+        let oversized_coins_count = updated_coins
+            .iter()
+            .filter(|coin| {
+                coin.balance
+                    > NEW_COIN_BALANCE_FACTOR_THRESHOLD * self.rescan_config.target_init_balance
+            })
+            .count();
+        if oversized_coins_count > 0 {
             warn!("Oversized coins found during transaction execution. Initiating rescan to split these coins. If this occurs frequently, consider adjusting target_init_balance or the maximum transaction budget.");
             self.rescan_config.trigger_rescan().await;
             self.metrics
                 .oversized_gas_coins_count
                 .with_label_values(&[&sponsor.to_string()])
-                .inc_by(updated_coins.len() as u64);
+                .inc_by(oversized_coins_count as u64);
         } else {
             // Regardless of whether the transaction succeeded, we need to release the coins.
             // Otherwise, we lose track of them. This is because `ready_for_execution` already takes
