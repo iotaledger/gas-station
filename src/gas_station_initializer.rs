@@ -22,12 +22,12 @@ use std::sync::Arc;
 use std::time::Duration;
 use tap::TapFallible;
 use tokio::task::JoinHandle;
-use tokio::time::Instant;
+use tokio::time::{Instant, MissedTickBehavior};
 use tracing::{debug, error, info};
 
 /// Any coin owned by the sponsor address with balance above target_init_coin_balance * NEW_COIN_BALANCE_FACTOR_THRESHOLD
 /// is considered a new coin, and we will try to split it into smaller coins with balance close to target_init_coin_balance.
-const NEW_COIN_BALANCE_FACTOR_THRESHOLD: u64 = 200;
+pub const NEW_COIN_BALANCE_FACTOR_THRESHOLD: u64 = 200;
 
 /// Assume that initializing the Gas Station (i.e. splitting coins) will take at most 12 hours.
 const MAX_INIT_DURATION_SEC: u64 = 60 * 60 * 12;
@@ -163,6 +163,22 @@ enum RunMode {
     Refresh,
 }
 
+enum WakeReason {
+    ForcedTrigger,
+    Scheduled,
+    Cancel,
+}
+
+impl WakeReason {
+    fn reason(&self) -> &str {
+        match self {
+            WakeReason::ForcedTrigger => "Forced trigger received. Rescanning for new coins",
+            WakeReason::Scheduled => "Scheduled trigger received. Rescanning for new coins",
+            WakeReason::Cancel => "Coin init task is cancelled",
+        }
+    }
+}
+
 pub struct GasStationInitializer {
     _task_handle: JoinHandle<()>,
     // This is always Some. It is None only after the drop method is called.
@@ -181,6 +197,7 @@ impl GasStationInitializer {
         storage: Arc<dyn Storage>,
         coin_init_config: CoinInitConfig,
         signer: Arc<dyn TxSigner>,
+        rescan_trigger_receiver: tokio::sync::mpsc::Receiver<()>,
     ) -> Self {
         if !storage.is_initialized().await.unwrap() {
             // If the pool has never been initialized, always run once at the beginning to make sure we have enough coins.
@@ -200,6 +217,7 @@ impl GasStationInitializer {
             coin_init_config,
             signer,
             cancel_receiver,
+            rescan_trigger_receiver,
         ));
         Self {
             _task_handle,
@@ -213,24 +231,42 @@ impl GasStationInitializer {
         coin_init_config: CoinInitConfig,
         signer: Arc<dyn TxSigner>,
         mut cancel_receiver: tokio::sync::oneshot::Receiver<()>,
+        mut rescan_trigger_receiver: tokio::sync::mpsc::Receiver<()>,
     ) {
+        let mut ticker =
+            tokio::time::interval(Duration::from_secs(coin_init_config.refresh_interval_sec));
+        ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
         loop {
-            tokio::select! {
-                _ = tokio::time::sleep(Duration::from_secs(coin_init_config.refresh_interval_sec)) => {}
+            let wake_reason = tokio::select! {
+                Some(_) = rescan_trigger_receiver.recv() => {
+                    WakeReason::ForcedTrigger
+                }
+                _ = ticker.tick() => {
+                    WakeReason::Scheduled
+                }
                 _ = &mut cancel_receiver => {
-                    info!("Coin init task is cancelled");
+                    WakeReason::Cancel
+                }
+            };
+
+            match wake_reason {
+                WakeReason::ForcedTrigger | WakeReason::Scheduled => {
+                    info!("{}", wake_reason.reason());
+                    Self::run_once(
+                        iota_client.clone(),
+                        &storage,
+                        RunMode::Refresh,
+                        coin_init_config.target_init_balance,
+                        &signer,
+                    )
+                    .await;
+                }
+                WakeReason::Cancel => {
+                    info!("{}", wake_reason.reason());
                     break;
                 }
             }
-            info!("Coin init task waking up and looking for new coins to initialize");
-            Self::run_once(
-                iota_client.clone(),
-                &storage,
-                RunMode::Refresh,
-                coin_init_config.target_init_balance,
-                &signer,
-            )
-            .await;
         }
     }
 
@@ -340,6 +376,7 @@ mod tests {
     use crate::storage::connect_storage_for_testing;
     use crate::test_env::start_iota_cluster;
     use iota_types::gas_coin::NANOS_PER_IOTA;
+    use tokio::sync::mpsc::channel;
 
     // TODO: Add more accurate tests.
 
@@ -350,7 +387,8 @@ mod tests {
         let fullnode_url = cluster.fullnode_handle.rpc_url;
         let storage = connect_storage_for_testing(signer.get_address()).await;
         let iota_client = IotaClient::new(&fullnode_url, None).await;
-        let _ = GasStationInitializer::start(
+        let (_rescan_trigger_sender, rescan_trigger_receiver) = channel::<()>(1024);
+        let _init_task = GasStationInitializer::start(
             iota_client,
             storage.clone(),
             CoinInitConfig {
@@ -358,6 +396,7 @@ mod tests {
                 refresh_interval_sec: 200,
             },
             signer,
+            rescan_trigger_receiver,
         )
         .await;
         assert!(storage.get_available_coin_count().await.unwrap() > 900);
@@ -371,7 +410,8 @@ mod tests {
         let storage = connect_storage_for_testing(signer.get_address()).await;
         let target_init_balance = 12345 * NANOS_PER_IOTA;
         let iota_client = IotaClient::new(&fullnode_url, None).await;
-        let _ = GasStationInitializer::start(
+        let (_rescan_trigger_sender, rescan_trigger_receiver) = channel::<()>(1024);
+        let _init_task = GasStationInitializer::start(
             iota_client,
             storage.clone(),
             CoinInitConfig {
@@ -379,6 +419,7 @@ mod tests {
                 refresh_interval_sec: 200,
             },
             signer,
+            rescan_trigger_receiver,
         )
         .await;
         assert!(storage.get_available_coin_count().await.unwrap() > 800);
@@ -392,6 +433,7 @@ mod tests {
         let fullnode_url = cluster.fullnode_handle.rpc_url.clone();
         let storage = connect_storage_for_testing(signer.get_address()).await;
         let iota_client = IotaClient::new(&fullnode_url, None).await;
+        let (_rescan_trigger_sender, rescan_trigger_receiver) = channel::<()>(1024);
         let _init_task = GasStationInitializer::start(
             iota_client,
             storage.clone(),
@@ -400,6 +442,7 @@ mod tests {
                 refresh_interval_sec: 1,
             },
             signer,
+            rescan_trigger_receiver,
         )
         .await;
         assert!(storage.is_initialized().await.unwrap());

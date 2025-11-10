@@ -28,3 +28,41 @@ If you have a local instance or an instance with persistent storage, you can use
 ```bash
 redis-cli FLUSHALL
 ```
+
+## Warning: Oversized Coins
+
+**Problem:**
+
+After executing a transaction, the following warning appears:
+
+```log
+Oversized coins found during transaction execution. Initiating rescan to split these coins. If this occurs frequently, consider adjusting target_init_balance or the maximum transaction budget.
+```
+
+**Explanation:**
+
+The Gas Station uses a self-balancing algorithm to maintain optimal liquidity by keeping gas coins at a manageable size. When a transaction is executed, the unused portion of the gas coin is returned as change. If this change exceeds `200 × target_init_balance`, it is considered "oversized."
+
+The Gas Station automatically downsizes oversized coins by splitting them into smaller coins (approximately `target_init_balance` each) to maintain pool liquidity. This rescan and split process consumes additional computing resources and reduces performance. If this happens frequently, it indicates that your configuration needs adjustment.
+
+Under normal operating conditions with properly configured `target_init_balance`, the returned change should remain below the `200 × target_init_balance` threshold, allowing coins to be returned directly to the pool without requiring expensive splitting operations.
+
+**Solution:**
+
+To minimize oversized coin occurrences, ensure the difference between reserved gas and actual gas usage stays below `200 × target_init_balance`. You can optimize your configuration by:
+
+- **Reducing the gas reservation size** - Reserve amounts closer to actual usage
+- **Increasing `target_init_balance`** - Set it appropriate to your traffic patterns
+
+**Monitoring:**
+
+The Gas Station provides Prometheus metrics to help you tune your configuration:
+
+- `reserved_gas_real_gas_usage_delta` - A histogram tracking the difference between reserved gas and actual gas usage. You can perform statistical queries on this metric to understand your usage patterns. Ideally, this delta should never exceed `200 × target_init_balance`.
+
+- `oversized_gas_coins_count` - Tracks how frequently oversized gas coins occur. Lower is better.
+
+The acceptable frequency depends on your performance requirements and traffic volume. For example:
+
+- **Low volume:** 5% of transactions returning oversized gas might trigger a rescan once per day (likely acceptable)
+- **High volume:** 5% of transactions could trigger constant rescans (problematic and requires configuration adjustment)

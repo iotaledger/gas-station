@@ -1,6 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::gas_station::rescan_trigger::RescanGasObjectsTrigger;
+use crate::gas_station_initializer::NEW_COIN_BALANCE_FACTOR_THRESHOLD;
 use crate::iota_client::IotaClient;
 use crate::metrics::GasStationCoreMetrics;
 use crate::rpc::rpc_types::ExecuteTransactionRequestType;
@@ -17,11 +19,12 @@ use iota_types::signature::GenericSignature;
 use iota_types::transaction::{
     Argument, Command, Transaction, TransactionData, TransactionDataAPI, TransactionKind,
 };
+use std::cmp::min;
 use std::sync::Arc;
 use std::time::Duration;
 use tap::TapFallible;
 use tokio::task::JoinHandle;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use super::gas_usage_cap::GasUsageCap;
 
@@ -40,6 +43,7 @@ pub struct GasStation {
     iota_client: IotaClient,
     metrics: Arc<GasStationCoreMetrics>,
     gas_usage_cap: Arc<GasUsageCap>,
+    rescan_config: RescanGasObjectsTrigger,
 }
 
 impl GasStation {
@@ -49,6 +53,7 @@ impl GasStation {
         iota_client: IotaClient,
         metrics: Arc<GasStationCoreMetrics>,
         gas_usage_cap: Arc<GasUsageCap>,
+        rescan_config: RescanGasObjectsTrigger,
     ) -> Arc<Self> {
         let pool = Self {
             signer,
@@ -56,6 +61,7 @@ impl GasStation {
             iota_client,
             metrics,
             gas_usage_cap,
+            rescan_config,
         };
 
         Arc::new(pool)
@@ -77,7 +83,7 @@ impl GasStation {
         self.metrics.reserve_gas_latency_ms.observe(elapsed as u64);
         self.metrics
             .reserved_gas_coin_count_per_request
-            .observe(gas_coins.len() as u64);
+            .observe(gas_coins.len().try_into().unwrap_or(u64::MAX));
         Ok((
             sponsor,
             reservation_id,
@@ -142,6 +148,13 @@ impl GasStation {
                         new_balance as u64
                     );
                 }
+                self.metrics
+                    .gas_usage_per_transaction
+                    .observe(effects.gas_cost_summary().net_gas_usage() as u64);
+                self.metrics
+                    .reserved_gas_real_gas_usage_delta
+                    // If a refund occurs, ensure that the delta does not exceed the original total balance of the gas coins
+                    .observe(min(new_balance, total_gas_coin_balance as i64) as u64);
                 vec![GasCoin {
                     object_ref: new_gas_coin,
                     balance: new_balance as u64,
@@ -161,10 +174,33 @@ impl GasStation {
             }
         };
         let smashed_coin_count = payment_count - updated_coins.len();
-        // Regardless of whether the transaction succeeded, we need to release the coins.
-        // Otherwise, we lose track of them. This is because `ready_for_execution` already takes
-        // the coins out of the pool and will not be covered by the auto-release mechanism.
-        self.release_gas_coins(updated_coins).await;
+        // Before returning the coins to the pool, verify if any coin exceeds
+        // NEW_COIN_BALANCE_FACTOR_THRESHOLD times the target initial balance.
+        let oversized_coins_count = updated_coins
+            .iter()
+            .filter(|coin| {
+                coin.balance
+                    > NEW_COIN_BALANCE_FACTOR_THRESHOLD * self.rescan_config.target_init_balance
+            })
+            .count();
+        if oversized_coins_count > 0 {
+            warn!("Oversized coins found during transaction execution. Initiating rescan to split these coins. If this occurs frequently, consider adjusting target_init_balance or the maximum transaction budget.");
+            self.rescan_config.trigger_rescan().await;
+            self.metrics
+                .oversized_gas_coins_count
+                .with_label_values(&[&sponsor.to_string()])
+                .inc_by(oversized_coins_count as u64);
+        } else {
+            // Regardless of whether the transaction succeeded, we need to release the coins.
+            // Otherwise, we lose track of them. This is because `ready_for_execution` already takes
+            // the coins out of the pool and will not be covered by the auto-release mechanism.
+            info!(
+                ?reservation_id,
+                "Releasing {} coins back to the pool",
+                updated_coins.len()
+            );
+            self.release_gas_coins(updated_coins).await;
+        }
         if smashed_coin_count > 0 {
             info!(
                 ?reservation_id,
@@ -348,6 +384,7 @@ impl GasStationContainer {
         iota_client: IotaClient,
         gas_usage_daily_cap: u64,
         metrics: Arc<GasStationCoreMetrics>,
+        rescan_config: RescanGasObjectsTrigger,
     ) -> Self {
         let inner = GasStation::new(
             signer,
@@ -355,6 +392,7 @@ impl GasStationContainer {
             iota_client,
             metrics,
             Arc::new(GasUsageCap::new(gas_usage_daily_cap)),
+            rescan_config,
         )
         .await;
         let (cancel_sender, cancel_receiver) = tokio::sync::oneshot::channel();

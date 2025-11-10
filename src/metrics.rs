@@ -122,6 +122,9 @@ pub struct GasStationCoreMetrics {
     pub transaction_execution_latency_ms: Histogram,
     pub num_gas_station_invariant_violations: IntCounter,
     pub daily_gas_usage: IntGaugeVec,
+    pub oversized_gas_coins_count: IntCounterVec,
+    pub gas_usage_per_transaction: Histogram,
+    pub reserved_gas_real_gas_usage_delta: Histogram,
 }
 
 impl GasStationCoreMetrics {
@@ -174,6 +177,23 @@ impl GasStationCoreMetrics {
                 registry,
             )
                 .unwrap(),
+            oversized_gas_coins_count: register_int_counter_vec_with_registry!(
+                "oversized_gas_coins_count",
+                "Total number of oversized gas coins",
+                &["sponsor"],
+                registry,
+            )
+                .unwrap(),
+            gas_usage_per_transaction: Histogram::new_in_registry(
+                "gas_usage_per_transaction",
+                "Gas usage per transaction",
+                registry,
+            ),
+            reserved_gas_real_gas_usage_delta: Histogram::new_in_registry(
+                "reserved_gas_real_gas_usage_delta",
+                "Reserved gas vs real gas usage delta",
+                registry,
+            ),
         })
     }
 
