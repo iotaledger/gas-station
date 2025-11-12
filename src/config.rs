@@ -107,7 +107,7 @@ impl TxSignerConfig {
 }
 
 #[serde_as]
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct CoinInitConfig {
     /// When we split a new gas coin, what is the target balance for the new coins, in MIST.

@@ -3,6 +3,7 @@
 
 pub mod gas_station_core;
 mod gas_usage_cap;
+pub(crate) mod rescan_trigger;
 
 #[cfg(test)]
 mod tests {
