@@ -97,9 +97,9 @@ metrics-port: 9184
 storage-config:
   redis:
     redis_url: "redis://127.0.0.1"
-fullnode-url: "https://api.testnet.iota.cafe"
+fullnode-url: "https://api.testnet.iota.cafe" # requires redis to be cleared
 coin-init-config:
-  target-init-balance: 100000000
+  target-init-balance: 100000000 # requires redis to be cleared
   refresh-interval-sec: 86400
 daily-gas-usage-cap: 1500000000000
 access-controller:
@@ -108,18 +108,21 @@ access-controller:
 
 ### Configuration parameters
 
-| Parameter                               | Description                                                         | Example                          |
-| --------------------------------------- | ------------------------------------------------------------------- | -------------------------------- |
-| `signer-config`                         | Configuration of signer. It can be a local or an external KMS.      |  See [down below](#signer-configuration)|
-| `rpc-host-ip`                           | IP address for the RPC server                                       | `0.0.0.0`                        |
-| `rpc-port`                              | Port for the RPC server                                             | `9527`                           |
-| `metrics-port`                          | Port for collecting and exposing metrics                            | `9184`                           |
-| `storage-config.redis.redis_url`        | Redis connection URL                                                | `redis://127.0.0.1`              |
-| `fullnode-url`                          | URL of the IOTA full node                                           | `https://api.testnet.iota.cafe`  |
-| `coin-init-config.target-init-balance`  | Initial balance to maintain                                         | `100000000`                      |
-| `coin-init-config.refresh-interval-sec` | Interval in seconds to refresh balance                              | `86400`                          |
-| `daily-gas-usage-cap`                   | Maximum allowed daily gas usage                                     | `1500000000000`                  |
-| `access-controller.access-policy`       | Access policy mode.                                                 | `disabled`, `allow-all`, `deny-all`. See [this link](./docs/access-controller.md) to learn more|
+| Parameter                               | Db rebuild required?| Description                                                               | Example                                                                                         |
+| --------------------------------------- |---------------------|---------------------------------------------------------------------------| ----------------------------------------------------------------------------------------------- |
+| `signer-config`                         | no                  | Configuration of signer. It can be a local or an external KMS.            | See [down below](#signer-configuration)                                                         |
+| `rpc-host-ip`                           | no                  | IP address for the RPC server                                             | `0.0.0.0`                                                                                       |
+| `rpc-port`                              | no                  | Port for the RPC server                                                   | `9527`                                                                                          |
+| `metrics-port`                          | no                  | Port for collecting and exposing metrics                                  | `9184`                                                                                          |
+| `storage-config.redis.redis_url`        | no                  | Redis connection URL                                                      | `redis://127.0.0.1`                                                                             |
+| `fullnode-url`                          | yes ⚠               | URL of the IOTA full node                                                 | `https://api.testnet.iota.cafe`                                                                 |
+| `coin-init-config.target-init-balance`  | yes ⚠               | Target balance for the new coins when we splitting new gas coins in NANOs | `100000000`                                                                                     |
+| `coin-init-config.refresh-interval-sec` | no                  | Interval in seconds to refresh balance and check for new coins to split   | `86400`                                                                                         |
+| `daily-gas-usage-cap`                   | no                  | Maximum allowed daily gas usage                                           | `1500000000000`                                                                                 |
+| `access-controller.access-policy`       | no                  | Access policy mode.                                                       | `disabled`, `allow-all`, `deny-all`. See [this link](./docs/access-controller.md) to learn more |
+
+> [!WARNING]
+> **Important:** Some configuration parameters require the Redis database to be cleared (flushed) before changes can take effect safely. Modifying these settings without resetting the database may result in inconsistencies or corruption of the gas coin registry. **Always flush the Redis database prior to changing such parameters and restart the service to avoid issues.**
 
 #### Signer Configuration
 

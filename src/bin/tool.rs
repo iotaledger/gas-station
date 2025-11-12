@@ -1,9 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
-// Modifications Copyright (c) 2024 IOTA Stiftung
+// Modifications Copyright (c) 2025 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
 use clap::*;
-use iota_config::Config;
 use iota_gas_station::benchmarks::kms_stress::run_kms_stress_test;
 use iota_gas_station::benchmarks::BenchmarkMode;
 use iota_gas_station::config::{GasStationConfig, GasStationStorageConfig, TxSignerConfig};
@@ -161,13 +160,22 @@ impl ToolCommand {
                     eprintln!("Config file already exists. Use --force (-f) to overwrite.");
                     std::process::exit(1);
                 }
+                let config_string =
+                    serde_yaml::to_string(&config).expect("Failed to convert config to YAML");
+
+                let options_required_flush = ["target-init-balance:", "fullnode-url:"];
+                let new_config_string =
+                    add_redis_flush_warning(config_string.lines(), &options_required_flush)
+                        .join("\n");
+
+                std::fs::write(config_path, new_config_string).unwrap();
+
                 if let Some(iota_address) = new_iota_address {
                     println!(
                         "Generated a new IOTA address. If you plan to use it, please make sure it has enough funds: '{}'",
                         iota_address
                     );
                 }
-                config.save(config_path).unwrap();
             }
             ToolCommand::CLI { cli_command } => match cli_command {
                 CliCommand::CheckStationHealth { station_rpc_url } => {
@@ -199,6 +207,25 @@ impl ToolCommand {
             }
         }
     }
+}
+
+fn add_redis_flush_warning<'a>(
+    config_lines: impl Iterator<Item = &'a str>,
+    options: &[&str],
+) -> Vec<String> {
+    let mut new_config_lines = Vec::new();
+    for line in config_lines {
+        if options.iter().any(|option| line.contains(option)) {
+            let spaces = line.chars().take_while(|c| c.is_whitespace()).count();
+            let new_line = format!(
+                "{}# If you change this, you need to flush the Redis database",
+                " ".repeat(spaces)
+            );
+            new_config_lines.push(new_line);
+        }
+        new_config_lines.push(line.to_string());
+    }
+    new_config_lines
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
