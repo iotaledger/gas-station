@@ -6,6 +6,8 @@ use crate::metrics::StorageMetrics;
 use crate::storage::redis::RedisStorage;
 use crate::types::{GasCoin, ReservationID};
 use iota_types::base_types::{IotaAddress, ObjectID};
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 use std::sync::Arc;
 
 mod redis;
@@ -68,6 +70,20 @@ pub trait Storage: Sync + Send {
 
     #[cfg(test)]
     async fn get_reserved_coin_count(&self) -> usize;
+}
+
+/// Defines the trait for a generic storage that can be used to store and retrieve bytes.
+#[async_trait::async_trait]
+pub trait GenericStorage: Sync + Send {
+    async fn set_data<T: Serialize + Send>(
+        &self,
+        key: impl AsRef<str> + Send,
+        value: T,
+    ) -> anyhow::Result<()>;
+    async fn get_data<T: DeserializeOwned + Send>(
+        &self,
+        key: impl AsRef<str> + Send,
+    ) -> anyhow::Result<Option<T>>;
 }
 
 pub async fn connect_storage(

@@ -5,11 +5,15 @@ mod script_manager;
 
 use crate::metrics::StorageMetrics;
 use crate::storage::redis::script_manager::ScriptManager;
-use crate::storage::Storage;
+use crate::storage::{GenericStorage, Storage};
 use crate::types::{GasCoin, ReservationID};
+use anyhow::Context;
 use chrono::Utc;
 use iota_types::base_types::{IotaAddress, ObjectDigest, ObjectID, SequenceNumber};
 use redis::aio::ConnectionManager;
+use redis::AsyncCommands;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 use std::ops::Add;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -284,15 +288,59 @@ impl Storage for RedisStorage {
     }
 }
 
+#[async_trait::async_trait]
+impl GenericStorage for RedisStorage {
+    async fn set_data<T: Serialize + Send>(
+        &self,
+        key: impl AsRef<str> + Send,
+        value: T,
+    ) -> anyhow::Result<()> {
+        let mut conn = self.conn_manager.clone();
+        let serialized_value =
+            serde_json::to_string(&value).context("Failed to serialize value")?;
+        conn.set(key.as_ref().to_string(), serialized_value).await?;
+        Ok(())
+    }
+
+    async fn get_data<T: DeserializeOwned + Send>(
+        &self,
+        key: impl AsRef<str> + Send,
+    ) -> anyhow::Result<Option<T>> {
+        let mut conn = self.conn_manager.clone();
+        let value: Option<String> = conn
+            .get::<String, Option<String>>(key.as_ref().to_string())
+            .await
+            .unwrap();
+
+        Ok(value.map(|v| serde_json::from_str(&v).unwrap()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use iota_types::base_types::{random_object_ref, IotaAddress};
+    use serde::{Deserialize, Serialize};
 
     use crate::{
         metrics::StorageMetrics,
-        storage::{redis::RedisStorage, Storage},
+        storage::{redis::RedisStorage, GenericStorage, Storage},
         types::GasCoin,
     };
+
+    #[tokio::test]
+    async fn test_set_and_get_data() {
+        let storage = setup_storage().await;
+        #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+        struct TestStruct {
+            pub value: String,
+        }
+        let test_struct = TestStruct {
+            value: "test_value".to_string(),
+        };
+        storage.set_data("test_key", &test_struct).await.unwrap();
+        let value: Option<TestStruct> = storage.get_data("test_key").await.unwrap();
+        assert_eq!(value, Some(test_struct));
+    }
 
     #[tokio::test]
     async fn test_init_coin_stats_at_startup() {

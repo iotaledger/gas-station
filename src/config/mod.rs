@@ -12,6 +12,8 @@ use serde_with::serde_as;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 
+pub mod cold_params;
+
 pub const DEFAULT_RPC_PORT: u16 = 9527;
 pub const DEFAULT_METRICS_PORT: u16 = 9184;
 // 0.1 IOTA.
