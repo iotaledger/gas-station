@@ -13,11 +13,11 @@
 -- The third argument is the duration for which the lock should be held. This should be in the same
 -- units as the current timestamp.
 
-local sponsor_address = ARGV[1]
+local namespace = ARGV[1]
 local current_time = tonumber(ARGV[2])
 local lock_duration = tonumber(ARGV[3])
 
-local t_init_lock = sponsor_address .. ':init_lock'
+local t_init_lock = namespace .. ':init_lock'
 local locked_timestamp = redis.call('GET', t_init_lock)
 
 if locked_timestamp == false or tonumber(locked_timestamp) < current_time then

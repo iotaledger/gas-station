@@ -6,18 +6,18 @@
 -- The first argument is the sponsor's address.
 -- Returns a table with the new coin count and new total balance.
 
-local sponsor_address = ARGV[1]
+local namespace = ARGV[1]
 
-local t_available_gas_coins = sponsor_address .. ':available_gas_coins'
+local t_available_gas_coins = namespace .. ':available_gas_coins'
 
-local t_available_coin_count = sponsor_address .. ':available_coin_count'
+local t_available_coin_count = namespace .. ':available_coin_count'
 local coin_count = redis.call('GET', t_available_coin_count)
 if not coin_count then
     coin_count = redis.call('LLEN', t_available_gas_coins)
     redis.call('SET', t_available_coin_count, coin_count)
 end
 
-local t_available_coin_total_balance = sponsor_address .. ':available_coin_total_balance'
+local t_available_coin_total_balance = namespace .. ':available_coin_total_balance'
 local total_balance = redis.call('GET', t_available_coin_total_balance)
 if not total_balance then
     local elements = redis.call('LRANGE', t_available_gas_coins, 0, -1)

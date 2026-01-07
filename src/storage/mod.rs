@@ -89,11 +89,12 @@ pub trait GenericStorage: Sync + Send {
 pub async fn connect_storage(
     config: &GasStationStorageConfig,
     sponsor_address: IotaAddress,
+    namespace_prefix: &str,
     metrics: Arc<StorageMetrics>,
 ) -> Arc<dyn Storage> {
     let storage: Arc<dyn Storage> = match config {
         GasStationStorageConfig::Redis { redis_url } => {
-            Arc::new(RedisStorage::new(redis_url, sponsor_address, metrics).await)
+            Arc::new(RedisStorage::new(redis_url, sponsor_address, namespace_prefix, metrics).await)
         }
     };
     storage
@@ -107,6 +108,7 @@ pub async fn connect_storage(
 #[cfg(test)]
 pub async fn connect_storage_for_testing_with_config(
     config: &GasStationStorageConfig,
+    network_url: &str,
     sponsor_address: IotaAddress,
 ) -> Arc<dyn Storage> {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -114,7 +116,13 @@ pub async fn connect_storage_for_testing_with_config(
     static IS_FIRST_CALL: AtomicBool = AtomicBool::new(true);
     let is_first_call = IS_FIRST_CALL.fetch_and(false, Ordering::SeqCst);
 
-    let storage = connect_storage(config, sponsor_address, StorageMetrics::new_for_testing()).await;
+    let storage = connect_storage(
+        config,
+        sponsor_address,
+        network_url,
+        StorageMetrics::new_for_testing(),
+    )
+    .await;
     if is_first_call {
         // Make sure that we only flush the DB once at the beginning of each test run.
         storage.flush_db().await;
@@ -126,8 +134,12 @@ pub async fn connect_storage_for_testing_with_config(
 
 #[cfg(test)]
 pub async fn connect_storage_for_testing(sponsor_address: IotaAddress) -> Arc<dyn Storage> {
-    connect_storage_for_testing_with_config(&GasStationStorageConfig::default(), sponsor_address)
-        .await
+    connect_storage_for_testing_with_config(
+        &GasStationStorageConfig::default(),
+        "http://localhost:9000",
+        sponsor_address,
+    )
+    .await
 }
 
 #[cfg(test)]

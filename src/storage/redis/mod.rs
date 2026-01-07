@@ -22,8 +22,9 @@ use tracing::{debug, info};
 
 pub struct RedisStorage {
     conn_manager: ConnectionManager,
-    // String format of the sponsor address to avoid converting it to string multiple times.
     sponsor_str: String,
+    // Namespace for the keys in the redis database. This is used to avoid keys collision between different networks.
+    namespace: String,
     metrics: Arc<StorageMetrics>,
 }
 
@@ -31,16 +32,23 @@ impl RedisStorage {
     pub async fn new(
         redis_url: &str,
         sponsor_address: IotaAddress,
+        namespace_prefix: &str,
         metrics: Arc<StorageMetrics>,
     ) -> Self {
+        let namespace = generate_namespace(namespace_prefix);
         let client = redis::Client::open(redis_url).unwrap();
         let conn_manager = ConnectionManager::new(client).await.unwrap();
         Self {
             conn_manager,
             sponsor_str: sponsor_address.to_string(),
+            namespace,
             metrics,
         }
     }
+}
+
+fn generate_namespace(namespace_prefix: &str) -> String {
+    format!("{}:registry", namespace_prefix)
 }
 
 #[async_trait::async_trait]
@@ -62,7 +70,7 @@ impl Storage for RedisStorage {
             i64,
             i64,
         ) = ScriptManager::reserve_gas_coins_script()
-            .arg(self.sponsor_str.clone())
+            .arg(self.namespace.clone())
             .arg(target_budget)
             .arg(expiration_time)
             .invoke_async(&mut conn)
@@ -93,11 +101,11 @@ impl Storage for RedisStorage {
 
         self.metrics
             .gas_station_available_gas_coin_count
-            .with_label_values(&[&self.sponsor_str])
+            .with_label_values(&[&self.namespace])
             .set(new_coin_count);
         self.metrics
             .gas_station_available_gas_total_balance
-            .with_label_values(&[&self.sponsor_str])
+            .with_label_values(&[&self.namespace])
             .set(new_total_balance);
         self.metrics.num_successful_reserve_gas_coins_requests.inc();
         Ok((reservation_id, gas_coins))
@@ -108,7 +116,7 @@ impl Storage for RedisStorage {
 
         let mut conn = self.conn_manager.clone();
         ScriptManager::ready_for_execution_script()
-            .arg(self.sponsor_str.clone())
+            .arg(self.namespace.clone())
             .arg(reservation_id)
             .invoke_async::<_, ()>(&mut conn)
             .await?;
@@ -139,7 +147,7 @@ impl Storage for RedisStorage {
 
         let mut conn = self.conn_manager.clone();
         let (new_total_balance, new_coin_count): (i64, i64) = ScriptManager::add_new_coins_script()
-            .arg(self.sponsor_str.clone())
+            .arg(self.namespace.clone())
             .arg(serde_json::to_string(&formatted_coins)?)
             .invoke_async(&mut conn)
             .await?;
@@ -166,7 +174,7 @@ impl Storage for RedisStorage {
         let now = Utc::now().timestamp_millis() as u64;
         let mut conn = self.conn_manager.clone();
         let expired_coin_strings: Vec<String> = ScriptManager::expire_coins_script()
-            .arg(self.sponsor_str.clone())
+            .arg(self.namespace.clone())
             .arg(now)
             .invoke_async(&mut conn)
             .await?;
@@ -184,7 +192,7 @@ impl Storage for RedisStorage {
         let mut conn = self.conn_manager.clone();
         let (available_coin_count, available_coin_total_balance): (i64, i64) =
             ScriptManager::init_coin_stats_at_startup_script()
-                .arg(self.sponsor_str.clone())
+                .arg(self.namespace.clone())
                 .invoke_async(&mut conn)
                 .await?;
         info!(
@@ -210,7 +218,7 @@ impl Storage for RedisStorage {
     async fn is_initialized(&self) -> anyhow::Result<bool> {
         let mut conn = self.conn_manager.clone();
         let result = ScriptManager::get_is_initialized_script()
-            .arg(self.sponsor_str.clone())
+            .arg(self.namespace.clone())
             .invoke_async::<_, bool>(&mut conn)
             .await?;
         Ok(result)
@@ -224,7 +232,7 @@ impl Storage for RedisStorage {
             cur_timestamp, lock_duration_sec
         );
         let result = ScriptManager::acquire_init_lock_script()
-            .arg(self.sponsor_str.clone())
+            .arg(self.namespace.clone())
             .arg(cur_timestamp)
             .arg(lock_duration_sec)
             .invoke_async::<_, bool>(&mut conn)
@@ -236,7 +244,7 @@ impl Storage for RedisStorage {
         debug!("Releasing the init lock.");
         let mut conn = self.conn_manager.clone();
         ScriptManager::release_init_lock_script()
-            .arg(self.sponsor_str.clone())
+            .arg(self.namespace.clone())
             .invoke_async::<_, ()>(&mut conn)
             .await?;
         Ok(())
@@ -262,7 +270,7 @@ impl Storage for RedisStorage {
     async fn get_available_coin_count(&self) -> anyhow::Result<usize> {
         let mut conn = self.conn_manager.clone();
         let count = ScriptManager::get_available_coin_count_script()
-            .arg(self.sponsor_str.clone())
+            .arg(self.namespace.clone())
             .invoke_async::<_, usize>(&mut conn)
             .await?;
         Ok(count)
@@ -271,7 +279,7 @@ impl Storage for RedisStorage {
     async fn get_available_coin_total_balance(&self) -> u64 {
         let mut conn = self.conn_manager.clone();
         ScriptManager::get_available_coin_total_balance_script()
-            .arg(self.sponsor_str.clone())
+            .arg(self.namespace.clone())
             .invoke_async::<_, u64>(&mut conn)
             .await
             .unwrap()
@@ -281,7 +289,7 @@ impl Storage for RedisStorage {
     async fn get_reserved_coin_count(&self) -> usize {
         let mut conn = self.conn_manager.clone();
         ScriptManager::get_reserved_coin_count_script()
-            .arg(self.sponsor_str.clone())
+            .arg(self.namespace.clone())
             .invoke_async::<_, usize>(&mut conn)
             .await
             .unwrap()
@@ -403,9 +411,13 @@ mod tests {
     }
 
     async fn setup_storage() -> RedisStorage {
+        let sponsor = IotaAddress::ZERO;
+        let namespace_prefix = "test";
+        let redis_url = "redis://127.0.0.1:6379";
         let storage = RedisStorage::new(
-            "redis://127.0.0.1:6379",
-            IotaAddress::ZERO,
+            redis_url,
+            sponsor,
+            namespace_prefix,
             StorageMetrics::new_for_testing(),
         )
         .await;

@@ -21,26 +21,29 @@ mod script_manager;
 #[derive(Clone)]
 pub struct RedisStatsTrackerStorage {
     conn_manager: ConnectionManager,
-    // String format of the sponsor address to avoid converting it to string multiple times.
-    pub sponsor_key: String,
+    // Namespace for the keys in the redis database. This is used to avoid keys collision between different networks.
+    pub namespace: String,
 }
 
 impl RedisStatsTrackerStorage {
-    pub async fn new(redis_url: impl AsRef<str>, sponsor: impl AsRef<str>) -> Self {
+    pub async fn new(redis_url: impl AsRef<str>, namespace_prefix: &str) -> Self {
+        let namespace = get_tracker_namespace(namespace_prefix);
         let client = redis::Client::open(redis_url.as_ref()).unwrap();
         let conn_manager = ConnectionManager::new(client).await.unwrap();
         Self {
             conn_manager,
-            sponsor_key: sponsor.as_ref().to_string(),
+            namespace,
         }
     }
 
     #[cfg(test)]
     pub async fn new_localhost() -> RedisStatsTrackerStorage {
-        use crate::test_env::random_address;
-        let sponsor_key = random_address().to_string();
-        Self::new("redis://127.0.0.1:6379", sponsor_key).await
+        Self::new("redis://127.0.0.1:6379", "test").await
     }
+}
+
+fn get_tracker_namespace(namespace_prefix: &str) -> String {
+    format!("{}:tracker", namespace_prefix)
 }
 
 #[async_trait]
@@ -58,7 +61,7 @@ impl StatsTrackerStorage for RedisStatsTrackerStorage {
                 let script = ScriptManager::increment_aggr_sum_script();
                 let mut conn = self.conn_manager.clone();
                 let new_value: i64 = script
-                    .arg(self.sponsor_key.to_string())
+                    .arg(self.namespace.clone())
                     .arg(key)
                     .arg(value)
                     .arg(aggr.window.as_secs())
@@ -94,11 +97,11 @@ fn generate_hash_from_key<'a>(key: &[(String, Value)]) -> String {
 
 pub async fn connect_stats_storage(
     config: &GasStationStorageConfig,
-    sponsor_address: IotaAddress,
+    namespace_prefix: &str,
 ) -> RedisStatsTrackerStorage {
     let storage = match config {
         GasStationStorageConfig::Redis { redis_url } => {
-            RedisStatsTrackerStorage::new(redis_url, sponsor_address.to_string()).await
+            RedisStatsTrackerStorage::new(redis_url, namespace_prefix).await
         }
     };
 
