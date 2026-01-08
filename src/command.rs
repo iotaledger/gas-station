@@ -2,6 +2,7 @@
 // Modifications Copyright (c) 2025 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::config::cold_params::{check_cold_params_changes, ColdParams};
 use crate::config::GasStationConfig;
 use crate::gas_station::gas_station_core::GasStationContainer;
 use crate::gas_station::rescan_trigger::RescanGasObjectsTrigger;
@@ -33,11 +34,20 @@ use url::Url;
 pub struct Command {
     #[arg(env, long, help = "Path to config file")]
     config_path: PathBuf,
+    #[arg(
+        env,
+        short,
+        long,
+        help = "Allow reinitialization of the gas station when the target init balance parameter changes",
+        default_value_t = false
+    )]
+    allow_reinit: bool,
 }
 
 impl Command {
     pub async fn execute(self) {
         let config = GasStationConfig::load(&self.config_path).expect("Failed to load config file");
+        let cold_params = ColdParams::from_config(&config);
 
         let GasStationConfig {
             signer_config,
@@ -88,6 +98,28 @@ impl Command {
                 .target_init_balance,
         );
         let rescan_trigger_receiver = rescan_config.create_receiver();
+
+        let cold_params_changes = check_cold_params_changes(
+            &cold_params,
+            &storage,
+            &format!("{namespace_prefix}:cold_params"),
+        )
+        .await
+        .expect("failed to check cold params changes");
+
+        let force_full_rescan = if !cold_params_changes.is_empty() {
+            if !self.allow_reinit {
+                panic!("Configuration changes requiring initialization detected: {} but automatic reinitialization is not allowed. Please restart the gas station with the --allow-reinit flag to allow full rescan.", cold_params_changes.join(", "));
+            }
+            info!(
+                "Configuration changes requiring initialization detected: {}",
+                cold_params_changes.join(", ")
+            );
+            true
+        } else {
+            false
+        };
+
         let _coin_init_task = if let Some(coin_init_config) = coin_init_config {
             let task = GasStationInitializer::start(
                 iota_client.clone(),
@@ -95,6 +127,7 @@ impl Command {
                 coin_init_config,
                 signer.clone(),
                 rescan_trigger_receiver,
+                force_full_rescan,
             )
             .await;
             Some(task)

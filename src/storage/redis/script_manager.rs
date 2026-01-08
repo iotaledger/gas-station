@@ -14,6 +14,7 @@ const GET_AVAILABLE_COIN_TOTAL_BALANCE_SCRIPT: &str =
     include_str!("lua_scripts/get_available_coin_total_balance.lua");
 const ACQUIRE_INIT_LOCK_SCRIPT: &str = include_str!("lua_scripts/acquire_init_lock.lua");
 const RELEASE_INIT_LOCK_SCRIPT: &str = include_str!("lua_scripts/release_init_lock.lua");
+const CLEAN_UP_COIN_REGISTRY_SCRIPT: &str = include_str!("lua_scripts/clean_up_coin_registry.lua");
 
 #[cfg(test)]
 const GET_RESERVED_COIN_COUNT_SCRIPT: &str =
@@ -70,6 +71,11 @@ impl ScriptManager {
 
     pub fn release_init_lock_script() -> &'static Script {
         static SCRIPT: Lazy<Script> = Lazy::new(|| Script::new(RELEASE_INIT_LOCK_SCRIPT));
+        Lazy::force(&SCRIPT)
+    }
+
+    pub fn clean_up_coin_registry_script() -> &'static Script {
+        static SCRIPT: Lazy<Script> = Lazy::new(|| Script::new(CLEAN_UP_COIN_REGISTRY_SCRIPT));
         Lazy::force(&SCRIPT)
     }
 

@@ -75,6 +75,7 @@ pub async fn start_gas_station(
         },
         signer.clone(),
         rescan_trigger_receiver,
+        false,
     )
     .await;
     let station = GasStationContainer::new(

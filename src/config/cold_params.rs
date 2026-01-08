@@ -1,6 +1,12 @@
+use std::sync::Arc;
+
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
-use crate::config::GasStationConfig;
+use crate::{
+    config::GasStationConfig,
+    storage::{SetGetStorage, Storage},
+};
 
 /// This struct contains the cold params. The cold params requires full rescan of the coins registry.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -24,16 +30,49 @@ impl ColdParams {
     }
 
     /// Returns the details of the changes compared to the other cold params.
-    pub fn changes_details(&self, other: &ColdParams) -> String {
-        let mut changes = Vec::new();
+    pub fn changes_details(&self, other: &ColdParams) -> Vec<ColdParamChange> {
+        let mut changes = Vec::<ColdParamChange>::new();
         if self.target_init_balance != other.target_init_balance {
             changes.push(format!(
                 "target_init_balance: {:?} -> {:?}",
                 self.target_init_balance, other.target_init_balance
             ));
         }
-        changes.join(", ")
+        changes
     }
+}
+
+pub type ColdParamChange = String;
+
+/// Checks if the cold params has changes compared to the storage and returns the changes.
+pub async fn check_cold_params_changes(
+    current_cold_params: &ColdParams,
+    storage: &Arc<dyn Storage>,
+    key: &str,
+) -> anyhow::Result<Vec<ColdParamChange>> {
+    let maybe_cold_params = storage
+        .get_data(key)
+        .await
+        .context("unable to get cold params from storage")?;
+
+    // if there is no cold params, it means that we have the first run
+    // so if none, there is no changes, so we should only save the current cold params
+    if maybe_cold_params.is_none() {
+        storage
+            .set_data(key, serde_json::to_vec(current_cold_params).unwrap())
+            .await?;
+        return Ok(vec![]);
+    }
+
+    let old_cold_params = serde_json::from_slice(&maybe_cold_params.unwrap()).context(
+        format!("unable to deserialize cold params. The entry with the key {key} is not a valid cold params structure",
+    ))?;
+
+    let changes = current_cold_params.changes_details(&old_cold_params);
+    storage
+        .set_data(key, serde_json::to_vec(current_cold_params).unwrap())
+        .await?;
+    Ok(changes)
 }
 
 #[cfg(test)]
@@ -64,11 +103,11 @@ mod tests {
         };
         assert_eq!(
             params.changes_details(&other_params),
-            "target_init_balance: Some(100) -> Some(200)"
+            vec!["target_init_balance: Some(100) -> Some(200)"]
         );
         assert_eq!(
             other_params.changes_details(&params),
-            "target_init_balance: Some(200) -> Some(100)"
+            vec!["target_init_balance: Some(200) -> Some(100)"]
         );
     }
 }

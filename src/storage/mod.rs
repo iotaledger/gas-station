@@ -18,7 +18,7 @@ pub const MAX_GAS_PER_QUERY: usize = 256;
 /// It is expected to support concurrent access and manage atomicity internally.
 /// It supports multiple addresses each with its own gas coin queue.
 #[async_trait::async_trait]
-pub trait Storage: Sync + Send {
+pub trait Storage: SetGetStorage + Sync + Send {
     /// Reserve gas coins with total coin balance >= target_budget.
     /// If there is not enough balance, returns error.
     /// The implementation is required to guarantee that:
@@ -70,20 +70,15 @@ pub trait Storage: Sync + Send {
 
     #[cfg(test)]
     async fn get_reserved_coin_count(&self) -> usize;
+
+    /// Clean up all the data from the coin registry namespace
+    async fn clean_up_coin_registry(&self) -> anyhow::Result<()>;
 }
 
-/// Defines the trait for a generic storage that can be used to store and retrieve bytes.
 #[async_trait::async_trait]
-pub trait GenericStorage: Sync + Send {
-    async fn set_data<T: Serialize + Send>(
-        &self,
-        key: impl AsRef<str> + Send,
-        value: T,
-    ) -> anyhow::Result<()>;
-    async fn get_data<T: DeserializeOwned + Send>(
-        &self,
-        key: impl AsRef<str> + Send,
-    ) -> anyhow::Result<Option<T>>;
+pub trait SetGetStorage: Sync + Send {
+    async fn set_data(&self, key: &str, value: Vec<u8>) -> anyhow::Result<()>;
+    async fn get_data(&self, key: &str) -> anyhow::Result<Option<Vec<u8>>>;
 }
 
 pub async fn connect_storage(

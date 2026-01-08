@@ -198,7 +198,12 @@ impl GasStationInitializer {
         coin_init_config: CoinInitConfig,
         signer: Arc<dyn TxSigner>,
         rescan_trigger_receiver: tokio::sync::mpsc::Receiver<()>,
+        force_full_rescan: bool,
     ) -> Self {
+        if force_full_rescan {
+            // this will clean up the previous namespace data including the initialized flag
+            storage.clean_up_coin_registry().await.unwrap();
+        }
         if !storage.is_initialized().await.unwrap() {
             // If the pool has never been initialized, always run once at the beginning to make sure we have enough coins.
             Self::run_once(
@@ -397,6 +402,7 @@ mod tests {
             },
             signer,
             rescan_trigger_receiver,
+            false,
         )
         .await;
         assert!(storage.get_available_coin_count().await.unwrap() > 900);
@@ -420,6 +426,7 @@ mod tests {
             },
             signer,
             rescan_trigger_receiver,
+            false,
         )
         .await;
         assert!(storage.get_available_coin_count().await.unwrap() > 800);
@@ -443,6 +450,7 @@ mod tests {
             },
             signer,
             rescan_trigger_receiver,
+            false,
         )
         .await;
         assert!(storage.is_initialized().await.unwrap());

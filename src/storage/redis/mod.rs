@@ -5,15 +5,12 @@ mod script_manager;
 
 use crate::metrics::StorageMetrics;
 use crate::storage::redis::script_manager::ScriptManager;
-use crate::storage::{GenericStorage, Storage};
+use crate::storage::{SetGetStorage, Storage};
 use crate::types::{GasCoin, ReservationID};
-use anyhow::Context;
 use chrono::Utc;
 use iota_types::base_types::{IotaAddress, ObjectDigest, ObjectID, SequenceNumber};
 use redis::aio::ConnectionManager;
 use redis::AsyncCommands;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
 use std::ops::Add;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -49,6 +46,23 @@ impl RedisStorage {
 
 fn generate_namespace(namespace_prefix: &str) -> String {
     format!("{}:registry", namespace_prefix)
+}
+
+#[async_trait::async_trait]
+impl SetGetStorage for RedisStorage {
+    async fn set_data(&self, key: &str, value: Vec<u8>) -> anyhow::Result<()> {
+        let mut conn = self.conn_manager.clone();
+        let full_key = format!("{}:{}", self.namespace, key);
+        conn.set::<_, _, ()>(full_key, value).await?;
+        Ok(())
+    }
+
+    async fn get_data(&self, key: &str) -> anyhow::Result<Option<Vec<u8>>> {
+        let mut conn = self.conn_manager.clone();
+        let full_key = format!("{}:{}", self.namespace, key);
+        let value: Option<Vec<u8>> = conn.get(full_key).await?;
+        Ok(value)
+    }
 }
 
 #[async_trait::async_trait]
@@ -294,36 +308,21 @@ impl Storage for RedisStorage {
             .await
             .unwrap()
     }
-}
 
-#[async_trait::async_trait]
-impl GenericStorage for RedisStorage {
-    async fn set_data<T: Serialize + Send>(
-        &self,
-        key: impl AsRef<str> + Send,
-        value: T,
-    ) -> anyhow::Result<()> {
+    async fn clean_up_coin_registry(&self) -> anyhow::Result<()> {
         let mut conn = self.conn_manager.clone();
-        let serialized_value =
-            serde_json::to_string(&value).context("Failed to serialize value")?;
-        conn.set(key.as_ref().to_string(), serialized_value).await?;
+        let deleted_count: i64 = ScriptManager::clean_up_coin_registry_script()
+            .arg(self.namespace.clone())
+            .invoke_async(&mut conn)
+            .await?;
+        debug!(
+            namespace = %self.namespace,
+            deleted_count,
+            "Cleaned up coin registry with {deleted_count} keys"
+        );
         Ok(())
     }
-
-    async fn get_data<T: DeserializeOwned + Send>(
-        &self,
-        key: impl AsRef<str> + Send,
-    ) -> anyhow::Result<Option<T>> {
-        let mut conn = self.conn_manager.clone();
-        let value: Option<String> = conn
-            .get::<String, Option<String>>(key.as_ref().to_string())
-            .await
-            .unwrap();
-
-        Ok(value.map(|v| serde_json::from_str(&v).unwrap()))
-    }
 }
-
 #[cfg(test)]
 mod tests {
     use iota_types::base_types::{random_object_ref, IotaAddress};
@@ -331,7 +330,7 @@ mod tests {
 
     use crate::{
         metrics::StorageMetrics,
-        storage::{redis::RedisStorage, GenericStorage, Storage},
+        storage::{redis::RedisStorage, SetGetStorage, Storage},
         types::GasCoin,
     };
 
@@ -345,9 +344,13 @@ mod tests {
         let test_struct = TestStruct {
             value: "test_value".to_string(),
         };
-        storage.set_data("test_key", &test_struct).await.unwrap();
-        let value: Option<TestStruct> = storage.get_data("test_key").await.unwrap();
-        assert_eq!(value, Some(test_struct));
+        storage
+            .set_data("test_key", serde_json::to_vec(&test_struct).unwrap())
+            .await
+            .unwrap();
+        let value: Option<Vec<u8>> = storage.get_data("test_key").await.unwrap();
+        let value: TestStruct = serde_json::from_slice(&value.unwrap()).unwrap();
+        assert_eq!(value, test_struct);
     }
 
     #[tokio::test]
@@ -408,6 +411,52 @@ mod tests {
         assert_eq!(coin_count, 4);
         let total_balance = storage.get_available_coin_total_balance().await;
         assert_eq!(total_balance, 1000);
+    }
+
+    #[tokio::test]
+    async fn test_clean_up_coin_registry() {
+        let storage = setup_storage().await;
+
+        // Add some coins
+        storage
+            .add_new_coins(vec![
+                GasCoin {
+                    balance: 100,
+                    object_ref: random_object_ref(),
+                },
+                GasCoin {
+                    balance: 200,
+                    object_ref: random_object_ref(),
+                },
+            ])
+            .await
+            .unwrap();
+
+        // Verify coins are added
+        let coin_count = storage.get_available_coin_count().await.unwrap();
+        assert_eq!(coin_count, 2);
+        let total_balance = storage.get_available_coin_total_balance().await;
+        assert_eq!(total_balance, 300);
+
+        // Set some data
+        storage
+            .set_data("test_key", b"test_value".to_vec())
+            .await
+            .unwrap();
+        let value = storage.get_data("test_key").await.unwrap();
+        assert!(value.is_some());
+
+        // Clean up the coin registry
+        storage.clean_up_coin_registry().await.unwrap();
+
+        // Verify all data is cleaned up - reinitialize stats to get fresh values
+        let (coin_count, total_balance) = storage.init_coin_stats_at_startup().await.unwrap();
+        assert_eq!(coin_count, 0);
+        assert_eq!(total_balance, 0);
+
+        // Verify the test_key is also cleaned up
+        let value = storage.get_data("test_key").await.unwrap();
+        assert!(value.is_none());
     }
 
     async fn setup_storage() -> RedisStorage {
