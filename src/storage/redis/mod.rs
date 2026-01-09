@@ -1,6 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+pub mod migration;
 mod script_manager;
 
 use crate::metrics::StorageMetrics;
@@ -34,13 +35,44 @@ impl RedisStorage {
     ) -> Self {
         let namespace = generate_namespace(namespace_prefix);
         let client = redis::Client::open(redis_url).unwrap();
-        let conn_manager = ConnectionManager::new(client).await.unwrap();
+        let mut conn_manager = ConnectionManager::new(client).await.unwrap();
+
+        // Check and perform migration from old namespace if needed
+        let sponsor_str = sponsor_address.to_string();
+        if let Err(e) = Self::maybe_migrate(&mut conn_manager, &sponsor_str, &namespace).await {
+            tracing::warn!(
+                "Migration check failed: {:?}. Continuing without migration.",
+                e
+            );
+        }
+
         Self {
             conn_manager,
-            sponsor_str: sponsor_address.to_string(),
+            sponsor_str,
             namespace,
             metrics,
         }
+    }
+
+    /// Check for and perform migration from old namespace format if needed.
+    ///
+    /// Old format: `{wallet_address}:{key_name}`
+    /// New format: `{namespace_prefix}:registry:{key_name}`
+    async fn maybe_migrate(
+        conn: &mut ConnectionManager,
+        sponsor_address: &str,
+        new_namespace: &str,
+    ) -> anyhow::Result<()> {
+        if let Some(result) = migration::maybe_migrate(conn, sponsor_address, new_namespace).await?
+        {
+            if result.has_migrations() {
+                info!(
+                    "Successfully migrated {} Redis keys from old namespace format",
+                    result.migrated_count
+                );
+            }
+        }
+        Ok(())
     }
 }
 
