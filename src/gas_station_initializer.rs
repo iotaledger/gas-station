@@ -234,14 +234,17 @@ impl GasStationInitializer {
             }
         } else if !storage.is_initialized().await.unwrap() {
             // If the pool has never been initialized, always run once at the beginning to make sure we have enough coins.
-            Self::run_once(
+            if let Err(e) = Self::run_once(
                 iota_client.clone(),
                 &storage,
                 RunMode::Init,
                 coin_init_config.target_init_balance,
                 &signer,
             )
-            .await;
+            .await
+            {
+                panic!("Initial coin initialization failed: {:?}", e);
+            }
         }
 
         let (cancel_sender, cancel_receiver) = tokio::sync::oneshot::channel();
@@ -275,7 +278,7 @@ impl GasStationInitializer {
                 target_init_balance,
                 signer,
             )
-            .await;
+            .await?;
         }
         Ok(())
     }
@@ -308,14 +311,17 @@ impl GasStationInitializer {
             match wake_reason {
                 WakeReason::ForcedTrigger | WakeReason::Scheduled => {
                     info!("{}", wake_reason.reason());
-                    Self::run_once(
+                    if let Err(e) = Self::run_once(
                         iota_client.clone(),
                         &storage,
                         RunMode::Refresh,
                         coin_init_config.target_init_balance,
                         &signer,
                     )
-                    .await;
+                    .await
+                    {
+                        error!("Coin refresh failed: {:?}", e);
+                    }
                 }
                 WakeReason::Cancel => {
                     info!("{}", wake_reason.reason());
@@ -331,7 +337,7 @@ impl GasStationInitializer {
         mode: RunMode,
         target_init_coin_balance: u64,
         signer: &Arc<dyn TxSigner>,
-    ) {
+    ) -> anyhow::Result<()> {
         let sponsor_address = signer.get_address();
         if storage
             .acquire_init_lock(MAX_INIT_DURATION_SEC)
@@ -341,7 +347,7 @@ impl GasStationInitializer {
             info!("Acquired init lock. Starting new coin initialization");
         } else {
             info!("Another task is already initializing the pool. Skipping this round");
-            return;
+            return Ok(());
         }
         let start = Instant::now();
         let balance_threshold = if matches!(mode, RunMode::Init) {
@@ -359,7 +365,7 @@ impl GasStationInitializer {
                 balance_threshold
             );
             storage.release_init_lock().await.unwrap();
-            return;
+            return Ok(());
         }
         let total_coin_count = Arc::new(AtomicUsize::new(coins.len()));
         let rgp = iota_client.get_reference_gas_price().await;
@@ -367,6 +373,22 @@ impl GasStationInitializer {
             .calibrate_gas_cost_per_object(sponsor_address, &coins[0])
             .await;
         info!("Calibrated gas cost per object: {:?}", gas_cost_per_object);
+
+        // Safety check: Validate minimum coin size prevent registry inconsistency
+        if target_init_coin_balance * 99 <= gas_cost_per_object {
+            let err_msg = format!(
+                "target_init_coin_balance ({}) is too small relative to gas_cost_per_object ({}). \
+                 Minimum required: target_init_coin_balance > gas_cost_per_object / 99 = {}. \
+                 Please increase target_init_coin_balance to prevent registry inconsistency.",
+                target_init_coin_balance,
+                gas_cost_per_object,
+                gas_cost_per_object / 99 + 1
+            );
+            error!("{}", err_msg);
+            storage.release_init_lock().await.unwrap();
+            return Err(anyhow::anyhow!(err_msg));
+        }
+
         let result = Self::split_gas_coins(
             coins,
             CoinSplitEnv {
@@ -389,6 +411,7 @@ impl GasStationInitializer {
             "New coin initialization took {:?}s",
             start.elapsed().as_secs()
         );
+        Ok(())
     }
 
     async fn split_gas_coins(coins: Vec<GasCoin>, env: CoinSplitEnv) -> Vec<GasCoin> {
