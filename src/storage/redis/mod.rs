@@ -74,12 +74,14 @@ impl Storage for RedisStorage {
     ) -> anyhow::Result<(ReservationID, Vec<GasCoin>)> {
         self.metrics.num_reserve_gas_coins_requests.inc();
 
+        let current_time = Utc::now().timestamp() as u64;
         let expiration_time = Utc::now()
             .add(Duration::from_millis(reserved_duration_ms))
             .timestamp_millis() as u64;
         let mut conn = self.conn_manager.clone();
-        let (reservation_id, coins, new_total_balance, new_coin_count): (
-            ReservationID,
+        // We use i64 here because the script may return -1 for maintenance mode
+        let (reservation_id_raw, coins, new_total_balance, new_coin_count): (
+            i64,
             Vec<String>,
             i64,
             i64,
@@ -87,8 +89,16 @@ impl Storage for RedisStorage {
             .arg(self.namespace.clone())
             .arg(target_budget)
             .arg(expiration_time)
+            .arg(current_time)
             .invoke_async(&mut conn)
             .await?;
+        // The script returns (-1, []) if the gas station is in maintenance mode.
+        if reservation_id_raw == -1 {
+            return Err(anyhow::anyhow!(
+                "Gas station is in maintenance mode. Please try again later."
+            ));
+        }
+        let reservation_id = reservation_id_raw as ReservationID;
         // The script returns (0, []) if it is unable to find enough coins to reserve.
         // We choose to handle the error here instead of inside the script so that we could
         // provide a more readable error message.
@@ -262,6 +272,43 @@ impl Storage for RedisStorage {
             .invoke_async::<_, ()>(&mut conn)
             .await?;
         Ok(())
+    }
+
+    async fn acquire_maintenance_lock(&self, lock_duration_sec: u64) -> anyhow::Result<bool> {
+        let mut conn = self.conn_manager.clone();
+        let cur_timestamp = Utc::now().timestamp() as u64;
+        debug!(
+            "Acquiring maintenance lock at {} for {} seconds",
+            cur_timestamp, lock_duration_sec
+        );
+        let result = ScriptManager::acquire_maintenance_lock_script()
+            .arg(self.namespace.clone())
+            .arg(cur_timestamp)
+            .arg(lock_duration_sec)
+            .invoke_async::<_, bool>(&mut conn)
+            .await?;
+        Ok(result)
+    }
+
+    async fn release_maintenance_lock(&self) -> anyhow::Result<()> {
+        debug!("Releasing the maintenance lock.");
+        let mut conn = self.conn_manager.clone();
+        ScriptManager::release_maintenance_lock_script()
+            .arg(self.namespace.clone())
+            .invoke_async::<_, ()>(&mut conn)
+            .await?;
+        Ok(())
+    }
+
+    async fn is_maintenance_mode(&self) -> anyhow::Result<bool> {
+        let mut conn = self.conn_manager.clone();
+        let cur_timestamp = Utc::now().timestamp() as u64;
+        let result = ScriptManager::is_maintenance_mode_script()
+            .arg(self.namespace.clone())
+            .arg(cur_timestamp)
+            .invoke_async::<_, bool>(&mut conn)
+            .await?;
+        Ok(result)
     }
 
     async fn check_health(&self) -> anyhow::Result<()> {
@@ -475,5 +522,67 @@ mod tests {
         assert_eq!(coin_count, 0);
         assert_eq!(total_balance, 0);
         storage
+    }
+
+    #[tokio::test]
+    async fn test_maintenance_mode() {
+        let storage = setup_storage().await;
+
+        // Add some coins
+        storage
+            .add_new_coins(vec![
+                GasCoin {
+                    balance: 100,
+                    object_ref: random_object_ref(),
+                },
+                GasCoin {
+                    balance: 200,
+                    object_ref: random_object_ref(),
+                },
+            ])
+            .await
+            .unwrap();
+
+        // Initially not in maintenance mode
+        assert!(!storage.is_maintenance_mode().await.unwrap());
+
+        // Acquire maintenance lock
+        assert!(storage.acquire_maintenance_lock(60).await.unwrap());
+        assert!(storage.is_maintenance_mode().await.unwrap());
+
+        // Trying to acquire again should fail
+        assert!(!storage.acquire_maintenance_lock(60).await.unwrap());
+
+        // Reserving coins should fail during maintenance
+        let result = storage.reserve_gas_coins(50, 1000).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("maintenance mode"));
+
+        // Release maintenance lock
+        storage.release_maintenance_lock().await.unwrap();
+        assert!(!storage.is_maintenance_mode().await.unwrap());
+
+        // Now reserving should work
+        let (reservation_id, coins) = storage.reserve_gas_coins(50, 1000).await.unwrap();
+        assert!(reservation_id > 0);
+        assert!(!coins.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_maintenance_lock_expiration() {
+        let storage = setup_storage().await;
+
+        // Acquire maintenance lock for 2 seconds
+        assert!(storage.acquire_maintenance_lock(2).await.unwrap());
+        assert!(storage.is_maintenance_mode().await.unwrap());
+
+        // Wait for lock to expire
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+        // Should no longer be in maintenance mode
+        assert!(!storage.is_maintenance_mode().await.unwrap());
+
+        // Should be able to acquire lock again
+        assert!(storage.acquire_maintenance_lock(60).await.unwrap());
     }
 }

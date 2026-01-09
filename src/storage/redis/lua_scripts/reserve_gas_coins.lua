@@ -1,4 +1,5 @@
 -- Copyright (c) Mysten Labs, Inc.
+-- Modifications Copyright (c) 2025 IOTA Stiftung
 -- SPDX-License-Identifier: Apache-2.0
 
 -- This script is used to reserve gas coins for a sponsor address.
@@ -9,11 +10,21 @@
 -- The first argument is the sponsor's address.
 -- The second argument is the target budget.
 -- The third argument is the expiration time.
+-- The fourth argument is the current timestamp (for maintenance mode check).
 -- Returns a table with the reservation id, reserved coins, new total balance, and new coin count.
+-- Returns {-1, {}, 0, 0} if the gas station is in maintenance mode.
 
 local namespace = ARGV[1]
 local target_budget = tonumber(ARGV[2])
 local expiration_time = tonumber(ARGV[3])
+local current_time = tonumber(ARGV[4])
+
+-- Check if maintenance mode is active
+local t_maintenance_lock = namespace .. ':maintenance_lock'
+local locked_timestamp = redis.call('GET', t_maintenance_lock)
+if locked_timestamp ~= false and tonumber(locked_timestamp) >= current_time then
+    return {-1, {}, 0, 0}
+end
 
 local MAX_GAS_PER_QUERY = 256
 

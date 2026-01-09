@@ -15,6 +15,11 @@ const GET_AVAILABLE_COIN_TOTAL_BALANCE_SCRIPT: &str =
 const ACQUIRE_INIT_LOCK_SCRIPT: &str = include_str!("lua_scripts/acquire_init_lock.lua");
 const RELEASE_INIT_LOCK_SCRIPT: &str = include_str!("lua_scripts/release_init_lock.lua");
 const CLEAN_UP_COIN_REGISTRY_SCRIPT: &str = include_str!("lua_scripts/clean_up_coin_registry.lua");
+const ACQUIRE_MAINTENANCE_LOCK_SCRIPT: &str =
+    include_str!("lua_scripts/acquire_maintenance_lock.lua");
+const RELEASE_MAINTENANCE_LOCK_SCRIPT: &str =
+    include_str!("lua_scripts/release_maintenance_lock.lua");
+const IS_MAINTENANCE_MODE_SCRIPT: &str = include_str!("lua_scripts/is_maintenance_mode.lua");
 
 #[cfg(test)]
 const GET_RESERVED_COIN_COUNT_SCRIPT: &str =
@@ -76,6 +81,21 @@ impl ScriptManager {
 
     pub fn clean_up_coin_registry_script() -> &'static Script {
         static SCRIPT: Lazy<Script> = Lazy::new(|| Script::new(CLEAN_UP_COIN_REGISTRY_SCRIPT));
+        Lazy::force(&SCRIPT)
+    }
+
+    pub fn acquire_maintenance_lock_script() -> &'static Script {
+        static SCRIPT: Lazy<Script> = Lazy::new(|| Script::new(ACQUIRE_MAINTENANCE_LOCK_SCRIPT));
+        Lazy::force(&SCRIPT)
+    }
+
+    pub fn release_maintenance_lock_script() -> &'static Script {
+        static SCRIPT: Lazy<Script> = Lazy::new(|| Script::new(RELEASE_MAINTENANCE_LOCK_SCRIPT));
+        Lazy::force(&SCRIPT)
+    }
+
+    pub fn is_maintenance_mode_script() -> &'static Script {
+        static SCRIPT: Lazy<Script> = Lazy::new(|| Script::new(IS_MAINTENANCE_MODE_SCRIPT));
         Lazy::force(&SCRIPT)
     }
 

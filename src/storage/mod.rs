@@ -6,8 +6,6 @@ use crate::metrics::StorageMetrics;
 use crate::storage::redis::RedisStorage;
 use crate::types::{GasCoin, ReservationID};
 use iota_types::base_types::{IotaAddress, ObjectID};
-use serde::de::DeserializeOwned;
-use serde::Serialize;
 use std::sync::Arc;
 
 mod redis;
@@ -58,6 +56,20 @@ pub trait Storage: SetGetStorage + Sync + Send {
     async fn acquire_init_lock(&self, lock_duration_sec: u64) -> anyhow::Result<bool>;
 
     async fn release_init_lock(&self) -> anyhow::Result<()>;
+
+    /// Acquire a maintenance lock to prevent other instances from making changes to the coin registry.
+    /// Unlike init_lock which prevents concurrent initialization, maintenance mode prevents:
+    /// - Reserving gas coins
+    /// - Adding new coins to the pool
+    /// This should be used before clean_up_coin_registry() to ensure data consistency.
+    /// Returns true if the lock is acquired, false otherwise.
+    async fn acquire_maintenance_lock(&self, lock_duration_sec: u64) -> anyhow::Result<bool>;
+
+    /// Release the maintenance lock, allowing normal operations to resume.
+    async fn release_maintenance_lock(&self) -> anyhow::Result<()>;
+
+    /// Check if the gas station is currently in maintenance mode.
+    async fn is_maintenance_mode(&self) -> anyhow::Result<bool>;
 
     async fn check_health(&self) -> anyhow::Result<()>;
 

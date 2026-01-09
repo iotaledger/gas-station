@@ -32,6 +32,10 @@ pub const NEW_COIN_BALANCE_FACTOR_THRESHOLD: u64 = 200;
 /// Assume that initializing the Gas Station (i.e. splitting coins) will take at most 12 hours.
 const MAX_INIT_DURATION_SEC: u64 = 60 * 60 * 12;
 
+/// Maintenance mode duration should be long enough to complete the full rescan procedure.
+/// This includes cleaning up the coin registry and rescanning all coins.
+const MAX_MAINTENANCE_DURATION_SEC: u64 = 60 * 60 * 12;
+
 #[derive(Clone)]
 struct CoinSplitEnv {
     target_init_coin_balance: u64,
@@ -201,10 +205,34 @@ impl GasStationInitializer {
         force_full_rescan: bool,
     ) -> Self {
         if force_full_rescan {
-            // this will clean up the previous namespace data including the initialized flag
-            storage.clean_up_coin_registry().await.unwrap();
-        }
-        if !storage.is_initialized().await.unwrap() {
+            if storage
+                .acquire_maintenance_lock(MAX_MAINTENANCE_DURATION_SEC)
+                .await
+                .unwrap()
+            {
+                info!("Acquired maintenance lock for full rescan");
+            } else {
+                panic!("Another instance is already performing maintenance. Please wait for it to complete or manually release the maintenance lock.");
+            }
+
+            let result = Self::clean_and_rescan_registry(
+                iota_client.clone(),
+                &storage,
+                coin_init_config.target_init_balance,
+                &signer,
+            )
+            .await;
+
+            // always release maintenance lock, regardless of success or failure
+            if let Err(e) = storage.release_maintenance_lock().await {
+                error!("Failed to release maintenance lock: {:?}", e);
+            } else {
+                info!("Released maintenance lock after full rescan");
+            }
+            if let Err(e) = result {
+                panic!("Full rescan failed: {:?}", e);
+            }
+        } else if !storage.is_initialized().await.unwrap() {
             // If the pool has never been initialized, always run once at the beginning to make sure we have enough coins.
             Self::run_once(
                 iota_client.clone(),
@@ -215,6 +243,7 @@ impl GasStationInitializer {
             )
             .await;
         }
+
         let (cancel_sender, cancel_receiver) = tokio::sync::oneshot::channel();
         let _task_handle = tokio::spawn(Self::run(
             iota_client,
@@ -228,6 +257,27 @@ impl GasStationInitializer {
             _task_handle,
             cancel_sender: Some(cancel_sender),
         }
+    }
+
+    /// Performs full rescan operations while holding the maintenance lock.
+    async fn clean_and_rescan_registry(
+        iota_client: IotaClient,
+        storage: &Arc<dyn Storage>,
+        target_init_balance: u64,
+        signer: &Arc<dyn TxSigner>,
+    ) -> anyhow::Result<()> {
+        storage.clean_up_coin_registry().await?;
+        if !storage.is_initialized().await? {
+            Self::run_once(
+                iota_client,
+                storage,
+                RunMode::Init,
+                target_init_balance,
+                signer,
+            )
+            .await;
+        }
+        Ok(())
     }
 
     async fn run(
