@@ -2,6 +2,10 @@
 // Modifications Copyright (c) 2025 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
+//! This module contains the cold params for the gas station.
+//! The cold params are the configuration parameters that require full re-initialization
+//! of the gas station coin registry.
+
 use std::sync::Arc;
 
 use anyhow::Context;
