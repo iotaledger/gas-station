@@ -6,6 +6,7 @@ pub mod access_controller;
 pub mod benchmarks;
 pub mod command;
 pub mod config;
+pub mod consistency_check;
 pub mod errors;
 pub mod gas_station;
 pub mod gas_station_initializer;

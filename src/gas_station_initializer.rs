@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::config::CoinInitConfig;
+use crate::consistency_check::{log_consistency_warnings, validate_consistency};
 use crate::iota_client::IotaClient;
 use crate::retry_forever;
 use crate::storage::Storage;
@@ -349,6 +350,8 @@ impl GasStationInitializer {
             info!("Another task is already initializing the pool. Skipping this round");
             return Ok(());
         }
+        Self::perform_consistency_check(&iota_client, storage, sponsor_address).await;
+
         let start = Instant::now();
         let balance_threshold = if matches!(mode, RunMode::Init) {
             info!("The pool has never been initialized. Initializing it for the first time");
@@ -441,6 +444,62 @@ impl GasStationInitializer {
             total_balance - new_total_balance
         );
         result
+    }
+
+    /// Performs a quick consistency check comparing registry state against network state.
+    async fn perform_consistency_check(
+        iota_client: &IotaClient,
+        storage: &Arc<dyn Storage>,
+        sponsor_address: IotaAddress,
+    ) {
+        info!("Performing quick consistency check before rescan");
+        let registry_coin_count = match storage.get_available_coin_count().await {
+            Ok(count) => count as u64,
+            Err(e) => {
+                error!(
+                    "Failed to get registry coin count for consistency check: {:?}",
+                    e
+                );
+                return;
+            }
+        };
+        let registry_balance = storage.get_available_coin_total_balance().await;
+        let (network_coin_count, network_balance) =
+            match iota_client.get_aggregate_coin_stats(sponsor_address).await {
+                Ok(stats) => stats,
+                Err(e) => {
+                    error!(
+                        "Failed to get network coin stats for consistency check: {:?}",
+                        e
+                    );
+                    return;
+                }
+            };
+        debug!(
+            registry_balance = %registry_balance,
+            network_balance = %network_balance,
+            registry_coin_count = %registry_coin_count,
+            network_coin_count = %network_coin_count,
+            "Consistency check values"
+        );
+
+        let result = validate_consistency(
+            registry_balance,
+            registry_coin_count,
+            network_balance,
+            network_coin_count,
+            None,
+            None,
+        );
+        if result.has_divergence() {
+            log_consistency_warnings(&result);
+        } else {
+            info!(
+                "Consistency check passed: registry and network are within acceptable thresholds \
+                 (balance divergence: {:.2}%, coin count divergence: {:.2}%)",
+                result.balance_divergence_percent, result.coin_count_divergence_percent
+            );
+        }
     }
 }
 
@@ -561,6 +620,41 @@ mod tests {
             "new_available_coin_count: {}, available_coin_count: {}",
             new_available_coin_count,
             available_coin_count
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_aggregate_coin_stats() {
+        telemetry_subscribers::init_for_testing();
+        let initial_balance = 1000 * NANOS_PER_IOTA;
+        let (cluster, signer) = start_iota_cluster(vec![initial_balance]).await;
+        let sponsor = signer.get_address();
+        let fullnode_url = cluster.fullnode_handle.rpc_url;
+        let iota_client = IotaClient::new(&fullnode_url, None).await;
+
+        // Get aggregate stats from network
+        let (coin_count, total_balance) = iota_client
+            .get_aggregate_coin_stats(sponsor)
+            .await
+            .expect("get_aggregate_coin_stats should succeed");
+
+        // Should have at least 1 coin with the initial balance
+        assert!(
+            coin_count >= 1,
+            "Expected at least 1 coin, got {}",
+            coin_count
+        );
+        assert!(
+            total_balance >= initial_balance,
+            "Expected at least {} balance, got {}",
+            initial_balance,
+            total_balance
+        );
+
+        tracing::debug!(
+            "Aggregate stats: coin_count={}, total_balance={}",
+            coin_count,
+            total_balance
         );
     }
 }
