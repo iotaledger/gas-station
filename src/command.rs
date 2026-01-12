@@ -10,19 +10,17 @@ use crate::gas_station_initializer::GasStationInitializer;
 use crate::iota_client::IotaClient;
 use crate::metrics::{GasStationCoreMetrics, GasStationRpcMetrics, StorageMetrics};
 use crate::rpc::GasStationServer;
-use crate::storage::connect_storage;
+use crate::storage::{connect_storage, get_storage_namespace};
 use crate::tracker::stats_tracker_storage::redis::connect_stats_storage;
 use crate::tracker::StatsTracker;
 use crate::{TRANSACTION_LOGGING_ENV_NAME, TRANSACTION_LOGGING_TARGET_NAME, VERSION};
 use arc_swap::ArcSwap;
 use clap::*;
 use iota_config::Config;
-use iota_types::base_types::IotaAddress;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::info;
-use url::Url;
 
 #[derive(Parser)]
 #[command(
@@ -125,7 +123,7 @@ impl Command {
             );
             true
         } else if self.delete_coin_registry && self.allow_reinit {
-            info!("Deleting coin registry before re-initialization");
+            info!("Deleting coin registry ");
             true
         } else {
             false
@@ -180,21 +178,4 @@ impl Command {
         .await;
         server.handle.await.unwrap();
     }
-}
-
-pub fn get_storage_namespace(network_url: &str, sponsor_address: &IotaAddress) -> String {
-    let url = Url::parse(network_url).unwrap();
-    let scheme = url.scheme();
-    let host = url.host_str().unwrap();
-    let port = if let Some(port) = url.port() {
-        port
-    } else {
-        if scheme == "https" {
-            443
-        } else {
-            80
-        }
-    };
-    let host_port = format!("{}_{}", host, port);
-    format!("{}:{}", host_port, sponsor_address.to_string())
 }

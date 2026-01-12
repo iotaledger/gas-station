@@ -7,6 +7,7 @@ use crate::storage::redis::RedisStorage;
 use crate::types::{GasCoin, ReservationID};
 use iota_types::base_types::{IotaAddress, ObjectID};
 use std::sync::Arc;
+use url::Url;
 
 mod redis;
 
@@ -112,6 +113,24 @@ pub async fn connect_storage(
     storage
 }
 
+/// Generate the namespace for the storage based on the network URL and the sponsor address.
+pub fn get_storage_namespace(network_url: &str, sponsor_address: &IotaAddress) -> String {
+    let url = Url::parse(network_url).unwrap();
+    let scheme = url.scheme();
+    let host = url.host_str().unwrap();
+    let port = if let Some(port) = url.port() {
+        port
+    } else {
+        if scheme == "https" {
+            443
+        } else {
+            80
+        }
+    };
+    let host_port = format!("{}_{}", host, port);
+    format!("{}:{}", host_port, sponsor_address.to_string())
+}
+
 #[cfg(test)]
 pub async fn connect_storage_for_testing_with_config(
     config: &GasStationStorageConfig,
@@ -126,7 +145,7 @@ pub async fn connect_storage_for_testing_with_config(
     let storage = connect_storage(
         config,
         sponsor_address,
-        network_url,
+        &get_storage_namespace(network_url, &sponsor_address),
         StorageMetrics::new_for_testing(),
     )
     .await;
