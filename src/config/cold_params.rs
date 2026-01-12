@@ -1,12 +1,13 @@
+// Copyright (c) Mysten Labs, Inc.
+// Modifications Copyright (c) 2025 IOTA Stiftung
+// SPDX-License-Identifier: Apache-2.0
+
 use std::sync::Arc;
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    config::GasStationConfig,
-    storage::{SetGetStorage, Storage},
-};
+use crate::{config::GasStationConfig, storage::Storage};
 
 /// This struct contains the cold params. The cold params requires full rescan of the coins registry.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -29,7 +30,7 @@ impl ColdParams {
         self != other
     }
 
-    /// Returns the details of the changes compared to the other cold params.
+    /// Returns the details of the changes between the current cold params and the other cold params.
     pub fn changes_details(&self, other: &ColdParams) -> Vec<ColdParamChange> {
         let mut changes = Vec::<ColdParamChange>::new();
         if self.target_init_balance != other.target_init_balance {
@@ -44,7 +45,7 @@ impl ColdParams {
 
 pub type ColdParamChange = String;
 
-/// Checks if the cold params has changes compared to the storage and returns the changes.
+/// Checks if the cold params have changes compared to the storage and returns the changes.
 pub async fn check_cold_params_changes(
     current_cold_params: &ColdParams,
     storage: &Arc<dyn Storage>,
@@ -55,8 +56,8 @@ pub async fn check_cold_params_changes(
         .await
         .context("unable to get cold params from storage")?;
 
-    // if there is no cold params, it means that we have the first run
-    // so if none, there is no changes, so we should only save the current cold params
+    // If there are no cold params, it means this is the first run.
+    // In this case, there are no changes, so we only need to save the current cold params.
     if maybe_cold_params.is_none() {
         storage
             .set_data(key, serde_json::to_vec(current_cold_params).unwrap())

@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use fastcrypto::hash::*;
 
 use anyhow::Result;
-use iota_types::base_types::IotaAddress;
 use itertools::Itertools;
 use redis::aio::ConnectionManager;
 use script_manager::ScriptManager;

@@ -90,7 +90,7 @@ pub fn log_consistency_warnings(result: &ConsistencyCheckResult) {
             network_balance = %result.network_balance,
             divergence_percent = format!("{:.2}%", result.balance_divergence_percent),
             "Consistency check: Balance divergence detected between registry and network. \
-             This may indicate registry inconsistency or in-flight transactions."
+             This may indicate registry inconsistency or in-flight transactions. Please consider re-initializing the gas station. Use the --allow-reinit and --delete-coin-registry flags to allow re-initialization."
         );
     }
 
@@ -100,7 +100,7 @@ pub fn log_consistency_warnings(result: &ConsistencyCheckResult) {
             network_coin_count = %result.network_coin_count,
             divergence_percent = format!("{:.2}%", result.coin_count_divergence_percent),
             "Consistency check: Coin count divergence detected between registry and network. \
-             This may indicate registry inconsistency or missing coins."
+             This may indicate registry inconsistency or missing coins. Please consider re-initializing the gas station. Use the --allow-reinit and --delete-coin-registry flags to allow re-initialization."
         );
     }
 }

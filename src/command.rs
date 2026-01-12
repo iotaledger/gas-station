@@ -42,6 +42,14 @@ pub struct Command {
         default_value_t = false
     )]
     allow_reinit: bool,
+    #[arg(
+        env,
+        short = 'd',
+        long,
+        help = "Delete the coin registry before starting the gas station. This will delete all data associated with the sponsor address.",
+        default_value_t = false
+    )]
+    delete_coin_registry: bool,
 }
 
 impl Command {
@@ -109,12 +117,15 @@ impl Command {
 
         let force_full_rescan = if !cold_params_changes.is_empty() {
             if !self.allow_reinit {
-                panic!("Configuration changes requiring initialization detected: {} but automatic reinitialization is not allowed. Please restart the gas station with the --allow-reinit flag to allow full rescan.", cold_params_changes.join(", "));
+                panic!("Configuration changes requiring re-initialization detected: {} but automatic reinitialization is not allowed. Please restart the gas station with the --allow-reinit flag to allow full rescan.", cold_params_changes.join(", "));
             }
             info!(
-                "Configuration changes requiring initialization detected: {}",
+                "Configuration changes requiring re-initialization detected: {}",
                 cold_params_changes.join(", ")
             );
+            true
+        } else if self.delete_coin_registry && self.allow_reinit {
+            info!("Deleting coin registry before re-initialization");
             true
         } else {
             false
