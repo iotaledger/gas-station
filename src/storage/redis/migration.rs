@@ -31,9 +31,13 @@ impl MigrationResult {
     }
 }
 
-/// Lua script to check if old namespace exists
-fn check_old_namespace_exists_script() -> Script {
-    Script::new(include_str!("lua_scripts/check_old_namespace_exists.lua"))
+/// Schema version for the current data structure format.
+/// Increment this when making breaking changes to the Redis data structure.
+pub const CURRENT_SCHEMA_VERSION: i32 = 1;
+
+/// Lua script to get the schema version
+fn get_schema_version_script() -> Script {
+    Script::new(include_str!("lua_scripts/get_schema_version.lua"))
 }
 
 /// Lua script to migrate keys from old namespace to new namespace
@@ -41,17 +45,50 @@ fn migrate_keys_script() -> Script {
     Script::new(include_str!("lua_scripts/migrate_keys.lua"))
 }
 
-/// Check if old namespace format exists for the given sponsor address.
-pub async fn check_old_namespace_exists(
+/// Schema version result from Redis check.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SchemaVersionResult {
+    /// No data exists - fresh installation
+    NotInitialized,
+    /// Old namespace format exists (version 0), needs migration
+    OldFormat,
+    /// Current schema version (migrated or newly initialized)
+    Version(i32),
+}
+
+/// Get the schema version of the Redis data.
+/// 
+/// Returns:
+/// - `SchemaVersionResult::Version(n)` if schema_version key exists with value n
+/// - `SchemaVersionResult::OldFormat` if old namespace has data but no schema_version (needs migration)
+/// - `SchemaVersionResult::NotInitialized` if no data exists (fresh installation)
+pub async fn get_schema_version(
     conn: &mut ConnectionManager,
     sponsor_address: &str,
-) -> anyhow::Result<bool> {
-    let result: i32 = check_old_namespace_exists_script()
+    new_namespace: &str,
+) -> anyhow::Result<SchemaVersionResult> {
+    let result: i32 = get_schema_version_script()
         .arg(sponsor_address)
+        .arg(new_namespace)
         .invoke_async(conn)
         .await?;
 
-    Ok(result == 1)
+    match result {
+        -1 => Ok(SchemaVersionResult::NotInitialized),
+        0 => Ok(SchemaVersionResult::OldFormat),
+        v => Ok(SchemaVersionResult::Version(v)),
+    }
+}
+
+/// Check if old namespace format exists for the given sponsor address.
+/// This is a convenience wrapper around `get_schema_version`.
+pub async fn check_old_namespace_exists(
+    conn: &mut ConnectionManager,
+    sponsor_address: &str,
+    new_namespace: &str,
+) -> anyhow::Result<bool> {
+    let result = get_schema_version(conn, sponsor_address, new_namespace).await?;
+    Ok(matches!(result, SchemaVersionResult::OldFormat))
 }
 
 /// Migrate keys from old namespace format to new namespace format.
@@ -80,33 +117,45 @@ pub async fn maybe_migrate(
     sponsor_address: &str,
     new_namespace: &str,
 ) -> anyhow::Result<Option<MigrationResult>> {
-    let old_exists = check_old_namespace_exists(conn, sponsor_address).await?;
-    if !old_exists {
-        debug!(
-            "No old namespace found for sponsor {}. No migration needed.",
-            sponsor_address
-        );
-        return Ok(None);
-    }
-    info!(
-        "Old namespace found for sponsor {}. Starting migration to new namespace: {}",
-        sponsor_address, new_namespace
-    );
+    let schema_version = get_schema_version(conn, sponsor_address, new_namespace).await?;
+    
+    match schema_version {
+        SchemaVersionResult::NotInitialized => {
+            debug!(
+                "No data found for sponsor {}. Fresh installation, no migration needed.",
+                sponsor_address
+            );
+            Ok(None)
+        }
+        SchemaVersionResult::Version(v) => {
+            debug!(
+                "Schema version {} found for sponsor {}. No migration needed.",
+                v, sponsor_address
+            );
+            Ok(None)
+        }
+        SchemaVersionResult::OldFormat => {
+            info!(
+                "Old namespace format (version 0) found for sponsor {}. Starting migration to new namespace: {}",
+                sponsor_address, new_namespace
+            );
 
-    let result = migrate_keys(conn, sponsor_address, new_namespace).await?;
-    if result.is_success() {
-        info!(
-            "Migration completed successfully. Migrated: {}, Skipped: {}, Errors: {}",
-            result.migrated_count, result.skipped_count, result.error_count
-        );
-    } else {
-        warn!(
-            "Migration completed with errors. Migrated: {}, Skipped: {}, Errors: {}",
-            result.migrated_count, result.skipped_count, result.error_count
-        );
-    }
+            let result = migrate_keys(conn, sponsor_address, new_namespace).await?;
+            if result.is_success() {
+                info!(
+                    "Migration completed successfully. Migrated: {}, Skipped: {}, Errors: {}",
+                    result.migrated_count, result.skipped_count, result.error_count
+                );
+            } else {
+                warn!(
+                    "Migration completed with errors. Migrated: {}, Skipped: {}, Errors: {}",
+                    result.migrated_count, result.skipped_count, result.error_count
+                );
+            }
 
-    Ok(Some(result))
+            Ok(Some(result))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -127,50 +176,117 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_check_old_namespace_not_exists() {
+    async fn test_schema_version_fresh_installation() {
         let mut conn = setup_test_connection().await;
         flush_db(&mut conn).await;
 
         let sponsor = "0x0000000000000000000000000000000000000000000000000000000000000000";
-        let exists = check_old_namespace_exists(&mut conn, sponsor)
+        let new_namespace = "test_host_443:0x0000000000000000000000000000000000000000000000000000000000000000:registry";
+        
+        let result = get_schema_version(&mut conn, sponsor, new_namespace)
             .await
             .unwrap();
 
+        assert_eq!(result, SchemaVersionResult::NotInitialized);
+        
+        // check_old_namespace_exists should return false for fresh installation
+        let exists = check_old_namespace_exists(&mut conn, sponsor, new_namespace)
+            .await
+            .unwrap();
         assert!(!exists);
     }
 
     #[tokio::test]
-    async fn test_check_old_namespace_exists_with_initialized_flag() {
+    async fn test_schema_version_old_format_with_initialized_flag() {
         let mut conn = setup_test_connection().await;
         flush_db(&mut conn).await;
 
         let sponsor = "0x1111111111111111111111111111111111111111111111111111111111111111";
+        let new_namespace = "test_host_443:0x1111111111111111111111111111111111111111111111111111111111111111:registry";
         let old_key = format!("{}:initialized", sponsor);
 
         conn.set::<_, _, ()>(&old_key, "1").await.unwrap();
 
-        let exists = check_old_namespace_exists(&mut conn, sponsor)
+        let result = get_schema_version(&mut conn, sponsor, new_namespace)
+            .await
+            .unwrap();
+        assert_eq!(result, SchemaVersionResult::OldFormat);
+
+        let exists = check_old_namespace_exists(&mut conn, sponsor, new_namespace)
             .await
             .unwrap();
         assert!(exists);
     }
 
     #[tokio::test]
-    async fn test_check_old_namespace_exists_with_coins() {
+    async fn test_schema_version_old_format_with_coins() {
         let mut conn = setup_test_connection().await;
         flush_db(&mut conn).await;
 
         let sponsor = "0x2222222222222222222222222222222222222222222222222222222222222222";
+        let new_namespace = "test_host_443:0x2222222222222222222222222222222222222222222222222222222222222222:registry";
         let old_key = format!("{}:available_gas_coins", sponsor);
 
         conn.rpush::<_, _, ()>(&old_key, "100,0x123,1,abc")
             .await
             .unwrap();
 
-        let exists = check_old_namespace_exists(&mut conn, sponsor)
+        let result = get_schema_version(&mut conn, sponsor, new_namespace)
+            .await
+            .unwrap();
+        assert_eq!(result, SchemaVersionResult::OldFormat);
+
+        let exists = check_old_namespace_exists(&mut conn, sponsor, new_namespace)
             .await
             .unwrap();
         assert!(exists);
+    }
+
+    #[tokio::test]
+    async fn test_schema_version_already_migrated() {
+        let mut conn = setup_test_connection().await;
+        flush_db(&mut conn).await;
+
+        let sponsor = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let new_namespace = "test_host_443:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:registry";
+        
+        // Set schema_version in new namespace
+        conn.set::<_, _, ()>(format!("{}:schema_version", new_namespace), "1")
+            .await
+            .unwrap();
+
+        let result = get_schema_version(&mut conn, sponsor, new_namespace)
+            .await
+            .unwrap();
+        assert_eq!(result, SchemaVersionResult::Version(1));
+
+        // check_old_namespace_exists should return false when schema_version exists
+        let exists = check_old_namespace_exists(&mut conn, sponsor, new_namespace)
+            .await
+            .unwrap();
+        assert!(!exists);
+    }
+
+    #[tokio::test]
+    async fn test_schema_version_prioritizes_over_old_data() {
+        let mut conn = setup_test_connection().await;
+        flush_db(&mut conn).await;
+
+        let sponsor = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let new_namespace = "test_host_443:0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:registry";
+        
+        // Set both old data AND schema_version - schema_version should win
+        conn.set::<_, _, ()>(format!("{}:initialized", sponsor), "1")
+            .await
+            .unwrap();
+        conn.set::<_, _, ()>(format!("{}:schema_version", new_namespace), "1")
+            .await
+            .unwrap();
+
+        let result = get_schema_version(&mut conn, sponsor, new_namespace)
+            .await
+            .unwrap();
+        assert_eq!(result, SchemaVersionResult::Version(1));
     }
 
     #[tokio::test]
@@ -239,6 +355,13 @@ mod tests {
         assert_eq!(new_coins.len(), 2);
         assert_eq!(new_coins[0], "100,0x1,1,a");
         assert_eq!(new_coins[1], "200,0x2,2,b");
+
+        // Verify schema_version is set to 1 after migration
+        let schema_version: String = conn
+            .get(format!("{}:schema_version", new_namespace))
+            .await
+            .unwrap();
+        assert_eq!(schema_version, "1");
     }
 
     #[tokio::test]
@@ -424,5 +547,24 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(coins.len(), 10);
+
+        // Verify schema_version is set to 1
+        let schema_version: String = conn
+            .get(format!("{}:schema_version", new_namespace))
+            .await
+            .unwrap();
+        assert_eq!(schema_version, "1");
+
+        // Running maybe_migrate again should return None (no migration needed)
+        let result_again = maybe_migrate(&mut conn, sponsor, new_namespace)
+            .await
+            .unwrap();
+        assert!(result_again.is_none());
+
+        // Schema version should still be Version(1)
+        let version_result = get_schema_version(&mut conn, sponsor, new_namespace)
+            .await
+            .unwrap();
+        assert_eq!(version_result, SchemaVersionResult::Version(1));
     }
 }

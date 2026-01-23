@@ -21,7 +21,6 @@ use tracing::{debug, info};
 pub struct RedisStorage {
     conn_manager: ConnectionManager,
     sponsor_str: String,
-    // Namespace for the keys in the redis database. This is used to avoid keys collision between different networks.
     namespace: String,
     metrics: Arc<StorageMetrics>,
 }

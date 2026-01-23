@@ -31,6 +31,12 @@ end
 if count > 0 then
 	local initialized_key = namespace .. ':initialized'
     redis.call('SET', initialized_key, 1)
+    -- Set schema_version to 1 for newly initialized namespaces
+    local schema_version_key = namespace .. ':schema_version'
+    local schema_version = redis.call('GET', schema_version_key)
+    if not schema_version then
+        redis.call('SET', schema_version_key, 1)
+    end
 end
 
 local t_available_coin_total_balance = namespace .. ':available_coin_total_balance'

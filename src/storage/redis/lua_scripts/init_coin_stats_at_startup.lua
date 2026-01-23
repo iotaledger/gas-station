@@ -3,7 +3,8 @@
 
 -- This script is used to initialize a few coin related statistics for a sponsor address at startup.
 -- Including the total balance and the total coin count.
--- The first argument is the sponsor's address.
+-- It also ensures the schema_version is set for new installations.
+-- The first argument is the sponsor's address (namespace).
 -- Returns a table with the new coin count and new total balance.
 
 local namespace = ARGV[1]
@@ -29,6 +30,14 @@ if not total_balance then
         total_balance = total_balance + tonumber(balance)
     end
     redis.call('SET', t_available_coin_total_balance, total_balance)
+end
+
+-- Ensure schema_version is set (for new installations or upgrades)
+-- This marks the namespace as using the current data structure format.
+local schema_version_key = namespace .. ':schema_version'
+local schema_version = redis.call('GET', schema_version_key)
+if not schema_version then
+    redis.call('SET', schema_version_key, 1)
 end
 
 return {coin_count, total_balance}

@@ -87,5 +87,9 @@ repeat
     end
 until cursor == "0"
 
+-- Set schema_version to 1 in the new namespace to mark it as migrated
+local schema_version_key = new_namespace .. ':schema_version'
+redis.call('SET', schema_version_key, 1)
+
 return {migrated_count, skipped_count, error_count}
 
