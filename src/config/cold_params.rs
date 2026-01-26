@@ -28,8 +28,8 @@ impl ColdParams {
         }
     }
 
-    /// Checks if the cold params has changes compared to the other cold params.
-    pub fn has_changes(&self, other: &ColdParams) -> bool {
+    /// Checks if the cold params is different from the other cold params.
+    pub fn is_different(&self, other: &ColdParams) -> bool {
         self != other
     }
 
@@ -44,40 +44,48 @@ impl ColdParams {
         }
         changes
     }
-}
 
-pub type ColdParamChange = String;
+    /// Checks if the cold params have changes compared to the storage and returns the changes.
+    pub async fn check_if_changed(
+        self: &ColdParams,
+        storage: &Arc<dyn Storage>,
+        key: &str,
+    ) -> anyhow::Result<Vec<ColdParamChange>> {
+        let maybe_cold_params = storage
+            .get_data(key)
+            .await
+            .context("unable to get cold params from storage")?;
 
-/// Checks if the cold params have changes compared to the storage and returns the changes.
-pub async fn check_cold_params_changes(
-    current_cold_params: &ColdParams,
-    storage: &Arc<dyn Storage>,
-    key: &str,
-) -> anyhow::Result<Vec<ColdParamChange>> {
-    let maybe_cold_params = storage
-        .get_data(key)
-        .await
-        .context("unable to get cold params from storage")?;
+        // If there are no cold params, it means this is the first run.
+        // In this case, there are no changes, so we only need to save the current cold params.
+        if maybe_cold_params.is_none() {
+            storage
+                .set_data(
+                    key,
+                    serde_json::to_vec(&self)
+                        .context("unable to serialize cold params and save to storage")?,
+                )
+                .await?;
+            return Ok(vec![]);
+        }
 
-    // If there are no cold params, it means this is the first run.
-    // In this case, there are no changes, so we only need to save the current cold params.
-    if maybe_cold_params.is_none() {
-        storage
-            .set_data(key, serde_json::to_vec(current_cold_params).unwrap())
-            .await?;
-        return Ok(vec![]);
-    }
-
-    let old_cold_params = serde_json::from_slice(&maybe_cold_params.unwrap()).context(
+        let old_cold_params = serde_json::from_slice(&maybe_cold_params.unwrap()).context(
         format!("unable to deserialize cold params. The entry with the key {key} is not a valid cold params structure",
     ))?;
 
-    let changes = current_cold_params.changes_details(&old_cold_params);
-    storage
-        .set_data(key, serde_json::to_vec(current_cold_params).unwrap())
-        .await?;
-    Ok(changes)
+        let changes = self.changes_details(&old_cold_params);
+        storage
+            .set_data(
+                key,
+                serde_json::to_vec(&self)
+                    .context("unable to serialize cold params and save to storage")?,
+            )
+            .await?;
+        Ok(changes)
+    }
 }
+
+pub type ColdParamChange = String;
 
 #[cfg(test)]
 mod tests {
@@ -88,11 +96,11 @@ mod tests {
         let params = ColdParams {
             target_init_balance: Some(100),
         };
-        assert!(!params.has_changes(&params));
-        assert!(params.has_changes(&ColdParams {
+        assert!(!params.is_different(&params));
+        assert!(params.is_different(&ColdParams {
             target_init_balance: Some(200),
         }));
-        assert!(params.has_changes(&ColdParams {
+        assert!(params.is_different(&ColdParams {
             target_init_balance: None,
         }));
     }

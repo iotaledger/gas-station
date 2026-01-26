@@ -2,7 +2,7 @@
 // Modifications Copyright (c) 2025 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::config::cold_params::{check_cold_params_changes, ColdParams};
+use crate::config::cold_params::ColdParams;
 use crate::config::GasStationConfig;
 use crate::gas_station::gas_station_core::GasStationContainer;
 use crate::gas_station::rescan_trigger::RescanGasObjectsTrigger;
@@ -105,13 +105,10 @@ impl Command {
         );
         let rescan_trigger_receiver = rescan_config.create_receiver();
 
-        let cold_params_changes = check_cold_params_changes(
-            &cold_params,
-            &storage,
-            &format!("{namespace_prefix}:cold_params"),
-        )
-        .await
-        .expect("failed to check cold params changes");
+        let cold_params_changes = cold_params
+            .check_if_changed(&storage, &format!("{namespace_prefix}:cold_params"))
+            .await
+            .expect("failed to check cold params changes");
 
         let force_full_rescan = if !cold_params_changes.is_empty() {
             if !self.allow_reinit {
