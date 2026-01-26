@@ -12,6 +12,8 @@ use url::Url;
 mod redis;
 
 pub const MAX_GAS_PER_QUERY: usize = 256;
+pub const MAINTENANCE_MODE_ERROR_MESSAGE: &str =
+    "Gas station is in maintenance mode. Please try again later.";
 
 /// Defines the trait for a storage that manages gas coins.
 /// It is expected to support concurrent access and manage atomicity internally.

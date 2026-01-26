@@ -13,6 +13,7 @@ use crate::rpc::client::GasStationRpcClient;
 use crate::rpc::rpc_types::{
     ExecuteTxRequest, ExecuteTxResponse, GasStationResponse, ReserveGasRequest, ReserveGasResponse,
 };
+use crate::storage::MAINTENANCE_MODE_ERROR_MESSAGE;
 use crate::tracker::StatsTracker;
 use crate::{read_auth_env, VERSION};
 use arc_swap::ArcSwap;
@@ -231,10 +232,14 @@ async fn reserve_gas_impl(
         Err(err) => {
             error!("Failed to reserve gas: {:?}", err);
             metrics.num_failed_reserve_gas_requests.inc();
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ReserveGasResponse::new_err(err)),
-            )
+
+            let error_code = if err.to_string().contains(MAINTENANCE_MODE_ERROR_MESSAGE) {
+                StatusCode::SERVICE_UNAVAILABLE
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+
+            (error_code, Json(ReserveGasResponse::new_err(err)))
         }
     }
 }

@@ -6,8 +6,9 @@ mod script_manager;
 
 use crate::metrics::StorageMetrics;
 use crate::storage::redis::script_manager::ScriptManager;
-use crate::storage::{SetGetStorage, Storage};
+use crate::storage::{SetGetStorage, Storage, MAINTENANCE_MODE_ERROR_MESSAGE};
 use crate::types::{GasCoin, ReservationID};
+use anyhow::bail;
 use chrono::Utc;
 use iota_types::base_types::{IotaAddress, ObjectDigest, ObjectID, SequenceNumber};
 use redis::aio::ConnectionManager;
@@ -125,18 +126,14 @@ impl Storage for RedisStorage {
             .await?;
         // The script returns (-1, []) if the gas station is in maintenance mode.
         if reservation_id_raw == -1 {
-            return Err(anyhow::anyhow!(
-                "Gas station is in maintenance mode. Please try again later."
-            ));
+            bail!(MAINTENANCE_MODE_ERROR_MESSAGE);
         }
         let reservation_id = reservation_id_raw as ReservationID;
         // The script returns (0, []) if it is unable to find enough coins to reserve.
         // We choose to handle the error here instead of inside the script so that we could
         // provide a more readable error message.
         if coins.is_empty() {
-            return Err(anyhow::anyhow!(
-                "Unable to reserve gas coins for the given budget."
-            ));
+            bail!("Unable to reserve gas coins for the given budget.");
         }
         let gas_coins: Vec<_> = coins
             .into_iter()
