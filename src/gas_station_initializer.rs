@@ -382,8 +382,9 @@ impl GasStationInitializer {
         if target_init_coin_balance * 99 <= gas_cost_per_object {
             let err_msg = format!(
                 "target_init_coin_balance ({}) is too small relative to gas_cost_per_object ({}). \
-                 Minimum required: target_init_coin_balance > gas_cost_per_object / 99 = {}. \
-                 Please increase target_init_coin_balance to prevent registry inconsistency.",
+                 target_init_coin_balance must be greater than gas_cost_per_object / 99 \
+                 to prevent registry inconsistencies. Please increase target_init_coin_balance  \
+                 to at least {} for current network and coin setup.",
                 target_init_coin_balance,
                 gas_cost_per_object,
                 gas_cost_per_object / 99 + 1
