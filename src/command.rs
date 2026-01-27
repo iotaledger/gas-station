@@ -34,6 +34,13 @@ pub struct Command {
     config_path: PathBuf,
     #[arg(
         env,
+        long,
+        help = "Ignore initialization and maintenance locks. This is useful when some unexpected error happens during the initialization or maintenance process and you want to restart the gas station without waiting for the locks to expire.",
+        default_value_t = false
+    )]
+    ignore_locks: bool,
+    #[arg(
+        env,
         short,
         long,
         help = "Allow reinitialization of the gas station when the target init balance parameter changes",
@@ -120,7 +127,7 @@ impl Command {
             );
             true
         } else if self.delete_coin_registry && self.allow_reinit {
-            info!("Deleting coin registry ");
+            info!("The coin registry will be deleted and a new initialization will be started");
             true
         } else {
             false
@@ -134,6 +141,7 @@ impl Command {
                 signer.clone(),
                 rescan_trigger_receiver,
                 force_full_rescan,
+                self.ignore_locks,
             )
             .await;
             Some(task)

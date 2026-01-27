@@ -57,11 +57,6 @@ pub enum SchemaVersionResult {
 }
 
 /// Get the schema version of the Redis data.
-/// 
-/// Returns:
-/// - `SchemaVersionResult::Version(n)` if schema_version key exists with value n
-/// - `SchemaVersionResult::OldFormat` if old namespace has data but no schema_version (needs migration)
-/// - `SchemaVersionResult::NotInitialized` if no data exists (fresh installation)
 pub async fn get_schema_version(
     conn: &mut ConnectionManager,
     sponsor_address: &str,
@@ -118,7 +113,7 @@ pub async fn maybe_migrate(
     new_namespace: &str,
 ) -> anyhow::Result<Option<MigrationResult>> {
     let schema_version = get_schema_version(conn, sponsor_address, new_namespace).await?;
-    
+
     match schema_version {
         SchemaVersionResult::NotInitialized => {
             debug!(
@@ -182,13 +177,13 @@ mod tests {
 
         let sponsor = "0x0000000000000000000000000000000000000000000000000000000000000000";
         let new_namespace = "test_host_443:0x0000000000000000000000000000000000000000000000000000000000000000:registry";
-        
+
         let result = get_schema_version(&mut conn, sponsor, new_namespace)
             .await
             .unwrap();
 
         assert_eq!(result, SchemaVersionResult::NotInitialized);
-        
+
         // check_old_namespace_exists should return false for fresh installation
         let exists = check_old_namespace_exists(&mut conn, sponsor, new_namespace)
             .await
@@ -249,7 +244,7 @@ mod tests {
 
         let sponsor = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         let new_namespace = "test_host_443:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:registry";
-        
+
         // Set schema_version in new namespace
         conn.set::<_, _, ()>(format!("{}:schema_version", new_namespace), "1")
             .await
@@ -274,7 +269,7 @@ mod tests {
 
         let sponsor = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         let new_namespace = "test_host_443:0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:registry";
-        
+
         // Set both old data AND schema_version - schema_version should win
         conn.set::<_, _, ()>(format!("{}:initialized", sponsor), "1")
             .await
