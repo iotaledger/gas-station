@@ -97,3 +97,46 @@ In case you use Docker Compose, please edit the docker-compose file:
     environment:
     - RUST_LOG=iota_gas_station::access_controller=trace
 ```
+
+## Lock Acquisition Failed During Startup
+
+**Problem:**
+
+When starting the Gas Station, you encounter one of the following error messages:
+
+```log
+Another instance is already performing maintenance. Please wait for it to complete or use the --ignore-locks flag to force a full rescan.
+```
+
+or
+
+```log
+Another task is already initializing the pool. Please wait for it to complete or use the --ignore-locks flag to force a new initialization.
+```
+
+**Explanation:**
+
+The Gas Station uses distributed locks stored in Redis to prevent multiple instances from simultaneously performing critical operations:
+
+- **Maintenance lock:** Acquired during full rescan operations (`--force-full-rescan`) to prevent concurrent registry cleanup and coin rescanning.
+- **Initialization lock:** Acquired during coin pool initialization to prevent multiple instances from splitting coins simultaneously.
+
+These locks have a maximum duration (12 hours by default) and are automatically released when the operation completes. However, if the Gas Station crashes or is forcefully terminated during one of these operations, the lock may remain in Redis until it expires naturally.
+
+**Solution:**
+
+If you are certain that no other Gas Station instance is currently performing the locked operation (e.g., after a crash or unexpected termination), you can bypass the lock check using the `--ignore-locks` flag:
+
+```bash
+./iota-gas-station --config-path config.yaml --ignore-locks
+```
+
+Or with Docker Compose, add the flag to the command:
+
+```yaml
+  iota-gas-station:
+  ...
+    command: ["--config-path", "/app/config.yaml", "--ignore-locks"]
+```
+
+> **Warning:** Only use `--ignore-locks` when you are confident that no other instance is actively performing the locked operation. Running concurrent initialization or maintenance operations can lead to data inconsistencies in the coin registry.
