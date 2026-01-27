@@ -717,7 +717,7 @@ mod tests {
 
     #[tokio::test]
     #[should_panic(
-        expected = "Another instance is already performing maintenance. Please wait for it to complete or manually release the maintenance lock."
+        expected = "Another instance is already performing maintenance. Please wait for it to complete or use the --ignore-locks flag to force a full rescan."
     )]
     async fn test_maintenance_lock_blocks_without_ignore_locks() {
         telemetry_subscribers::init_for_testing();

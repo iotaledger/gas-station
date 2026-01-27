@@ -33,6 +33,7 @@ impl MigrationResult {
 
 /// Schema version for the current data structure format.
 /// Increment this when making breaking changes to the Redis data structure.
+#[allow(dead_code)]
 pub const CURRENT_SCHEMA_VERSION: i32 = 1;
 
 /// Lua script to get the schema version
@@ -73,17 +74,6 @@ pub async fn get_schema_version(
         0 => Ok(SchemaVersionResult::OldFormat),
         v => Ok(SchemaVersionResult::Version(v)),
     }
-}
-
-/// Check if old namespace format exists for the given sponsor address.
-/// This is a convenience wrapper around `get_schema_version`.
-pub async fn check_old_namespace_exists(
-    conn: &mut ConnectionManager,
-    sponsor_address: &str,
-    new_namespace: &str,
-) -> anyhow::Result<bool> {
-    let result = get_schema_version(conn, sponsor_address, new_namespace).await?;
-    Ok(matches!(result, SchemaVersionResult::OldFormat))
 }
 
 /// Migrate keys from old namespace format to new namespace format.
@@ -183,12 +173,6 @@ mod tests {
             .unwrap();
 
         assert_eq!(result, SchemaVersionResult::NotInitialized);
-
-        // check_old_namespace_exists should return false for fresh installation
-        let exists = check_old_namespace_exists(&mut conn, sponsor, new_namespace)
-            .await
-            .unwrap();
-        assert!(!exists);
     }
 
     #[tokio::test]
@@ -206,11 +190,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result, SchemaVersionResult::OldFormat);
-
-        let exists = check_old_namespace_exists(&mut conn, sponsor, new_namespace)
-            .await
-            .unwrap();
-        assert!(exists);
     }
 
     #[tokio::test]
@@ -230,11 +209,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result, SchemaVersionResult::OldFormat);
-
-        let exists = check_old_namespace_exists(&mut conn, sponsor, new_namespace)
-            .await
-            .unwrap();
-        assert!(exists);
     }
 
     #[tokio::test]
@@ -254,12 +228,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result, SchemaVersionResult::Version(1));
-
-        // check_old_namespace_exists should return false when schema_version exists
-        let exists = check_old_namespace_exists(&mut conn, sponsor, new_namespace)
-            .await
-            .unwrap();
-        assert!(!exists);
     }
 
     #[tokio::test]
