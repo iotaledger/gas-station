@@ -163,7 +163,7 @@ When a cold param change is detected, the Gas Station refuses to start automatic
 
 1. Full re-initialization deletes the existing coin registry and rescans all coins from the network
 2. The process can take significant time depending on the number of coins
-3. During re-initialization, the instance enters maintenance mode, which affects all other running instances
+3. During re-initialization, the instance enters maintenance mode, which blocks all coin reservation requests on the current and all other running instances
 
 **Solution:**
 
