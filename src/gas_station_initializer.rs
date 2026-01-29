@@ -271,7 +271,7 @@ impl GasStationInitializer {
         }
     }
 
-    // Performs full rescan operations while holding the maintenance lock.
+    /// Performs full rescan operations while holding the maintenance lock.
     async fn clean_and_rescan_registry(
         iota_client: IotaClient,
         storage: &Arc<dyn Storage>,
