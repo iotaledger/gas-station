@@ -3,21 +3,22 @@
 
 -- This script is used to initialize a few coin related statistics for a sponsor address at startup.
 -- Including the total balance and the total coin count.
--- The first argument is the sponsor's address.
+-- It also ensures the schema_version is set for new installations.
+-- The first argument is the sponsor's address (namespace).
 -- Returns a table with the new coin count and new total balance.
 
-local sponsor_address = ARGV[1]
+local namespace = ARGV[1]
 
-local t_available_gas_coins = sponsor_address .. ':available_gas_coins'
+local t_available_gas_coins = namespace .. ':available_gas_coins'
 
-local t_available_coin_count = sponsor_address .. ':available_coin_count'
+local t_available_coin_count = namespace .. ':available_coin_count'
 local coin_count = redis.call('GET', t_available_coin_count)
 if not coin_count then
     coin_count = redis.call('LLEN', t_available_gas_coins)
     redis.call('SET', t_available_coin_count, coin_count)
 end
 
-local t_available_coin_total_balance = sponsor_address .. ':available_coin_total_balance'
+local t_available_coin_total_balance = namespace .. ':available_coin_total_balance'
 local total_balance = redis.call('GET', t_available_coin_total_balance)
 if not total_balance then
     local elements = redis.call('LRANGE', t_available_gas_coins, 0, -1)
@@ -29,6 +30,14 @@ if not total_balance then
         total_balance = total_balance + tonumber(balance)
     end
     redis.call('SET', t_available_coin_total_balance, total_balance)
+end
+
+-- Ensure schema_version is set (for new installations or upgrades)
+-- This marks the namespace as using the current data structure format.
+local schema_version_key = namespace .. ':schema_version'
+local schema_version = redis.call('GET', schema_version_key)
+if not schema_version then
+    redis.call('SET', schema_version_key, 1)
 end
 
 return {coin_count, total_balance}

@@ -1,4 +1,5 @@
 // Copyright (c) Mysten Labs, Inc.
+// Modifications Copyright (c) 2026 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::rpc::rpc_types::ExecuteTransactionRequestType;
@@ -76,6 +77,44 @@ impl IotaClient {
             }
         }
         coins
+    }
+
+    /// Fetches aggregate statistics of all IOTA coins owned by the given address from the network.
+    /// Returns (total_coin_count, total_balance) or an error if the network request fails.
+    pub async fn get_aggregate_coin_stats(
+        &self,
+        address: IotaAddress,
+    ) -> anyhow::Result<(u64, u64)> {
+        debug!(
+            "Querying aggregate coin stats for sponsor address {}",
+            address
+        );
+        let mut cursor = None;
+        let mut total_count: u64 = 0;
+        let mut total_balance: u64 = 0;
+        loop {
+            let page = retry_with_max_attempts!(
+                async {
+                    self.iota_client
+                        .coin_read_api()
+                        .get_coins(address, None, cursor, None)
+                        .await
+                        .map_err(anyhow::Error::from)
+                        .tap_err(|err| debug!("Failed to get owned gas coins: {:?}", err))
+                },
+                3
+            )?;
+            for coin in page.data {
+                total_count += 1;
+                total_balance += coin.balance;
+            }
+            if page.has_next_page {
+                cursor = page.next_cursor;
+            } else {
+                break;
+            }
+        }
+        Ok((total_count, total_balance))
     }
 
     pub async fn get_reference_gas_price(&self) -> u64 {

@@ -1,4 +1,5 @@
 -- Copyright (c) Mysten Labs, Inc.
+-- Modifications Copyright (c) 2025 IOTA Stiftung
 -- SPDX-License-Identifier: Apache-2.0
 
 -- This script is used to reserve gas coins for a sponsor address.
@@ -9,17 +10,27 @@
 -- The first argument is the sponsor's address.
 -- The second argument is the target budget.
 -- The third argument is the expiration time.
+-- The fourth argument is the current timestamp (for maintenance mode check).
 -- Returns a table with the reservation id, reserved coins, new total balance, and new coin count.
+-- Returns {-1, {}, 0, 0} if the gas station is in maintenance mode.
 
-local sponsor_address = ARGV[1]
+local namespace = ARGV[1]
 local target_budget = tonumber(ARGV[2])
 local expiration_time = tonumber(ARGV[3])
+local current_time = tonumber(ARGV[4])
+
+-- Check if maintenance mode is active
+local t_maintenance_lock = namespace .. ':maintenance_lock'
+local locked_timestamp = redis.call('GET', t_maintenance_lock)
+if locked_timestamp ~= false and tonumber(locked_timestamp) >= current_time then
+    return {-1, {}, 0, 0}
+end
 
 local MAX_GAS_PER_QUERY = 256
 
-local t_available_gas_coins = sponsor_address .. ':available_gas_coins'
-local t_expiration_queue = sponsor_address .. ':expiration_queue'
-local t_next_reservation_id = sponsor_address .. ':next_reservation_id'
+local t_available_gas_coins = namespace .. ':available_gas_coins'
+local t_expiration_queue = namespace .. ':expiration_queue'
+local t_next_reservation_id = namespace .. ':next_reservation_id'
 
 local total_balance = 0
 local coins = {}
@@ -48,13 +59,13 @@ if total_balance < target_budget then
     return {0, {}, 0, 0}
 end
 
-local t_available_coin_total_balance = sponsor_address .. ':available_coin_total_balance'
+local t_available_coin_total_balance = namespace .. ':available_coin_total_balance'
 -- TODO: For some reason DECRBY is not working, so we have to do this in two steps.
 local cur_coin_total_balance = redis.call('GET', t_available_coin_total_balance)
 local new_total_balance = cur_coin_total_balance - total_balance
 redis.call('SET', t_available_coin_total_balance, new_total_balance)
 
-local t_available_coin_count = sponsor_address .. ':available_coin_count'
+local t_available_coin_count = namespace .. ':available_coin_count'
 local cur_coin_count = redis.call('GET', t_available_coin_count)
 local new_coin_count = cur_coin_count - #coins
 redis.call('SET', t_available_coin_count, new_coin_count)
@@ -62,7 +73,7 @@ redis.call('SET', t_available_coin_count, new_coin_count)
 redis.call('INCR', t_next_reservation_id)
 local reservation_id = redis.call('GET', t_next_reservation_id)
 local concated_object_ids = table.concat(object_ids, ',')
-local key = sponsor_address .. ':' .. reservation_id
+local key = namespace .. ':' .. reservation_id
 redis.call('SET', key, concated_object_ids)
 redis.call('ZADD', t_expiration_queue, expiration_time, reservation_id)
 

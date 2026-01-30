@@ -1,12 +1,15 @@
 // Copyright (c) Mysten Labs, Inc.
+// Modifications Copyright (c) 2026 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::config::CoinInitConfig;
+use crate::consistency_check::{log_consistency_warnings, validate_consistency};
 use crate::iota_client::IotaClient;
 use crate::retry_forever;
 use crate::storage::Storage;
 use crate::tx_signer::TxSigner;
 use crate::types::GasCoin;
+use anyhow::bail;
 use iota_json_rpc_types::IotaTransactionBlockEffectsAPI;
 use iota_types::base_types::IotaAddress;
 use iota_types::coin::{PAY_MODULE_NAME, PAY_SPLIT_N_FUNC_NAME};
@@ -31,6 +34,10 @@ pub const NEW_COIN_BALANCE_FACTOR_THRESHOLD: u64 = 200;
 
 /// Assume that initializing the Gas Station (i.e. splitting coins) will take at most 12 hours.
 const MAX_INIT_DURATION_SEC: u64 = 60 * 60 * 12;
+
+/// Maintenance mode duration should be long enough to complete the full rescan procedure.
+/// This includes cleaning up the coin registry and rescanning all coins.
+const MAX_MAINTENANCE_DURATION_SEC: u64 = 60 * 60 * 12;
 
 #[derive(Clone)]
 struct CoinSplitEnv {
@@ -198,18 +205,57 @@ impl GasStationInitializer {
         coin_init_config: CoinInitConfig,
         signer: Arc<dyn TxSigner>,
         rescan_trigger_receiver: tokio::sync::mpsc::Receiver<()>,
+        force_full_rescan: bool,
+        ignore_locks: bool,
     ) -> Self {
-        if !storage.is_initialized().await.unwrap() {
+        if force_full_rescan {
+            if storage
+                .acquire_maintenance_lock(MAX_MAINTENANCE_DURATION_SEC)
+                .await
+                .unwrap()
+            {
+                info!("Acquired maintenance lock for full rescan");
+            } else {
+                if ignore_locks {
+                    info!("Another instance is already performing maintenance. Ignoring the lock and continuing with full rescan.");
+                } else {
+                    panic!("Another instance is already performing maintenance. Please wait for it to complete or use the --ignore-locks flag to force a full rescan.");
+                }
+            }
+            let result = Self::clean_and_rescan_registry(
+                iota_client.clone(),
+                &storage,
+                coin_init_config.target_init_balance,
+                &signer,
+                ignore_locks,
+            )
+            .await;
+
+            // always release maintenance lock, regardless of success or failure
+            if let Err(e) = storage.release_maintenance_lock().await {
+                error!("Failed to release maintenance lock: {:?}", e);
+            } else {
+                info!("Released maintenance lock after full rescan");
+            }
+            if let Err(e) = result {
+                panic!("Full rescan failed: {:?}", e);
+            }
+        } else if !storage.is_initialized().await.unwrap() {
             // If the pool has never been initialized, always run once at the beginning to make sure we have enough coins.
-            Self::run_once(
+            if let Err(e) = Self::run_once(
                 iota_client.clone(),
                 &storage,
                 RunMode::Init,
                 coin_init_config.target_init_balance,
                 &signer,
+                ignore_locks,
             )
-            .await;
+            .await
+            {
+                panic!("Initial coin initialization failed: {:?}", e);
+            }
         }
+
         let (cancel_sender, cancel_receiver) = tokio::sync::oneshot::channel();
         let _task_handle = tokio::spawn(Self::run(
             iota_client,
@@ -223,6 +269,28 @@ impl GasStationInitializer {
             _task_handle,
             cancel_sender: Some(cancel_sender),
         }
+    }
+
+    /// Performs full rescan operations while holding the maintenance lock.
+    async fn clean_and_rescan_registry(
+        iota_client: IotaClient,
+        storage: &Arc<dyn Storage>,
+        target_init_balance: u64,
+        signer: &Arc<dyn TxSigner>,
+        ignore_init_lock: bool,
+    ) -> anyhow::Result<()> {
+        storage.clean_up_coin_registry().await?;
+        storage.init_coin_stats_at_startup().await?;
+        Self::run_once(
+            iota_client,
+            storage,
+            RunMode::Init,
+            target_init_balance,
+            signer,
+            ignore_init_lock,
+        )
+        .await?;
+        Ok(())
     }
 
     async fn run(
@@ -253,14 +321,18 @@ impl GasStationInitializer {
             match wake_reason {
                 WakeReason::ForcedTrigger | WakeReason::Scheduled => {
                     info!("{}", wake_reason.reason());
-                    Self::run_once(
+                    if let Err(e) = Self::run_once(
                         iota_client.clone(),
                         &storage,
                         RunMode::Refresh,
                         coin_init_config.target_init_balance,
                         &signer,
+                        false,
                     )
-                    .await;
+                    .await
+                    {
+                        error!("Coin refresh failed: {:?}", e);
+                    }
                 }
                 WakeReason::Cancel => {
                     info!("{}", wake_reason.reason());
@@ -276,18 +348,25 @@ impl GasStationInitializer {
         mode: RunMode,
         target_init_coin_balance: u64,
         signer: &Arc<dyn TxSigner>,
-    ) {
+        ignore_init_lock: bool,
+    ) -> anyhow::Result<()> {
         let sponsor_address = signer.get_address();
-        if storage
-            .acquire_init_lock(MAX_INIT_DURATION_SEC)
-            .await
-            .unwrap()
-        {
-            info!("Acquired init lock. Starting new coin initialization");
-        } else {
-            info!("Another task is already initializing the pool. Skipping this round");
-            return;
+        let lock_status = storage.acquire_init_lock(MAX_INIT_DURATION_SEC).await?;
+        match lock_status {
+            true => {
+                info!("Acquired init lock. Starting new coin initialization");
+            }
+            false => {
+                if ignore_init_lock {
+                    info!("Ignoring the init lock and starting a new initialization");
+                } else {
+                    bail!("Another task is already initializing the pool. Please wait for it to complete or use the --ignore-locks flag to force a new initialization.");
+                }
+            }
         }
+
+        Self::perform_consistency_check(&iota_client, storage, sponsor_address).await;
+
         let start = Instant::now();
         let balance_threshold = if matches!(mode, RunMode::Init) {
             info!("The pool has never been initialized. Initializing it for the first time");
@@ -304,7 +383,7 @@ impl GasStationInitializer {
                 balance_threshold
             );
             storage.release_init_lock().await.unwrap();
-            return;
+            return Ok(());
         }
         let total_coin_count = Arc::new(AtomicUsize::new(coins.len()));
         let rgp = iota_client.get_reference_gas_price().await;
@@ -312,6 +391,23 @@ impl GasStationInitializer {
             .calibrate_gas_cost_per_object(sponsor_address, &coins[0])
             .await;
         info!("Calibrated gas cost per object: {:?}", gas_cost_per_object);
+
+        // Safety check: Validate minimum coin size prevent registry inconsistency
+        if target_init_coin_balance * 99 <= gas_cost_per_object {
+            let err_msg = format!(
+                "target_init_coin_balance ({}) is too small relative to gas_cost_per_object ({}). \
+                 target_init_coin_balance must be greater than gas_cost_per_object / 99 \
+                 to prevent registry inconsistencies. Please increase target_init_coin_balance  \
+                 to at least {} for current network and coin setup.",
+                target_init_coin_balance,
+                gas_cost_per_object,
+                gas_cost_per_object / 99 + 1
+            );
+            error!("{}", err_msg);
+            storage.release_init_lock().await.unwrap();
+            return Err(anyhow::anyhow!(err_msg));
+        }
+
         let result = Self::split_gas_coins(
             coins,
             CoinSplitEnv {
@@ -334,6 +430,7 @@ impl GasStationInitializer {
             "New coin initialization took {:?}s",
             start.elapsed().as_secs()
         );
+        Ok(())
     }
 
     async fn split_gas_coins(coins: Vec<GasCoin>, env: CoinSplitEnv) -> Vec<GasCoin> {
@@ -363,6 +460,62 @@ impl GasStationInitializer {
             total_balance - new_total_balance
         );
         result
+    }
+
+    /// Performs a quick consistency check comparing registry state against network state.
+    async fn perform_consistency_check(
+        iota_client: &IotaClient,
+        storage: &Arc<dyn Storage>,
+        sponsor_address: IotaAddress,
+    ) {
+        info!("Performing quick consistency check before rescan");
+        let registry_coin_count = match storage.get_available_coin_count().await {
+            Ok(count) => count as u64,
+            Err(e) => {
+                error!(
+                    "Failed to get registry coin count for consistency check: {:?}",
+                    e
+                );
+                return;
+            }
+        };
+        let registry_balance = storage.get_available_coin_total_balance().await;
+        let (network_coin_count, network_balance) =
+            match iota_client.get_aggregate_coin_stats(sponsor_address).await {
+                Ok(stats) => stats,
+                Err(e) => {
+                    error!(
+                        "Failed to get network coin stats for consistency check: {:?}",
+                        e
+                    );
+                    return;
+                }
+            };
+        debug!(
+            registry_balance = %registry_balance,
+            network_balance = %network_balance,
+            registry_coin_count = %registry_coin_count,
+            network_coin_count = %network_coin_count,
+            "Consistency check values"
+        );
+
+        let result = validate_consistency(
+            registry_balance,
+            registry_coin_count,
+            network_balance,
+            network_coin_count,
+            None,
+            None,
+        );
+        if result.has_divergence() {
+            log_consistency_warnings(&result);
+        } else {
+            info!(
+                "Consistency check passed: registry and network are within acceptable thresholds \
+                 (balance divergence: {:.2}%, coin count divergence: {:.2}%)",
+                result.balance_divergence_percent, result.coin_count_divergence_percent
+            );
+        }
     }
 }
 
@@ -397,6 +550,8 @@ mod tests {
             },
             signer,
             rescan_trigger_receiver,
+            false,
+            false,
         )
         .await;
         assert!(storage.get_available_coin_count().await.unwrap() > 900);
@@ -420,6 +575,8 @@ mod tests {
             },
             signer,
             rescan_trigger_receiver,
+            false,
+            false,
         )
         .await;
         assert!(storage.get_available_coin_count().await.unwrap() > 800);
@@ -443,6 +600,8 @@ mod tests {
             },
             signer,
             rescan_trigger_receiver,
+            false,
+            false,
         )
         .await;
         assert!(storage.is_initialized().await.unwrap());
@@ -481,5 +640,173 @@ mod tests {
             new_available_coin_count,
             available_coin_count
         );
+    }
+
+    #[tokio::test]
+    async fn test_get_aggregate_coin_stats() {
+        telemetry_subscribers::init_for_testing();
+        let initial_balance = 1000 * NANOS_PER_IOTA;
+        let (cluster, signer) = start_iota_cluster(vec![initial_balance]).await;
+        let sponsor = signer.get_address();
+        let fullnode_url = cluster.fullnode_handle.rpc_url;
+        let iota_client = IotaClient::new(&fullnode_url, None).await;
+
+        // Get aggregate stats from network
+        let (coin_count, total_balance) = iota_client
+            .get_aggregate_coin_stats(sponsor)
+            .await
+            .expect("get_aggregate_coin_stats should succeed");
+
+        // Should have at least 1 coin with the initial balance
+        assert!(
+            coin_count >= 1,
+            "Expected at least 1 coin, got {}",
+            coin_count
+        );
+        assert!(
+            total_balance >= initial_balance,
+            "Expected at least {} balance, got {}",
+            initial_balance,
+            total_balance
+        );
+
+        tracing::debug!(
+            "Aggregate stats: coin_count={}, total_balance={}",
+            coin_count,
+            total_balance
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ignore_locks_bypasses_maintenance_lock() {
+        telemetry_subscribers::init_for_testing();
+        let (cluster, signer) = start_iota_cluster(vec![1000 * NANOS_PER_IOTA]).await;
+        let fullnode_url = cluster.fullnode_handle.rpc_url;
+        let storage = connect_storage_for_testing(signer.get_address()).await;
+        let iota_client = IotaClient::new(&fullnode_url, None).await;
+
+        let lock_acquired = storage.acquire_maintenance_lock(300).await.unwrap();
+        assert!(lock_acquired, "Should be able to acquire maintenance lock");
+
+        // double check if the lock is held
+        let lock_acquired_again = storage.acquire_maintenance_lock(300).await.unwrap();
+        assert!(
+            !lock_acquired_again,
+            "Should not be able to acquire maintenance lock again"
+        );
+
+        let (_rescan_trigger_sender, rescan_trigger_receiver) = channel::<()>(1024);
+        let _init_task = GasStationInitializer::start(
+            iota_client,
+            storage.clone(),
+            CoinInitConfig {
+                target_init_balance: NANOS_PER_IOTA,
+                refresh_interval_sec: 200,
+            },
+            signer,
+            rescan_trigger_receiver,
+            true,
+            true, // ignore_locks=true should bypass the maintenance lock
+        )
+        .await;
+
+        // Verify initialization completed successfully
+        assert!(storage.is_initialized().await.unwrap());
+        assert!(storage.get_available_coin_count().await.unwrap() > 0);
+    }
+
+    #[tokio::test]
+    #[should_panic(
+        expected = "Another instance is already performing maintenance. Please wait for it to complete or use the --ignore-locks flag to force a full rescan."
+    )]
+    async fn test_maintenance_lock_blocks_without_ignore_locks() {
+        telemetry_subscribers::init_for_testing();
+        let (cluster, signer) = start_iota_cluster(vec![1000 * NANOS_PER_IOTA]).await;
+        let fullnode_url = cluster.fullnode_handle.rpc_url;
+        let storage = connect_storage_for_testing(signer.get_address()).await;
+        let iota_client = IotaClient::new(&fullnode_url, None).await;
+
+        let lock_acquired = storage.acquire_maintenance_lock(300).await.unwrap();
+        assert!(lock_acquired, "Should be able to acquire maintenance lock");
+
+        let (_rescan_trigger_sender, rescan_trigger_receiver) = channel::<()>(1024);
+        let _init_task = GasStationInitializer::start(
+            iota_client,
+            storage.clone(),
+            CoinInitConfig {
+                target_init_balance: NANOS_PER_IOTA,
+                refresh_interval_sec: 200,
+            },
+            signer,
+            rescan_trigger_receiver,
+            true,
+            false, // ignore_locks=false - should panic
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_ignore_locks_bypasses_init_lock() {
+        telemetry_subscribers::init_for_testing();
+        let (cluster, signer) = start_iota_cluster(vec![1000 * NANOS_PER_IOTA]).await;
+        let fullnode_url = cluster.fullnode_handle.rpc_url;
+        let storage = connect_storage_for_testing(signer.get_address()).await;
+        let iota_client = IotaClient::new(&fullnode_url, None).await;
+
+        let lock_acquired = storage.acquire_init_lock(300).await.unwrap();
+        assert!(lock_acquired, "Should be able to acquire init lock");
+
+        // double check if the lock is held
+        let lock_acquired_again = storage.acquire_init_lock(300).await.unwrap();
+        assert!(
+            !lock_acquired_again,
+            "Should not be able to acquire init lock again"
+        );
+
+        let (_rescan_trigger_sender, rescan_trigger_receiver) = channel::<()>(1024);
+        let _init_task = GasStationInitializer::start(
+            iota_client,
+            storage.clone(),
+            CoinInitConfig {
+                target_init_balance: NANOS_PER_IOTA,
+                refresh_interval_sec: 200,
+            },
+            signer,
+            rescan_trigger_receiver,
+            false,
+            true, // ignore_locks - should bypass the init lock
+        )
+        .await;
+
+        assert!(storage.is_initialized().await.unwrap());
+        assert!(storage.get_available_coin_count().await.unwrap() > 0);
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "Initial coin initialization failed")]
+    async fn test_init_lock_blocks_without_ignore_locks() {
+        telemetry_subscribers::init_for_testing();
+        let (cluster, signer) = start_iota_cluster(vec![1000 * NANOS_PER_IOTA]).await;
+        let fullnode_url = cluster.fullnode_handle.rpc_url;
+        let storage = connect_storage_for_testing(signer.get_address()).await;
+        let iota_client = IotaClient::new(&fullnode_url, None).await;
+
+        let lock_acquired = storage.acquire_init_lock(300).await.unwrap();
+        assert!(lock_acquired, "Should be able to acquire init lock");
+
+        let (_rescan_trigger_sender, rescan_trigger_receiver) = channel::<()>(1024);
+        let _init_task = GasStationInitializer::start(
+            iota_client,
+            storage.clone(),
+            CoinInitConfig {
+                target_init_balance: NANOS_PER_IOTA,
+                refresh_interval_sec: 200,
+            },
+            signer,
+            rescan_trigger_receiver,
+            false,
+            false, // ignore_locks=false - should panic
+        )
+        .await;
     }
 }

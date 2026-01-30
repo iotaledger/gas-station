@@ -233,7 +233,7 @@ mod tests {
             AggregateType::Sum,
             rule_meta.clone().into_iter().collect::<Vec<_>>().as_slice(),
         );
-        let redis_key = format!("{}:{}", signer_address, rule_key);
+        let redis_key = format!("{}:tracker:{}", signer_address, rule_key);
 
         // We want to make sure the redis key is not present
         remove_redis_key::<i64>(&redis_key);

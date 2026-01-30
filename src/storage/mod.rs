@@ -7,16 +7,19 @@ use crate::storage::redis::RedisStorage;
 use crate::types::{GasCoin, ReservationID};
 use iota_types::base_types::{IotaAddress, ObjectID};
 use std::sync::Arc;
+use url::Url;
 
 mod redis;
 
 pub const MAX_GAS_PER_QUERY: usize = 256;
+pub const MAINTENANCE_MODE_ERROR_MESSAGE: &str =
+    "Gas station is in maintenance mode. Please try again later.";
 
 /// Defines the trait for a storage that manages gas coins.
 /// It is expected to support concurrent access and manage atomicity internally.
 /// It supports multiple addresses each with its own gas coin queue.
 #[async_trait::async_trait]
-pub trait Storage: Sync + Send {
+pub trait Storage: SetGetStorage + Sync + Send {
     /// Reserve gas coins with total coin balance >= target_budget.
     /// If there is not enough balance, returns error.
     /// The implementation is required to guarantee that:
@@ -57,6 +60,20 @@ pub trait Storage: Sync + Send {
 
     async fn release_init_lock(&self) -> anyhow::Result<()>;
 
+    /// Acquire a maintenance lock to prevent other instances from making changes to the coin registry.
+    /// Unlike init_lock which prevents concurrent initialization, maintenance mode prevents:
+    /// - Reserving gas coins
+    /// - Adding new coins to the pool
+    /// This should be used before clean_up_coin_registry() to ensure data consistency.
+    /// Returns true if the lock is acquired, false otherwise.
+    async fn acquire_maintenance_lock(&self, lock_duration_sec: u64) -> anyhow::Result<bool>;
+
+    /// Release the maintenance lock, allowing normal operations to resume.
+    async fn release_maintenance_lock(&self) -> anyhow::Result<()>;
+
+    /// Check if the gas station is currently in maintenance mode.
+    async fn is_maintenance_mode(&self) -> anyhow::Result<bool>;
+
     async fn check_health(&self) -> anyhow::Result<()>;
 
     #[cfg(test)]
@@ -68,16 +85,26 @@ pub trait Storage: Sync + Send {
 
     #[cfg(test)]
     async fn get_reserved_coin_count(&self) -> usize;
+
+    /// Clean up all the data from the coin registry namespace
+    async fn clean_up_coin_registry(&self) -> anyhow::Result<()>;
+}
+
+#[async_trait::async_trait]
+pub trait SetGetStorage: Sync + Send {
+    async fn set_data(&self, key: &str, value: Vec<u8>) -> anyhow::Result<()>;
+    async fn get_data(&self, key: &str) -> anyhow::Result<Option<Vec<u8>>>;
 }
 
 pub async fn connect_storage(
     config: &GasStationStorageConfig,
     sponsor_address: IotaAddress,
+    namespace_prefix: &str,
     metrics: Arc<StorageMetrics>,
 ) -> Arc<dyn Storage> {
     let storage: Arc<dyn Storage> = match config {
         GasStationStorageConfig::Redis { redis_url } => {
-            Arc::new(RedisStorage::new(redis_url, sponsor_address, metrics).await)
+            Arc::new(RedisStorage::new(redis_url, sponsor_address, namespace_prefix, metrics).await)
         }
     };
     storage
@@ -88,9 +115,28 @@ pub async fn connect_storage(
     storage
 }
 
+/// Generate the namespace for the storage based on the network URL and the sponsor address.
+pub fn get_storage_namespace(network_url: &str, sponsor_address: &IotaAddress) -> String {
+    let url = Url::parse(network_url).unwrap();
+    let scheme = url.scheme();
+    let host = url.host_str().unwrap();
+    let port = if let Some(port) = url.port() {
+        port
+    } else {
+        if scheme == "https" {
+            443
+        } else {
+            80
+        }
+    };
+    let host_port = format!("{}_{}", host, port);
+    format!("{}:{}", host_port, sponsor_address.to_string())
+}
+
 #[cfg(test)]
 pub async fn connect_storage_for_testing_with_config(
     config: &GasStationStorageConfig,
+    network_url: &str,
     sponsor_address: IotaAddress,
 ) -> Arc<dyn Storage> {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -98,7 +144,13 @@ pub async fn connect_storage_for_testing_with_config(
     static IS_FIRST_CALL: AtomicBool = AtomicBool::new(true);
     let is_first_call = IS_FIRST_CALL.fetch_and(false, Ordering::SeqCst);
 
-    let storage = connect_storage(config, sponsor_address, StorageMetrics::new_for_testing()).await;
+    let storage = connect_storage(
+        config,
+        sponsor_address,
+        &get_storage_namespace(network_url, &sponsor_address),
+        StorageMetrics::new_for_testing(),
+    )
+    .await;
     if is_first_call {
         // Make sure that we only flush the DB once at the beginning of each test run.
         storage.flush_db().await;
@@ -110,8 +162,12 @@ pub async fn connect_storage_for_testing_with_config(
 
 #[cfg(test)]
 pub async fn connect_storage_for_testing(sponsor_address: IotaAddress) -> Arc<dyn Storage> {
-    connect_storage_for_testing_with_config(&GasStationStorageConfig::default(), sponsor_address)
-        .await
+    connect_storage_for_testing_with_config(
+        &GasStationStorageConfig::default(),
+        "http://localhost:9000",
+        sponsor_address,
+    )
+    .await
 }
 
 #[cfg(test)]

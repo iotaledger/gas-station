@@ -75,6 +75,8 @@ pub async fn start_gas_station(
         },
         signer.clone(),
         rescan_trigger_receiver,
+        false,
+        false,
     )
     .await;
     let station = GasStationContainer::new(
@@ -212,7 +214,11 @@ pub async fn create_test_transaction(
 
 pub async fn new_stats_tracker_for_testing(sponsor_address: IotaAddress) -> StatsTracker {
     StatsTracker::new(Arc::new(
-        connect_stats_storage(&GasStationStorageConfig::default(), sponsor_address).await,
+        connect_stats_storage(
+            &GasStationStorageConfig::default(),
+            sponsor_address.to_string().as_str(),
+        )
+        .await,
     ))
 }
 
