@@ -3,16 +3,17 @@
 
 use anyhow::anyhow;
 use fastcrypto::encoding::{Base64, Encoding};
+use iota_sdk_types::Intent;
+use iota_sdk_types::IntentMessage;
+use iota_types::base_types::IotaAddress;
+use iota_types::crypto::{IotaKeyPair, Signature};
+use iota_types::signature::GenericSignature;
+use iota_types::transaction::TransactionData;
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::json;
-use shared_crypto::intent::{Intent, IntentMessage};
 use std::str::FromStr;
 use std::sync::Arc;
-use iota_types::base_types::IotaAddress;
-use iota_types::crypto::{Signature, IotaKeyPair};
-use iota_types::signature::GenericSignature;
-use iota_types::transaction::TransactionData;
 
 #[async_trait::async_trait]
 pub trait TxSigner: Send + Sync {

@@ -223,8 +223,7 @@ pub async fn new_stats_tracker_for_testing(sponsor_address: IotaAddress) -> Stat
 }
 
 pub fn random_address() -> IotaAddress {
-    let random_bytes = rand::random::<[u8; 32]>();
-    IotaAddress::new(random_bytes)
+    IotaAddress::random_for_testing_only()
 }
 
 struct MockedStatsTrackerStorage;

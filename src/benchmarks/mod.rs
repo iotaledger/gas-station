@@ -6,13 +6,14 @@ pub mod kms_stress;
 use crate::rpc::client::GasStationRpcClient;
 use clap::ValueEnum;
 use iota_config::node::DEFAULT_VALIDATOR_GAS_PRICE;
+use iota_sdk_types::Intent;
+use iota_sdk_types::IntentMessage;
 use iota_types::crypto::{get_account_key_pair, Signature};
 use iota_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
 use iota_types::transaction::{TransactionData, TransactionKind};
 use parking_lot::RwLock;
 use rand::rngs::OsRng;
 use rand::Rng;
-use shared_crypto::intent::{Intent, IntentMessage};
 use std::sync::Arc;
 use tokio::time::{interval, Duration, Instant};
 
