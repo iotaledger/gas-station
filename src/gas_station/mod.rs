@@ -9,13 +9,14 @@ pub(crate) mod rescan_trigger;
 mod tests {
     use crate::test_env::{create_test_transaction, start_gas_station};
     use iota_json_rpc_types::IotaTransactionBlockEffectsAPI;
+    use iota_sdk_types::Intent;
+    use iota_sdk_types::IntentMessage;
     use iota_types::{
         crypto::{get_account_key_pair, Signature},
         gas_coin::NANOS_PER_IOTA,
         programmable_transaction_builder::ProgrammableTransactionBuilder,
         transaction::{TransactionData, TransactionKind},
     };
-    use shared_crypto::intent::{Intent, IntentMessage};
     use std::time::Duration;
 
     #[tokio::test]

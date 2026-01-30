@@ -608,7 +608,7 @@ fn get_move_call_package_addresses(transaction_data: &TransactionData) -> Vec<Io
     data_v1
         .move_calls()
         .iter()
-        .map(|call| IotaAddress::new(call.0.into_bytes()))
+        .map(|call| call.0.clone().into())
         .collect()
 }
 
