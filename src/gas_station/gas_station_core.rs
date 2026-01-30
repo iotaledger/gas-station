@@ -5,7 +5,7 @@ use crate::gas_station::rescan_trigger::RescanGasObjectsTrigger;
 use crate::gas_station_initializer::NEW_COIN_BALANCE_FACTOR_THRESHOLD;
 use crate::iota_client::IotaClient;
 use crate::metrics::GasStationCoreMetrics;
-use crate::rpc::rpc_types::ExecuteTransactionRequestType;
+use crate::rpc::rpc_types::{ExecuteTransactionRequestType, ReserveGasRequest};
 use crate::storage::Storage;
 use crate::tx_signer::TxSigner;
 use crate::types::{GasCoin, ReservationID};
@@ -30,6 +30,9 @@ use super::gas_usage_cap::GasUsageCap;
 
 const EXPIRATION_JOB_INTERVAL: Duration = Duration::from_secs(1);
 
+// 10 mins.
+pub const RESERVE_GAS_MAX_DURATION_S: u64 = 10 * 60;
+
 pub struct GasStationContainer {
     inner: Arc<GasStation>,
     _coin_unlocker_task: JoinHandle<()>,
@@ -43,6 +46,7 @@ pub struct GasStation {
     iota_client: IotaClient,
     metrics: Arc<GasStationCoreMetrics>,
     gas_usage_cap: Arc<GasUsageCap>,
+    max_gas_budget: u64,
     rescan_config: RescanGasObjectsTrigger,
 }
 
@@ -53,6 +57,7 @@ impl GasStation {
         iota_client: IotaClient,
         metrics: Arc<GasStationCoreMetrics>,
         gas_usage_cap: Arc<GasUsageCap>,
+        max_gas_budget: u64,
         rescan_config: RescanGasObjectsTrigger,
     ) -> Arc<Self> {
         let pool = Self {
@@ -61,6 +66,7 @@ impl GasStation {
             iota_client,
             metrics,
             gas_usage_cap,
+            max_gas_budget,
             rescan_config,
         };
 
@@ -269,6 +275,31 @@ impl GasStation {
             .sum()
     }
 
+    /// Checks gas reservation request validity.
+    /// Note that this is intended as a pre-flight check in server request handling.
+    /// Calling `GasStation::reserve_gas` directly will allow to use values outside of the boundaries checked here.
+    pub fn check_reserve_gas_request_validity(
+        &self,
+        request: &ReserveGasRequest,
+    ) -> anyhow::Result<()> {
+        if request.gas_budget == 0 {
+            anyhow::bail!("Gas budget must be positive");
+        }
+        if request.gas_budget > self.max_gas_budget {
+            anyhow::bail!("Gas budget must be less than {}", self.max_gas_budget);
+        }
+        if request.reserve_duration_secs == 0 {
+            anyhow::bail!("Reserve duration must be positive");
+        }
+        if request.reserve_duration_secs > RESERVE_GAS_MAX_DURATION_S {
+            anyhow::bail!(
+                "Reserve duration must be less than {} seconds",
+                RESERVE_GAS_MAX_DURATION_S
+            );
+        }
+        Ok(())
+    }
+
     fn check_transaction_validity(tx_data: &TransactionData) -> anyhow::Result<()> {
         let mut all_args = vec![];
         for command in tx_data.kind().iter_commands() {
@@ -383,6 +414,7 @@ impl GasStationContainer {
         gas_station_store: Arc<dyn Storage>,
         iota_client: IotaClient,
         gas_usage_daily_cap: u64,
+        max_gas_budget: u64,
         metrics: Arc<GasStationCoreMetrics>,
         rescan_config: RescanGasObjectsTrigger,
     ) -> Self {
@@ -392,6 +424,7 @@ impl GasStationContainer {
             iota_client,
             metrics,
             Arc::new(GasUsageCap::new(gas_usage_daily_cap)),
+            max_gas_budget,
             rescan_config,
         )
         .await;

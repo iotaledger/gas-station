@@ -11,37 +11,10 @@ use iota_types::{
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-// 2 IOTA.
-pub const MAX_BUDGET: u64 = 2_000_000_000;
-
-// 10 mins.
-pub const MAX_DURATION_S: u64 = 10 * 60;
-
 #[derive(Clone, Debug, JsonSchema, Serialize, Deserialize)]
 pub struct ReserveGasRequest {
     pub gas_budget: u64,
     pub reserve_duration_secs: u64,
-}
-
-impl ReserveGasRequest {
-    pub fn check_validity(&self) -> anyhow::Result<()> {
-        if self.gas_budget == 0 {
-            anyhow::bail!("Gas budget must be positive");
-        }
-        if self.gas_budget > MAX_BUDGET {
-            anyhow::bail!("Gas budget must be less than {}", MAX_BUDGET);
-        }
-        if self.reserve_duration_secs == 0 {
-            anyhow::bail!("Reserve duration must be positive");
-        }
-        if self.reserve_duration_secs > MAX_DURATION_S {
-            anyhow::bail!(
-                "Reserve duration must be less than {} seconds",
-                MAX_DURATION_S
-            );
-        }
-        Ok(())
-    }
 }
 
 #[derive(Debug, JsonSchema, Serialize, Deserialize)]
