@@ -168,7 +168,10 @@ async fn reserve_gas(
     }
     server.metrics.num_authorized_reserve_gas_requests.inc();
     debug!("Received v1 reserve_gas request: {:?}", payload);
-    if let Err(err) = payload.check_validity() {
+    if let Err(err) = server
+        .gas_station
+        .check_reserve_gas_request_validity(&payload)
+    {
         debug!("Invalid reserve_gas request: {:?}", err);
         return (
             StatusCode::BAD_REQUEST,

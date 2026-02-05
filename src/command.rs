@@ -72,6 +72,7 @@ impl Command {
             metrics_port,
             coin_init_config,
             daily_gas_usage_cap,
+            max_gas_budget,
             mut access_controller,
         } = config;
 
@@ -156,6 +157,7 @@ impl Command {
             storage,
             iota_client,
             daily_gas_usage_cap,
+            max_gas_budget,
             core_metrics,
             rescan_config,
         )

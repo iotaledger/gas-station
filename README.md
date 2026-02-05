@@ -102,6 +102,7 @@ coin-init-config:
   target-init-balance: 100000000 # requires redis to be cleared
   refresh-interval-sec: 86400
 daily-gas-usage-cap: 1500000000000
+max-gas-budget: 2000000000
 access-controller:
   access-policy: disabled
 ```
@@ -119,6 +120,7 @@ access-controller:
 | `coin-init-config.target-init-balance`  | yes ⚠               | Target balance for the new coins when we splitting new gas coins in NANOs | `100000000`                                                                                     |
 | `coin-init-config.refresh-interval-sec` | no                  | Interval in seconds to refresh balance and check for new coins to split   | `86400`                                                                                         |
 | `daily-gas-usage-cap`                   | no                  | Maximum allowed daily gas usage                                           | `1500000000000`                                                                                 |
+| `max-gas-budget`                        | no                  | Maximum allowed reservable gas budget                                     | `2000000000`                                                                                    |
 | `access-controller.access-policy`       | no                  | Access policy mode.                                                       | `disabled`, `allow-all`, `deny-all`. See [this link](./docs/access-controller.md) to learn more |
 
 

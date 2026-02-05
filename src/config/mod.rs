@@ -20,13 +20,21 @@ pub const DEFAULT_METRICS_PORT: u16 = 9184;
 pub const DEFAULT_INIT_COIN_BALANCE: u64 = NANOS_PER_IOTA / 10;
 // 24 hours.
 const DEFAULT_COIN_POOL_REFRESH_INTERVAL_SEC: u64 = 60 * 60 * 24;
+// 1500 IOTA.
 pub const DEFAULT_DAILY_GAS_USAGE_CAP: u64 = 1500 * NANOS_PER_IOTA;
+// 2 IOTA.
+pub const DEFAULT_MAX_GAS_BUDGET: u64 = 2 * NANOS_PER_IOTA;
 
 // Use 127.0.0.1 for tests to avoid OS complaining about permissions.
 #[cfg(test)]
 pub const LOCALHOST: Ipv4Addr = Ipv4Addr::new(127, 0, 0, 1);
 #[cfg(not(test))]
 pub const LOCALHOST: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
+
+/// Helper function for serde deserialization.
+fn default_max_gas_budget() -> u64 {
+    DEFAULT_MAX_GAS_BUDGET
+}
 
 #[serde_as]
 #[derive(Debug, Deserialize, Serialize)]
@@ -45,6 +53,8 @@ pub struct GasStationConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub coin_init_config: Option<CoinInitConfig>,
     pub daily_gas_usage_cap: u64,
+    #[serde(default = "default_max_gas_budget")]
+    pub max_gas_budget: u64,
     #[serde(default)]
     pub access_controller: AccessController,
 }
@@ -63,6 +73,7 @@ impl Default for GasStationConfig {
             fullnode_basic_auth: None,
             coin_init_config: Some(CoinInitConfig::default()),
             daily_gas_usage_cap: DEFAULT_DAILY_GAS_USAGE_CAP,
+            max_gas_budget: DEFAULT_MAX_GAS_BUDGET,
             access_controller: AccessController::default(),
         }
     }
@@ -146,7 +157,7 @@ mod test {
     use indoc::indoc;
 
     #[test]
-    fn test_deserialize_config_urls_kebeb_case() {
+    fn test_deserialize_config_urls_kebab_case() {
         let yaml = indoc! {r#"
             signer-config:
                 sidecar:
@@ -159,6 +170,7 @@ mod test {
                     redis-url: "redis://localhost:6379"
             fullnode-url: "https://api.devnet.iota.cafe"
             daily-gas-usage-cap: 1500000000000
+            max-gas-budget: 2000000000
         "#};
         let config: GasStationConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(
@@ -189,6 +201,7 @@ mod test {
                     redis_url: "redis://localhost:6379"
             fullnode-url: "https://api.devnet.iota.cafe"
             daily-gas-usage-cap: 1500000000000
+            max-gas-budget: 2000000000
         "#};
         let config: GasStationConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(
