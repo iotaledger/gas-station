@@ -208,11 +208,14 @@ impl GasStationInitializer {
         force_full_rescan: bool,
         ignore_locks: bool,
     ) -> Self {
+        let sponsor_address = signer.get_address();
+        Self::perform_consistency_check(&iota_client, &storage, sponsor_address).await;
+
         if force_full_rescan {
             if storage
                 .acquire_maintenance_lock(MAX_MAINTENANCE_DURATION_SEC)
                 .await
-                .unwrap()
+                .expect("Failed to acquire maintenance lock for full rescan")
             {
                 info!("Acquired maintenance lock for full rescan");
             } else {
@@ -365,8 +368,6 @@ impl GasStationInitializer {
             }
         }
 
-        Self::perform_consistency_check(&iota_client, storage, sponsor_address).await;
-
         let start = Instant::now();
         let balance_threshold = if matches!(mode, RunMode::Init) {
             info!("The pool has never been initialized. Initializing it for the first time");
@@ -468,7 +469,7 @@ impl GasStationInitializer {
         storage: &Arc<dyn Storage>,
         sponsor_address: IotaAddress,
     ) {
-        info!("Performing quick consistency check before rescan");
+        info!("Performing quick consistency check");
         let registry_coin_count = match storage.get_available_coin_count().await {
             Ok(count) => count as u64,
             Err(e) => {
