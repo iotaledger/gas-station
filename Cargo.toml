@@ -1,6 +1,6 @@
 [package]
 name = "iota-gas-station"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 authors = ["Mysten Labs <build@mystenlabs.com>", "IOTA Stiftung"]
 license = "Apache-2.0"
@@ -14,7 +14,11 @@ iota-metrics = { git = "https://github.com/iotaledger/iota", tag = "v1.15.0", pa
 iota-config = { git = "https://github.com/iotaledger/iota", tag = "v1.15.0", package = "iota-config" }
 iota-json-rpc-types = { git = "https://github.com/iotaledger/iota", tag = "v1.15.0", package = "iota-json-rpc-types" }
 iota-sdk = { git = "https://github.com/iotaledger/iota", tag = "v1.15.0", package = "iota-sdk" }
-iota-sdk-types = { package = "iota-sdk-types", git = "https://github.com/iotaledger/iota-rust-sdk.git", rev = "05608b7e4a5b96d85f84e1970a517f6f174beb8b", features = ["hash", "serde", "schemars"] }
+iota-sdk-types = { package = "iota-sdk-types", git = "https://github.com/iotaledger/iota-rust-sdk.git", rev = "05608b7e4a5b96d85f84e1970a517f6f174beb8b", features = [
+  "hash",
+  "serde",
+  "schemars",
+] }
 iota-types = { git = "https://github.com/iotaledger/iota", tag = "v1.15.0", package = "iota-types" }
 telemetry-subscribers = { git = "https://github.com/iotaledger/iota", tag = "v1.15.0", package = "telemetry-subscribers" }
 
