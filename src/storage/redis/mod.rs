@@ -84,15 +84,15 @@ fn generate_namespace(namespace_prefix: &str) -> String {
 impl SetGetStorage for RedisStorage {
     async fn set_data(&self, key: &str, value: Vec<u8>) -> anyhow::Result<()> {
         let mut conn = self.conn_manager.clone();
-        let full_key = format!("{}:{}", self.namespace, key);
-        conn.set::<_, _, ()>(full_key, value).await?;
+        // Key is expected to be absolute (already includes namespace if needed)
+        conn.set::<_, _, ()>(key, value).await?;
         Ok(())
     }
 
     async fn get_data(&self, key: &str) -> anyhow::Result<Option<Vec<u8>>> {
         let mut conn = self.conn_manager.clone();
-        let full_key = format!("{}:{}", self.namespace, key);
-        let value: Option<Vec<u8>> = conn.get(full_key).await?;
+        // Key is expected to be absolute (already includes namespace if needed)
+        let value: Option<Vec<u8>> = conn.get(key).await?;
         Ok(value)
     }
 }
@@ -419,11 +419,13 @@ mod tests {
         let test_struct = TestStruct {
             value: "test_value".to_string(),
         };
+        // Use absolute key with namespace
+        let key = format!("{}:test_key", storage.namespace);
         storage
-            .set_data("test_key", serde_json::to_vec(&test_struct).unwrap())
+            .set_data(&key, serde_json::to_vec(&test_struct).unwrap())
             .await
             .unwrap();
-        let value: Option<Vec<u8>> = storage.get_data("test_key").await.unwrap();
+        let value: Option<Vec<u8>> = storage.get_data(&key).await.unwrap();
         let value: TestStruct = serde_json::from_slice(&value.unwrap()).unwrap();
         assert_eq!(value, test_struct);
     }
@@ -513,12 +515,13 @@ mod tests {
         let total_balance = storage.get_available_coin_total_balance().await;
         assert_eq!(total_balance, 300);
 
-        // Set some data
+        // Set some data with absolute key
+        let test_key = format!("{}:test_key", storage.namespace);
         storage
-            .set_data("test_key", b"test_value".to_vec())
+            .set_data(&test_key, b"test_value".to_vec())
             .await
             .unwrap();
-        let value = storage.get_data("test_key").await.unwrap();
+        let value = storage.get_data(&test_key).await.unwrap();
         assert!(value.is_some());
 
         // Clean up the coin registry
@@ -530,8 +533,84 @@ mod tests {
         assert_eq!(total_balance, 0);
 
         // Verify the test_key is also cleaned up
-        let value = storage.get_data("test_key").await.unwrap();
+        let value = storage.get_data(&test_key).await.unwrap();
         assert!(value.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_clean_up_preserves_locks() {
+        let storage = setup_storage().await;
+
+        // Add some coins and data
+        storage
+            .add_new_coins(vec![
+                GasCoin {
+                    balance: 100,
+                    object_ref: random_object_ref(),
+                },
+                GasCoin {
+                    balance: 200,
+                    object_ref: random_object_ref(),
+                },
+            ])
+            .await
+            .unwrap();
+        let test_key = format!("{}:test_key", storage.namespace);
+        storage
+            .set_data(&test_key, b"test_value".to_vec())
+            .await
+            .unwrap();
+
+        // Acquire maintenance lock BEFORE cleanup
+        let lock_acquired = storage
+            .acquire_maintenance_lock(300) // 300 seconds
+            .await
+            .unwrap();
+        assert!(lock_acquired, "Should acquire maintenance lock");
+
+        // Verify we're in maintenance mode
+        assert!(
+            storage.is_maintenance_mode().await.unwrap(),
+            "Should be in maintenance mode"
+        );
+
+        // Clean up the coin registry (this should NOT delete the maintenance lock)
+        storage.clean_up_coin_registry().await.unwrap();
+
+        // Verify maintenance lock is STILL held after cleanup
+        assert!(
+            storage.is_maintenance_mode().await.unwrap(),
+            "Maintenance lock should be preserved after cleanup"
+        );
+
+        // Verify we cannot acquire the lock again (it's still held)
+        let lock_acquired_again = storage.acquire_maintenance_lock(300).await.unwrap();
+        assert!(
+            !lock_acquired_again,
+            "Should not be able to acquire lock again while it's held"
+        );
+
+        // Verify other data was cleaned up
+        let (coin_count, total_balance) = storage.init_coin_stats_at_startup().await.unwrap();
+        assert_eq!(coin_count, 0, "Coins should be cleaned up");
+        assert_eq!(total_balance, 0, "Balance should be zero");
+
+        let value = storage.get_data(&test_key).await.unwrap();
+        assert!(value.is_none(), "Test data should be cleaned up");
+
+        // Release the lock
+        storage.release_maintenance_lock().await.unwrap();
+        assert!(
+            !storage.is_maintenance_mode().await.unwrap(),
+            "Should not be in maintenance mode after release"
+        );
+
+        // Now we should be able to acquire it again
+        let lock_acquired_final = storage.acquire_maintenance_lock(300).await.unwrap();
+        assert!(
+            lock_acquired_final,
+            "Should be able to acquire lock after release"
+        );
     }
 
     async fn setup_storage() -> RedisStorage {

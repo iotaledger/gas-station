@@ -74,6 +74,10 @@ impl ColdParams {
     ))?;
 
         let changes = self.changes_details(&old_cold_params);
+        // TODO
+        // this is wrong, because if there are changes the  it should be returned we might want to return it to the user
+        // and user might want to revert the changes and restart the gas station without the rescan
+        // So set_data should only happens when,  changes are detected, but the flag --allow-reinit is set
         storage
             .set_data(
                 key,
