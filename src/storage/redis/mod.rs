@@ -84,14 +84,11 @@ fn generate_namespace(namespace_prefix: &str) -> String {
 impl SetGetStorage for RedisStorage {
     async fn set_data(&self, key: &str, value: Vec<u8>) -> anyhow::Result<()> {
         let mut conn = self.conn_manager.clone();
-        // Key is expected to be absolute (already includes namespace if needed)
         conn.set::<_, _, ()>(key, value).await?;
         Ok(())
     }
-
     async fn get_data(&self, key: &str) -> anyhow::Result<Option<Vec<u8>>> {
         let mut conn = self.conn_manager.clone();
-        // Key is expected to be absolute (already includes namespace if needed)
         let value: Option<Vec<u8>> = conn.get(key).await?;
         Ok(value)
     }
@@ -419,7 +416,6 @@ mod tests {
         let test_struct = TestStruct {
             value: "test_value".to_string(),
         };
-        // Use absolute key with namespace
         let key = format!("{}:test_key", storage.namespace);
         storage
             .set_data(&key, serde_json::to_vec(&test_struct).unwrap())
