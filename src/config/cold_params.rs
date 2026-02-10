@@ -56,24 +56,21 @@ impl ColdParams {
             .await
             .context("unable to get cold params from storage")?;
 
-        // If there are no cold params, it means this is the first run.
-        // In this case, there are no changes, so we only need to save the current cold params.
         if maybe_cold_params.is_none() {
-            storage
-                .set_data(
-                    key,
-                    serde_json::to_vec(&self)
-                        .context("unable to serialize cold params and save to storage")?,
-                )
-                .await?;
             return Ok(vec![]);
         }
-
         let old_cold_params = serde_json::from_slice(&maybe_cold_params.unwrap()).context(
         format!("unable to deserialize cold params. The entry with the key {key} is not a valid cold params structure",
     ))?;
-
         let changes = self.changes_details(&old_cold_params);
+        Ok(changes)
+    }
+
+    pub async fn save_to_storage(
+        &self,
+        storage: &Arc<dyn Storage>,
+        key: &str,
+    ) -> anyhow::Result<()> {
         storage
             .set_data(
                 key,
@@ -81,7 +78,7 @@ impl ColdParams {
                     .context("unable to serialize cold params and save to storage")?,
             )
             .await?;
-        Ok(changes)
+        Ok(())
     }
 }
 

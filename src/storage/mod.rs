@@ -92,7 +92,12 @@ pub trait Storage: SetGetStorage + Sync + Send {
 
 #[async_trait::async_trait]
 pub trait SetGetStorage: Sync + Send {
+    /// Set data in the storage.
+    /// Key is expected to be absolute (already includes namespace if needed)
     async fn set_data(&self, key: &str, value: Vec<u8>) -> anyhow::Result<()>;
+
+    /// Get data from the storage.
+    /// Key is expected to be absolute (already includes namespace if needed)
     async fn get_data(&self, key: &str) -> anyhow::Result<Option<Vec<u8>>>;
 }
 

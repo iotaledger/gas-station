@@ -114,7 +114,7 @@ impl Command {
         let rescan_trigger_receiver = rescan_config.create_receiver();
 
         let cold_params_changes = cold_params
-            .check_if_changed(&storage, &format!("{namespace_prefix}:cold_params"))
+            .check_if_changed(&storage, &get_cold_params_key(&namespace_prefix))
             .await
             .expect("failed to check cold params changes");
 
@@ -149,6 +149,10 @@ impl Command {
         } else {
             None
         };
+        cold_params
+            .save_to_storage(&storage, &get_cold_params_key(&namespace_prefix))
+            .await
+            .expect("failed to save cold params to storage");
         let core_metrics = GasStationCoreMetrics::new(&prometheus_registry);
         let stats_storage = connect_stats_storage(&gas_station_config, &namespace_prefix).await;
         let stats_tracker = StatsTracker::new(Arc::new(stats_storage));
@@ -185,4 +189,8 @@ impl Command {
         .await;
         server.handle.await.unwrap();
     }
+}
+
+fn get_cold_params_key(namespace_prefix: &str) -> String {
+    format!("{namespace_prefix}:cold_params")
 }
