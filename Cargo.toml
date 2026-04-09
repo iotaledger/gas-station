@@ -1,6 +1,6 @@
 [package]
 name = "iota-gas-station"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 authors = ["Mysten Labs <build@mystenlabs.com>", "IOTA Stiftung"]
 license = "Apache-2.0"
