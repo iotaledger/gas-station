@@ -24,11 +24,11 @@ RUN apt-get update && apt-get install -y clang lld
 FROM chef AS builder
 WORKDIR /iota
 
-COPY Cargo.toml ./
+COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 ARG ENTRY_BINARY=iota-gas-station
 
-RUN xx-cargo build --release --target-dir ./build
+RUN xx-cargo build --locked --release --target-dir ./build
 RUN xx-verify "./build/$(xx-cargo --print-target-triple)/release/${ENTRY_BINARY}"
 
 # move binary to a location we can access it more easily in `FROM` command
