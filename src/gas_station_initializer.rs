@@ -304,8 +304,13 @@ impl GasStationInitializer {
         mut cancel_receiver: tokio::sync::oneshot::Receiver<()>,
         mut rescan_trigger_receiver: tokio::sync::mpsc::Receiver<()>,
     ) {
-        let mut ticker =
-            tokio::time::interval(Duration::from_secs(coin_init_config.refresh_interval_sec));
+        let interval = Duration::from_secs(coin_init_config.refresh_interval_sec);
+        // Delay the first tick by one full interval. Initial population is the job of
+        // `run_once(Init)` in `start()`; firing the periodic loop immediately would, at
+        // best, duplicate work just done by Init, and at worst race the fullnode's
+        // indexer when it has not yet reflected Init's split transactions — re-picking
+        // the same large coin and double-splitting it.
+        let mut ticker = tokio::time::interval_at(Instant::now() + interval, interval);
         ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         loop {
