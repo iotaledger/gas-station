@@ -56,7 +56,7 @@ async fn main() {
         iota_config::iota_config_dir().unwrap().to_str().unwrap(),
         IOTA_CLIENT_CONFIG
     );
-    let wallet_context = WalletContext::new(&Path::new(&config_path), None, None).unwrap();
+    let wallet_context = WalletContext::new(&Path::new(&config_path)).unwrap();
 
     // Get the first gas object owned by the address
     let user = wallet_context.active_address().unwrap();

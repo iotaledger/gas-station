@@ -150,11 +150,11 @@ impl Storage for RedisStorage {
 
         self.metrics
             .gas_station_available_gas_coin_count
-            .with_label_values(&[&self.namespace])
+            .with_label_values(&[&self.sponsor_str])
             .set(new_coin_count);
         self.metrics
             .gas_station_available_gas_total_balance
-            .with_label_values(&[&self.namespace])
+            .with_label_values(&[&self.sponsor_str])
             .set(new_total_balance);
         self.metrics.num_successful_reserve_gas_coins_requests.inc();
         Ok((reservation_id, gas_coins))

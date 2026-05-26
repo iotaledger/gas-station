@@ -77,6 +77,9 @@ pub enum ToolCommand {
         #[arg(long, short, help = "bech32 encoded key i.e. iotaprivkey...")]
         key: String,
     },
+    /// Generate private key for testing purposes
+    #[clap(name = "generate-private-key")]
+    GeneratePrivateKey,
     #[clap(name = "cli")]
     CLI {
         #[clap(subcommand)]
@@ -204,6 +207,16 @@ impl ToolCommand {
             ToolCommand::ConvertKeyConfig { key } => {
                 let key = IotaKeyPair::decode(&key).unwrap();
                 println!("{}", key.encode_base64());
+            }
+            ToolCommand::GeneratePrivateKey => {
+                let (iota_address, keypair) = get_account_key_pair();
+                let iota_keypair = IotaKeyPair::Ed25519(keypair);
+                let bech32_key = iota_keypair.encode().unwrap();
+                let encoded_key = iota_keypair.encode_base64();
+                println!(
+                    "IOTA Address: {}\nPrivate key (iotaprivkey): {}\nBase64 private key: {}",
+                    iota_address, bech32_key, encoded_key,
+                );
             }
         }
     }

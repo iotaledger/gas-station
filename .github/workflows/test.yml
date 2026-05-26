@@ -7,6 +7,12 @@ on:
       - "dev"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      build_jobs:
+        type: string
+        description: 'Number of parallel jobs to run in build. Defaults to 2, can be a number or the string "default", for details see https://doc.rust-lang.org/cargo/commands/cargo-build.html#option-cargo-build---jobs.'
+        required: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -37,8 +43,21 @@ env:
   RUSTDOCFLAGS: -D warnings
 
 jobs:
+  config:
+    name: Load Config
+    runs-on: [ubuntu-latest]
+    outputs:
+      # mapped from input
+      build_jobs: ${{ steps.user_input_or_default.outputs.build_jobs }}
+    steps:
+      - id: user_input_or_default
+        run: |
+          USER_INPUT=${{ github.event.inputs.build_jobs }}
+          echo "build_jobs=${USER_INPUT:-2}" >> "$GITHUB_OUTPUT"
   test:
     name: CI tests
+    needs:
+      - config
     runs-on: [ubuntu-latest]
     steps:
       - name: Checkout repo
@@ -65,4 +84,4 @@ jobs:
       - name: Cargo nexttest
         shell: bash
         run: |
-          cargo nextest run -j 1
+          cargo nextest run --build-jobs ${{ needs.config.outputs.build_jobs }} -j 1
