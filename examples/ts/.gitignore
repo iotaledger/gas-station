@@ -79,7 +79,7 @@ web_modules/
 .env.production.local
 .env.local
 .env.iota_rebased
-.env.sui_devnet
+.env.iota_devnet
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache

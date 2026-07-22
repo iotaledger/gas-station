@@ -1,5 +1,5 @@
-//  Copyright (c) 2024 IOTA Stiftung
-//  SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2024 IOTA Stiftung
+// SPDX-License-Identifier: Apache-2.0
 
 use anyhow::Result;
 use stats_tracker_storage::StatsTrackerStorage;
