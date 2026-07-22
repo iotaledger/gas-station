@@ -2,7 +2,7 @@
 name = "iota-gas-station"
 version = "0.5.2"
 edition = "2021"
-authors = ["Mysten Labs <build@mystenlabs.com>", "IOTA Stiftung"]
+authors = ["IOTA Foundation <info@iota.org>"]
 license = "Apache-2.0"
 repository = "https://github.com/iotaledger/gas-station"
 
