@@ -8,32 +8,43 @@ repository = "https://github.com/iotaledger/gas-station"
 
 [dependencies]
 
-fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "69d496c71fb37e3d22fe85e5bbfd4256d61422b9" }
-
-iota-metrics = { git = "https://github.com/iotaledger/iota", tag = "v1.20.1", package = "iota-metrics" }
-iota-config = { git = "https://github.com/iotaledger/iota", tag = "v1.20.1", package = "iota-config" }
-iota-json-rpc-types = { git = "https://github.com/iotaledger/iota", tag = "v1.20.1", package = "iota-json-rpc-types" }
-iota-sdk = { git = "https://github.com/iotaledger/iota", tag = "v1.20.1", package = "iota-sdk" }
-iota-sdk-types = { package = "iota-sdk-types", git = "https://github.com/iotaledger/iota-rust-sdk.git", rev = "e19c78a1bee17e0bf85fcd5b16a2f080cef26274", features = [
+iota-sdk-types = { package = "iota-sdk-types", git = "https://github.com/iotaledger/iota-rust-sdk.git", rev = "b77fcd5ac5fedb3dfbc77ba7d183140e43512339", features = [
   "hash",
   "serde",
-  "schemars",
+  "rand",
 ] }
-iota-types = { git = "https://github.com/iotaledger/iota", tag = "v1.20.1", package = "iota-types" }
-telemetry-subscribers = { git = "https://github.com/iotaledger/iota", tag = "v1.20.1", package = "telemetry-subscribers" }
+iota-sdk-crypto = { git = "https://github.com/iotaledger/iota-rust-sdk.git", rev = "b77fcd5ac5fedb3dfbc77ba7d183140e43512339", features = [
+  "ed25519",
+  "secp256k1",
+  "secp256r1",
+  "bech32",
+] }
+iota-sdk-grpc-client = { git = "https://github.com/iotaledger/iota-rust-sdk.git", rev = "b77fcd5ac5fedb3dfbc77ba7d183140e43512339" }
+iota-sdk-grpc-types = { git = "https://github.com/iotaledger/iota-rust-sdk.git", rev = "b77fcd5ac5fedb3dfbc77ba7d183140e43512339" }
+iota-sdk-transaction-builder = { git = "https://github.com/iotaledger/iota-rust-sdk.git", rev = "b77fcd5ac5fedb3dfbc77ba7d183140e43512339" }
 
 
 anyhow = "1.0.75"
 async-trait = "0.1.51"
 arc-swap = { version = "1.7.1" }
 axum = { version = "0.6.6", features = ["headers"] }
+base64ct = { version = "1.6", features = ["alloc", "std"] }
 bcs = "0.1.6"
-clap = { version = "4.4.10", features = ["env"] }
+# "derive"/"wrap_help" used to be pulled in transitively (this crate itself never
+# requested them) via the now-removed `iota-config`'s `clap.workspace = true`,
+# whose monorepo workspace `[workspace.dependencies]` set `clap = { features =
+# ["derive", "wrap_help"] }`. Removing `iota-config` exposed that this crate's
+# own `#[derive(Parser)]`/`#[derive(ValueEnum)]`/`#[command]`/`#[arg]` usage
+# (`src/command.rs`, `src/bin/tool.rs`, `src/main.rs`, `src/benchmarks/mod.rs`)
+# was silently relying on someone else's feature request the whole time; now
+# declared explicitly and directly by the crate that actually needs it.
+clap = { version = "4.4.10", features = ["env", "derive", "wrap_help"] }
 chrono = "0.4.19"
 const-str = "0.5.6"
 eyre = "0.6.9"
 futures-util = "0.3.30"
 git-version = "0.3.9"
+hex = "0.4"
 hostname = "0.4.0"
 itertools = "0.14.0"
 once_cell = "1.19.0"
@@ -49,9 +60,18 @@ reqwest = { version = "0.11.22", features = ["json"] }
 serde = { version = "1.0.193", features = ["derive", "rc"] }
 serde_with = "3.4.0"
 schemars = "0.8.16"
+sha2 = "0.10"
 tap = "1.0.1"
 tempfile = "3.2.0"
+tonic = { version = "0.14", default-features = false }
 tracing = "0.1.40"
+tracing-subscriber = { version = "0.3", features = [
+  "env-filter",
+  "fmt",
+  "json",
+  "ansi",
+  "registry",
+] }
 tokio = { version = "1.46", features = ["full"] }
 tokio-retry = "0.3.0"
 serde_json = "1.0.95"
@@ -68,8 +88,42 @@ url = { version = "2.5.7", features = ["serde"] }
 indoc = "2"
 rand = "0.8.5"
 wiremock = "0.6.3"
-iota-swarm-config = { git = "https://github.com/iotaledger/iota", tag = "v1.20.1", package = "iota-swarm-config" }
-test-cluster = { git = "https://github.com/iotaledger/iota", tag = "v1.20.1", package = "test-cluster" }
+iota-swarm-config = { git = "https://github.com/iotaledger/iota", rev = "f47b4448f7efaa50ae79156c163fed11b926c7da", package = "iota-swarm-config" }
+test-cluster = { git = "https://github.com/iotaledger/iota", rev = "f47b4448f7efaa50ae79156c163fed11b926c7da", package = "test-cluster" }
+# Used only by the `sponsored_transaction` example to build `HeaderName`/`HeaderValue`
+# values for `TransactionBuilder::add_gas_station_header`. That method's signature is
+# pinned to `iota-sdk-transaction-builder`'s own `reqwest` (0.12, i.e. `http` 1.x), which
+# is a different major version than this crate's own direct `reqwest = "0.11.22"` (i.e.
+# `http` 0.2.x) used everywhere in src/ -- the two are separate, non-interchangeable
+# types, so the example needs its own `http` 1.x handle. Both versions already coexist
+# in the dependency graph regardless (iota-sdk-transaction-builder pulls reqwest 0.12
+# transitively), so this adds no new dependency, just a direct name for one already
+# being built.
+http = "1"
+
+# `test-cluster`/`iota-swarm-config` above are pinned to the monorepo's `develop`
+# HEAD (rev f47b4448...). On that rev, the monorepo's own root `Cargo.toml` pins
+# `fastcrypto` itself to the crates.io release (`0.1.11`), but `fastcrypto-tbls`/
+# `-vdf`/`-zkp` are still resolved from a git rev (`47f8f6b7...`) that pulls its
+# own copy of `fastcrypto` via an in-repo *path* dependency -- which Cargo treats
+# as a separate, non-unifiable crate from the crates.io one, causing "multiple
+# different versions of crate `fastcrypto`" trait-impl errors wherever both meet
+# (e.g. `fastcrypto_tbls::dkg_v1::Message<G2Element, ...>`). The monorepo papers
+# over this internally with the exact patch table below (see `develop`'s root
+# `Cargo.toml`, `[patch."https://github.com/MystenLabs/fastcrypto"]`), redirecting
+# that git-path `fastcrypto` to the same crates.io release. Cargo patches don't
+# propagate to external consumers of a git dependency, so this crate needs its
+# own copy of that same patch to get the same fix for its `test-cluster`/
+# `iota-swarm-config` dev-dependencies.
+#
+# This is safe to add now (and not before) because this crate's own former
+# `fastcrypto` dependency (a *different*, older git rev,
+# `69d496c71fb37e3d22fe85e5bbfd4256d61422b9`) has just been removed above --
+# adding this patch while that dependency was still present would have silently
+# redirected it to crates.io `0.1.11` too, an unintended crate-wide behavior
+# change this migration is specifically trying to avoid.
+[patch."https://github.com/MystenLabs/fastcrypto"]
+fastcrypto = "=0.1.11"
 
 [profile.release]
 panic = "abort"

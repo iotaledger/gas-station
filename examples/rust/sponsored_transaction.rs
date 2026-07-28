@@ -1,88 +1,106 @@
-use std::path::Path;
+// Copyright (c) Mysten Labs, Inc.
+// Modifications Copyright (c) 2026 IOTA Stiftung
+// SPDX-License-Identifier: Apache-2.0
 
-use iota_config::IOTA_CLIENT_CONFIG;
-use iota_gas_station::rpc::client::GasStationRpcClient;
-use iota_json_rpc_types::{IotaExecutionStatus, IotaTransactionBlockEffectsAPI};
-use iota_sdk::{wallet_context::WalletContext, IotaClientBuilder};
-use iota_types::{
-    gas_coin::NANOS_PER_IOTA,
-    transaction::{TransactionData, TransactionDataAPI},
-};
+//! This example demonstrates using the gas station to create a transaction:
+//!  - Reserve gas from the gas station
+//!  - Create a transaction with the gas object reserved from the gas station
+//!  - Sign the transaction with the user's own key
+//!  - Execute the transaction with the gas station
+//!
+//! Unlike `hook_with_request_headers`/`hook_with_config_headers` (which talk to this
+//! service's `/v1/reserve_gas`/`/v1/execute_tx` endpoints directly through
+//! [`GasStationRpcClient`]), this example instead uses
+//! `iota-sdk-transaction-builder`'s own **native** gas-station support --
+//! [`TransactionBuilder::gas_station_sponsor`] and
+//! [`TransactionBuilder::add_gas_station_header`] -- which speaks the exact same wire
+//! protocol (`/version`, `/v1/reserve_gas`, `/v1/execute_tx`) internally. This is both a
+//! shorter way to write the example *and* a from-the-client-side check that this
+//! service's wire contract is compatible with the upstream SDK's own gas-station client
+//! (verified against `iota-sdk-transaction-builder`'s `builder/gas_station.rs` at the
+//! pinned SDK revision this crate migrated to).
+//!
+//! Before you run this example, make sure:
+//!  - `USER_PRIVATE_KEY` is set to a bech32-encoded (`iotaprivkey1...`) ed25519 private
+//!    key for the account that will act as the transaction *sender* -- e.g. one printed
+//!    by `iota keytool generate ed25519`. This is **not** the gas station's sponsor
+//!    account: the gas station supplies its own sponsor address and gas coins via
+//!    `/v1/reserve_gas`, this key only needs to own (and sign for) the object being
+//!    transferred below.
+//!  - `GAS_STATION_AUTH` is set to the gas station's bearer token, if it requires one.
+//!  - the IOTA gas station is running and configured for TESTNET.
+//!  - the sender address owns at least one IOTA coin on testnet (it's transferred to
+//!    itself below, purely to have something for the sponsored transaction to do).
 
-// This example demonstrates using the gas station to create a transaction
-//  - Reserve gas from the gas station
-//  - Create a transaction with the gas object reserved from the gas station
-//  - Sign the transaction with the wallet
-//  - Execute the transaction with the gas station
+use iota_sdk_crypto::ToFromBech32;
+use iota_sdk_crypto::ed25519::Ed25519PrivateKey;
+use iota_sdk_grpc_client::Client;
+use iota_sdk_transaction_builder::TransactionBuilder;
+use iota_sdk_types::StructTag;
 
-// Before you run this example make sure:
-//  - GAS_STATION_AUTH env is set to the correct value
-//  - the IOTA gas station is running, an its configured for the TESTNET
+const USER_PRIVATE_KEY_ENV: &str = "USER_PRIVATE_KEY";
+const GAS_STATION_AUTH_ENV: &str = "GAS_STATION_AUTH";
+
 #[tokio::main]
-async fn main() {
-    // Create a new gas station client
-    let gas_station_url = "http://localhost:9527".to_string();
-    let gas_station_client = GasStationRpcClient::new(gas_station_url);
+async fn main() -> anyhow::Result<()> {
+    let private_key = std::env::var(USER_PRIVATE_KEY_ENV).unwrap_or_else(|_| {
+        panic!(
+            "{USER_PRIVATE_KEY_ENV} must be set to a bech32-encoded (`iotaprivkey1...`) ed25519 private key"
+        )
+    });
+    let keypair = Ed25519PrivateKey::from_bech32(&private_key)
+        .unwrap_or_else(|err| panic!("{USER_PRIVATE_KEY_ENV} is not a valid bech32 private key: {err}"));
+    let sender = keypair.public_key().derive_address();
+    println!("Sender address: {sender}");
 
-    // Reserve the 1 IOTA for 10 seconds
-    let (sponsor_account, reservation_id, gas_coins) = gas_station_client
-        .reserve_gas(NANOS_PER_IOTA, 10)
-        .await
-        .expect("Failed to reserve gas");
-    assert!(gas_coins.len() >= 1);
+    let gas_station_url = url::Url::parse("http://localhost:9527")?;
 
-    // Create a new IOTA Client
-    let iota_client = IotaClientBuilder::default().build_testnet().await.unwrap();
+    // Connect to a testnet fullnode over gRPC. The gas station's own HTTP API only
+    // covers gas sponsorship and execution -- resolving the sender's own objects, the
+    // reference gas price, and (via `execute`, below) confirming the executed effects
+    // still all go through a fullnode.
+    let client = Client::new_testnet()?;
 
-    // Load the config from default location (~./iota/iota_config/client.yaml)
-    let config_path = format!(
-        "{}/{}",
-        iota_config::iota_config_dir().unwrap().to_str().unwrap(),
-        IOTA_CLIENT_CONFIG
+    // Find a coin owned by the sender to use as this demo's payload: transfer one of the
+    // sender's own IOTA coins back to themselves. (Mirrors the old wallet-context-based
+    // version of this example, which grabbed "the first gas object owned by the
+    // address" -- any object the sender owns would do here, a coin is just the simplest
+    // one to look up.)
+    let page = client
+        .list_owned_objects(sender, Some(StructTag::new_gas_coin()), Some(1), None, None)
+        .await?
+        .into_inner();
+    let coin_id = page
+        .items
+        .first()
+        .unwrap_or_else(|| panic!("{sender} owns no IOTA coins on testnet"))
+        .object_reference()?
+        .object_id;
+
+    let mut builder = TransactionBuilder::new(sender).with_client(&client);
+    let gas_station_builder = builder
+        .transfer_objects(sender, [coin_id])
+        .gas_station_sponsor(gas_station_url);
+    if let Ok(auth) = std::env::var(GAS_STATION_AUTH_ENV) {
+        if !auth.is_empty() {
+            gas_station_builder.add_gas_station_header(
+                http::header::AUTHORIZATION,
+                http::HeaderValue::from_str(&format!("Bearer {auth}"))?,
+            );
+        }
+    }
+
+    // `execute` builds the transaction (auto-selecting gas price/budget via the
+    // fullnode), sends it to the gas station for sponsorship and execution, then polls
+    // the fullnode until finalized and returns its effects -- all in one call.
+    let effects = builder.execute(&keypair, None).await?;
+    println!("Transaction effects: {effects:#?}");
+
+    assert!(
+        effects.as_v1().status.is_success(),
+        "transaction did not succeed: {:?}",
+        effects.as_v1().status
     );
-    let wallet_context = WalletContext::new(&Path::new(&config_path)).unwrap();
 
-    // Get the first gas object owned by the address
-    let user = wallet_context.active_address().unwrap();
-    let object = wallet_context
-        .get_one_gas_object_owned_by_address(user)
-        .await
-        .unwrap()
-        .unwrap();
-
-    let ref_gas_price = iota_client
-        .governance_api()
-        .get_reference_gas_price()
-        .await
-        .unwrap();
-
-    // Create the TransactionKind.
-    // TransactionKind is an type that doesn't have information about gas and sender.
-    let tx_kind = iota_client
-        .transaction_builder()
-        .transfer_object_tx_kind(object.0, user)
-        .await
-        .unwrap();
-
-    // Build the TransactionData.
-    // TransactionData is unsigned version of Transaction. The maximum gas budget is 0.01 IOTA.
-    let mut tx_data = TransactionData::new(tx_kind, user, gas_coins[0], 3000000, ref_gas_price);
-    // Set the gas object and gas-station sponsor account fetched from the gas station
-    tx_data.gas_data_mut().payment = gas_coins;
-    tx_data.gas_data_mut().owner = sponsor_account;
-
-    // Sign the TransactionData with the wallet.
-    let transaction = wallet_context.sign_transaction(&tx_data);
-    let signature = transaction.tx_signatures()[0].to_owned();
-
-    // Send the TransactionData together with the signature to the Gas Station.
-    // The Gas Station will execute the Transaction and returns the effects.
-    let effects = gas_station_client
-        .execute_tx(reservation_id, &tx_data, &signature, None, None)
-        .await
-        .expect("transaction should be sent");
-
-    println!("Transaction effects: {:?}", effects);
-
-    assert_eq!(effects.into_status(), IotaExecutionStatus::Success);
+    Ok(())
 }

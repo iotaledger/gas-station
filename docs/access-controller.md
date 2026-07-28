@@ -1,5 +1,7 @@
 # Gas Station Server Access Controller
 
+> **Note:** the Gas Station's fullnode transport moved from JSON-RPC to gRPC (see the [README's upgrade notes](../README.md#upgrading-from-json-rpc-to-grpc)). This required no changes to the Access Controller or to Rego policies: a compatibility layer preserves the exact same JSON shape for `transaction_data` and every other field described below, so existing rules and Rego expressions keep working unchanged. There is nothing to update or re-test in your policies because of that migration.
+
 The **Gas Station Server** includes an **Access Controller** mechanism to manage access to the `/execute_tx` endpoint. This feature allows you to implement filtering logic based on properties derived from transactions. Currently, the Access Controller supports filtering based on the sender's address, enabling you to block or allow specific addresses.
 
 ## Access Controller Rule syntax

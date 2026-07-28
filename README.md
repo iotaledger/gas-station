@@ -97,7 +97,7 @@ metrics-port: 9184
 storage-config:
   redis:
     redis-url: "redis://127.0.0.1"
-fullnode-url: "https://api.testnet.iota.cafe" # requires redis to be cleared
+fullnode-url: "https://grpc.testnet.iota.cafe:443" # requires redis to be cleared, gRPC endpoint (see "Upgrading from JSON-RPC to gRPC" below)
 coin-init-config:
   target-init-balance: 100000000 # requires redis to be cleared
   refresh-interval-sec: 86400
@@ -116,13 +116,37 @@ access-controller:
 | `rpc-port`                              | no                  | Port for the RPC server                                                   | `9527`                                                                                          |
 | `metrics-port`                          | no                  | Port for collecting and exposing metrics                                  | `9184`                                                                                          |
 | `storage-config.redis.redis-url`        | no                  | Redis connection URL                                                      | `redis://127.0.0.1`                                                                             |
-| `fullnode-url`                          | yes ⚠               | URL of the IOTA full node                                                 | `https://api.testnet.iota.cafe`                                                                 |
+| `fullnode-url`                          | yes ⚠               | **gRPC** endpoint of the IOTA full node. See [Upgrading from JSON-RPC to gRPC](#upgrading-from-json-rpc-to-grpc) if you are updating an existing deployment. | `https://grpc.testnet.iota.cafe:443`                                                            |
 | `coin-init-config.target-init-balance`  | yes ⚠               | Target balance for the new coins when we splitting new gas coins in NANOs | `100000000`                                                                                     |
 | `coin-init-config.refresh-interval-sec` | no                  | Interval in seconds to refresh balance and check for new coins to split   | `86400`                                                                                         |
 | `daily-gas-usage-cap`                   | no                  | Maximum allowed daily gas usage                                           | `1500000000000`                                                                                 |
 | `max-gas-budget`                        | no                  | Maximum allowed reservable gas budget                                     | `2000000000`                                                                                    |
+| `checkpoint-wait-ms`                    | no                  | Milliseconds the full node should wait for a transaction to reach checkpoint inclusion (local execution) before responding, when a request asks to wait for local execution. Passed through as the gRPC `execute_transaction` call's `checkpoint_inclusion_timeout_ms`. Defaults to `5000` if omitted. | `5000` |
 | `access-controller.access-policy`       | no                  | Access policy mode.                                                       | `disabled`, `allow-all`, `deny-all`. See [this link](./docs/access-controller.md) to learn more |
 
+### Upgrading from JSON-RPC to gRPC
+
+> **Operator-visible breaking change:** the Gas Station now talks to the IOTA full node over **gRPC** instead of JSON-RPC.
+
+**What changes:** `fullnode-url` must now point at the full node's **gRPC** endpoint instead of its JSON-RPC endpoint. The field is still a plain URL string; only the host/port/scheme you put there changes. For the public IOTA networks, that means:
+
+| Network  | Old JSON-RPC URL                    | New gRPC URL                        |
+| -------- | ------------------------------------ | ------------------------------------ |
+| Mainnet  | `https://api.mainnet.iota.cafe`     | `https://grpc.mainnet.iota.cafe:443` |
+| Testnet  | `https://api.testnet.iota.cafe`     | `https://grpc.testnet.iota.cafe:443` |
+| Devnet   | `https://api.devnet.iota.cafe`      | `https://grpc.devnet.iota.cafe:443`  |
+
+If you run your own full node, use its gRPC address instead.
+
+**Why:** JSON-RPC is being retired upstream in favor of gRPC as the full node transport, so the Gas Station has moved to the [iota-rust-sdk](https://github.com/iotaledger/iota-rust-sdk) gRPC client ahead of that deprecation.
+
+**What you need to do when upgrading an existing deployment:**
+
+1. Repoint `fullnode-url` at your full node's gRPC endpoint (see table above, or the equivalent for your own node).
+2. Make sure the full node you're pointing at actually has its gRPC API enabled: `enable-grpc-api: true` in the node's own config (`grpc-api-config` can be left at its defaults unless you need to tune message-size or timeout limits). A node that only serves JSON-RPC will refuse the connection, or requests against it will fail.
+3. `fullnode-basic-auth`, if you use it, is unaffected and passed through the same way.
+
+No Redis flush is required for this change by itself — the gas coin pool doesn't depend on the transport used to talk to the full node. Note also that the new gRPC client connects lazily, so a bad or unreachable `fullnode-url` will now surface as a connection error at startup or on first use, rather than at config-load time.
 
 #### Gas Station reinitialization
 

@@ -5,13 +5,7 @@ use std::collections::BTreeMap;
 
 use anyhow::Context;
 use axum::http::HeaderMap;
-use fastcrypto::encoding::Base64;
-use iota_types::{
-    base_types::IotaAddress,
-    digests::TransactionDigest,
-    signature::GenericSignature,
-    transaction::{TransactionData, TransactionDataAPI, TransactionDataV1, TransactionKind},
-};
+use iota_sdk_types::{Address, Transaction, TransactionDigest, UserSignature};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -25,9 +19,11 @@ use crate::{
         predicates::{
             Action, CountBy, RegoExpression, ValueAggregate, ValueIotaAddress, ValueNumber,
         },
+        rego_input,
         reports::{PredicateReport, RuleReport},
         utils::header_map_to_btree_map,
     },
+    base64::Base64,
     rpc::rpc_types::ExecuteTransactionRequestType,
     tracker::{
         stats_tracker_storage::{Aggregate, AggregateType},
@@ -60,7 +56,7 @@ impl AccessRuleBuilder {
         self.rule
     }
 
-    pub fn sender_address(mut self, sender_address: impl Into<IotaAddress>) -> Self {
+    pub fn sender_address(mut self, sender_address: impl Into<Address>) -> Self {
         let iota_address = sender_address.into();
         match &mut self.rule.sender_address {
             ValueIotaAddress::All => {
@@ -109,7 +105,7 @@ impl AccessRuleBuilder {
         self
     }
 
-    pub fn move_call_package_address(mut self, address: impl Into<IotaAddress>) -> Self {
+    pub fn move_call_package_address(mut self, address: impl Into<Address>) -> Self {
         let iota_address = address.into();
         if let Some(address) = &mut self.rule.move_call_package_address {
             match address {
@@ -471,9 +467,9 @@ impl RegoInputPayload {
 #[derive(Clone)]
 pub struct TransactionContext {
     pub transaction_digest: TransactionDigest,
-    pub sender_address: IotaAddress,
+    pub sender_address: Address,
     pub transaction_budget: u64,
-    pub move_call_package_addresses: Vec<IotaAddress>,
+    pub move_call_package_addresses: Vec<Address>,
     pub ptb_command_count: Option<usize>,
     pub transaction_data: Value,
 
@@ -489,7 +485,7 @@ pub struct TransactionContext {
 impl Default for TransactionContext {
     fn default() -> Self {
         Self {
-            sender_address: IotaAddress::default(),
+            sender_address: Address::ZERO,
             transaction_budget: 0,
             move_call_package_addresses: vec![],
             ptb_command_count: None,
@@ -509,8 +505,8 @@ impl Default for TransactionContext {
 
 impl TransactionContext {
     pub fn new(
-        _signature: &GenericSignature,
-        transaction_data: &TransactionData,
+        _signature: &UserSignature,
+        transaction: &Transaction,
         stats_tracker: StatsTracker,
         reservation_id: u64,
         tx_bytes: Base64,
@@ -518,21 +514,35 @@ impl TransactionContext {
         request_type: Option<ExecuteTransactionRequestType>,
         headers: HeaderMap,
     ) -> Self {
-        let ptb_command_count = match transaction_data {
-            TransactionData::V1(TransactionDataV1 {
-                kind: TransactionKind::ProgrammableTransaction(pt),
-                ..
-            }) => Some(pt.commands.len()),
-            TransactionData::V1(TransactionDataV1 { kind: _, .. }) => None,
+        let Transaction::V1(v1) = transaction else {
+            // `Transaction` is `#[non_exhaustive]`, so this arm is required
+            // to compile as a downstream crate, but the pinned iota-sdk-types
+            // rev (b77fcd5) defines exactly one variant, `V1` -- even the
+            // SDK's own internal code (e.g. `SignedTransaction::sender_move_
+            // authenticator`) treats it as the only case. Unlike the
+            // non-exhaustive matches in `rego_input.rs` (which only affect
+            // the *cosmetic* Rego JSON payload and so degrade gracefully),
+            // `sender`/`gas_payment.budget` extracted below feed directly
+            // into the `sender-address`/`transaction-gas-budget` access
+            // control predicates -- security-relevant, not cosmetic. There is
+            // no safe non-panicking fallback here that wouldn't risk
+            // mis-attributing those fields (e.g. defaulting to a zero
+            // address could accidentally satisfy an allow-list rule). If a
+            // future SDK bump ever adds a second `Transaction` variant, this
+            // needs a real design decision (most likely: make this fallible
+            // and have the caller deny the request), not a silent default.
+            unreachable!("no non-`V1` `Transaction` variant exists in the pinned SDK rev");
         };
-        // TODO handle the error properly
-        let transaction_value = serde_json::to_value(&transaction_data)
-            .expect("Failed to convert transaction data to JSON value");
+        let ptb_command_count = match &v1.kind {
+            iota_sdk_types::TransactionKind::Programmable(pt) => Some(pt.commands.len()),
+            _ => None,
+        };
+        let transaction_value = rego_input::to_legacy_json(transaction);
         Self {
-            transaction_digest: transaction_data.digest(),
-            sender_address: transaction_data.sender().clone(),
-            transaction_budget: transaction_data.gas_budget(),
-            move_call_package_addresses: get_move_call_package_addresses(transaction_data),
+            transaction_digest: transaction.digest(),
+            sender_address: v1.sender,
+            transaction_budget: v1.gas_payment.budget,
+            move_call_package_addresses: get_move_call_package_addresses(transaction),
             ptb_command_count,
             stats_tracker,
             transaction_data: transaction_value,
@@ -544,7 +554,7 @@ impl TransactionContext {
         }
     }
 
-    pub fn with_sender_address(mut self, sender_address: IotaAddress) -> Self {
+    pub fn with_sender_address(mut self, sender_address: Address) -> Self {
         self.sender_address = sender_address;
         self
     }
@@ -556,7 +566,7 @@ impl TransactionContext {
 
     pub fn with_move_call_package_addresses(
         mut self,
-        move_call_package_addresses: Vec<IotaAddress>,
+        move_call_package_addresses: Vec<Address>,
     ) -> Self {
         self.move_call_package_addresses = move_call_package_addresses;
         self
@@ -603,12 +613,14 @@ impl TransactionContext {
     }
 }
 
-fn get_move_call_package_addresses(transaction_data: &TransactionData) -> Vec<IotaAddress> {
-    let TransactionData::V1(data_v1) = transaction_data;
-    data_v1
-        .move_calls()
-        .iter()
-        .map(|call| call.0.clone().into())
+/// Old-shape equivalent of `TransactionDataAPI::move_calls`'s package list.
+/// See `rego_input::move_calls` for the port itself; this just adapts its
+/// return type (`iota_sdk_types::ObjectId`) into the `Address` type
+/// `ValueIotaAddress`/`move-call-package-address` expect.
+fn get_move_call_package_addresses(transaction: &Transaction) -> Vec<Address> {
+    rego_input::move_calls(transaction)
+        .into_iter()
+        .map(|(package, _module, _function)| Address::from(package))
         .collect()
 }
 
@@ -618,12 +630,10 @@ mod test {
     use std::{str::FromStr, vec};
 
     use axum::http::{HeaderMap, HeaderName, HeaderValue};
-    use iota_types::{
-        base_types::IotaAddress,
-        transaction::{
-            GasData, ProgrammableTransaction, TransactionData, TransactionDataAPI,
-            TransactionDataV1, TransactionExpiration, TransactionKind,
-        },
+    use iota_sdk_types::{
+        Address, Argument, Command, GasPayment, Identifier, MoveCall, ObjectId,
+        ProgrammableTransaction, Transaction, TransactionExpiration, TransactionKind,
+        TransactionV1,
     };
 
     use crate::{
@@ -632,15 +642,51 @@ mod test {
                 Action, CountBy, Location, RegoExpression, SourceWithData, ValueAggregate,
                 ValueIotaAddress, ValueNumber,
             },
+            rego_input,
             rule::{AccessRule, AccessRuleBuilder, TransactionContext},
         },
         test_env::{new_stats_tracker_for_testing, random_address},
     };
 
+    /// Builds a minimal single-`MoveCall` programmable transaction, useful
+    /// for exercising the Rego-input compat layer end-to-end.
+    fn move_call_transaction(
+        sender: Address,
+        package: Address,
+        module: &str,
+        function: &str,
+        pure_inputs: Vec<Vec<u8>>,
+    ) -> Transaction {
+        let arguments = (0..pure_inputs.len() as u16).map(Argument::Input).collect();
+        Transaction::V1(TransactionV1 {
+            kind: TransactionKind::Programmable(ProgrammableTransaction {
+                inputs: pure_inputs
+                    .into_iter()
+                    .map(iota_sdk_types::Input::Pure)
+                    .collect(),
+                commands: vec![Command::MoveCall(MoveCall {
+                    package: ObjectId::from(package),
+                    module: Identifier::new_unchecked(module),
+                    function: Identifier::new_unchecked(function),
+                    type_arguments: vec![],
+                    arguments,
+                })],
+            }),
+            sender,
+            gas_payment: GasPayment {
+                objects: vec![],
+                owner: sender,
+                price: 0,
+                budget: 0,
+            },
+            expiration: TransactionExpiration::None,
+        })
+    }
+
     #[tokio::test]
     async fn test_constraint_sender_address() {
-        let matched_sender = IotaAddress::from_bytes([0; 32]).unwrap();
-        let unmatched_sender = IotaAddress::from_bytes([1; 32]).unwrap();
+        let matched_sender = Address::from_bytes([0; 32]).unwrap();
+        let unmatched_sender = Address::from_bytes([1; 32]).unwrap();
 
         let matched_data = TransactionContext::default().with_sender_address(matched_sender);
         let unmatched_data = TransactionContext::default().with_sender_address(unmatched_sender);
@@ -670,8 +716,8 @@ mod test {
 
     #[tokio::test]
     async fn test_constraint_move_call_package_addr() {
-        let matched_package_id = IotaAddress::from_bytes([1; 32]).unwrap();
-        let unmatch_package_id = IotaAddress::from_bytes([2; 32]).unwrap();
+        let matched_package_id = Address::from_bytes([1; 32]).unwrap();
+        let unmatch_package_id = Address::from_bytes([2; 32]).unwrap();
 
         let rule = AccessRuleBuilder::new()
             .move_call_package_address(matched_package_id)
@@ -688,8 +734,8 @@ mod test {
 
     #[tokio::test]
     async fn test_constraint_mix_ups_sender_budget_package_address() {
-        let sender_address = IotaAddress::from_bytes([1; 32]).unwrap();
-        let move_call_package_address = IotaAddress::from_bytes([2; 32]).unwrap();
+        let sender_address = Address::from_bytes([1; 32]).unwrap();
+        let move_call_package_address = Address::from_bytes([2; 32]).unwrap();
         let gas_limit = 100;
 
         let rule = AccessRuleBuilder::new()
@@ -709,7 +755,7 @@ mod test {
         let unmatched_data_package_address = TransactionContext::default()
             .with_sender_address(sender_address)
             .with_gas_budget(gas_limit)
-            .with_move_call_package_addresses(vec![IotaAddress::from_bytes([3; 32]).unwrap()]);
+            .with_move_call_package_addresses(vec![Address::from_bytes([3; 32]).unwrap()]);
 
         assert!(
             !rule
@@ -762,8 +808,8 @@ mod test {
 
     #[tokio::test]
     async fn test_constraint_mix_ups_sender_package_address() {
-        let sender_address = IotaAddress::from_bytes([1; 32]).unwrap();
-        let move_call_package_address = IotaAddress::from_bytes([2; 32]).unwrap();
+        let sender_address = Address::from_bytes([1; 32]).unwrap();
+        let move_call_package_address = Address::from_bytes([2; 32]).unwrap();
 
         let rule = AccessRuleBuilder::new()
             .sender_address(sender_address)
@@ -779,7 +825,7 @@ mod test {
 
         let unmatched_data = TransactionContext::default()
             .with_sender_address(sender_address)
-            .with_move_call_package_addresses(vec![IotaAddress::from_bytes([3; 32]).unwrap()]);
+            .with_move_call_package_addresses(vec![Address::from_bytes([3; 32]).unwrap()]);
 
         assert!(!rule.matches(&unmatched_data).await.unwrap().is_matched);
     }
@@ -851,20 +897,22 @@ mod test {
                 input.transaction_data.V1.sender == "0x1212121212121212121212121212121212121212121212121212121212121212"
             }
         "#;
-        let mut transaction_data = TransactionData::V1(TransactionDataV1 {
-            kind: TransactionKind::ProgrammableTransaction(ProgrammableTransaction {
-                commands: vec![],
-                inputs: vec![],
-            }),
-            expiration: TransactionExpiration::None,
-            gas_data: GasData {
-                payment: vec![],
-                owner: IotaAddress::default(),
-                budget: 0,
-                price: 0,
-            },
-            sender: IotaAddress::from_bytes([0x12; 32]).unwrap(),
-        });
+        let build_transaction = |sender_byte: u8| {
+            Transaction::V1(TransactionV1 {
+                kind: TransactionKind::Programmable(ProgrammableTransaction {
+                    commands: vec![],
+                    inputs: vec![],
+                }),
+                expiration: TransactionExpiration::None,
+                gas_payment: GasPayment {
+                    objects: vec![],
+                    owner: Address::ZERO,
+                    budget: 0,
+                    price: 0,
+                },
+                sender: Address::from_bytes([sender_byte; 32]).unwrap(),
+            })
+        };
         let location = Location::new_memory(rego_content, "data.test.allow_sender");
         let mut source = SourceWithData::new(location.clone());
         source.fetch().await.unwrap();
@@ -876,16 +924,108 @@ mod test {
             .allow()
             .build();
         let matched_data = TransactionContext::default()
-            .with_transaction_data(serde_json::to_value(&transaction_data).unwrap());
+            .with_transaction_data(rego_input::to_legacy_json(&build_transaction(0x12)));
         assert!(rule.matches(&matched_data).await.unwrap().is_matched);
 
         // Test with unmatched sender address
-        *transaction_data.sender_mut_for_testing() = IotaAddress::from_bytes([0x13; 32]).unwrap();
         let unmatched_data = TransactionContext::default()
-            .with_transaction_data(serde_json::to_value(&transaction_data).unwrap());
+            .with_transaction_data(rego_input::to_legacy_json(&build_transaction(0x13)));
         assert!(
             !rule
                 .match_rego_expression(&unmatched_data)
+                .unwrap()
+                .is_matched
+        );
+    }
+
+    /// End-to-end test running the "Rego Filtering Code Example" from
+    /// `docs/access-controller.md` **verbatim** against a transaction built
+    /// through the SDK-migration compat layer (`rego_input::to_legacy_json`),
+    /// asserting it evaluates the way the docs describe: matches only a
+    /// single move call to the documented package/module/function with a
+    /// first argument that BCS-decodes to the string `"hello"`.
+    #[tokio::test]
+    async fn test_documented_rego_move_call_matches_example() {
+        // Verbatim from docs/access-controller.md, "Rego Filtering Code Example".
+        let rego_content = r#"
+package matchers
+
+default move_call_matches = false
+
+move_call_matches if {
+    cmds := input.transaction_data.V1.kind.ProgrammableTransaction.commands
+    count(cmds) == 1
+
+
+    mc := cmds[0].MoveCall
+    mc["package"]  == "0xb674e2ed79db3c25fa4c00d5c7d62a9c18089e1fc4c2de5b5ee8b2836a85ae26"
+    mc.module   == "allowed_module_name"
+    mc.function == "allowed_function_name"
+
+    argv_1 := input.transaction_data.V1.kind.ProgrammableTransaction.inputs[0].Pure
+    bcs.decode_typed(argv_1, "string") == "hello"
+}
+"#;
+        let location = Location::new_memory(rego_content, "data.matchers.move_call_matches");
+        let mut source = SourceWithData::new(location);
+        source.fetch().await.unwrap();
+        let rego_expression =
+            RegoExpression::from_source(source).expect("valid, documented rego policy");
+        let rule = AccessRuleBuilder::new()
+            .rego_expression(rego_expression)
+            .allow()
+            .build();
+
+        let package = Address::from_str(
+            "0xb674e2ed79db3c25fa4c00d5c7d62a9c18089e1fc4c2de5b5ee8b2836a85ae26",
+        )
+        .unwrap();
+        let sender = Address::from_bytes([0xa2; 32]).unwrap();
+        let hello_bcs = bcs::to_bytes(&"hello".to_string()).unwrap();
+
+        // Matches: exactly the documented package/module/function, first
+        // argument BCS-decodes to "hello".
+        let matching = TransactionContext::default().with_transaction_data(
+            rego_input::to_legacy_json(&move_call_transaction(
+                sender,
+                package,
+                "allowed_module_name",
+                "allowed_function_name",
+                vec![hello_bcs.clone()],
+            )),
+        );
+        assert!(rule.matches(&matching).await.unwrap().is_matched);
+
+        // Doesn't match: right package/module, wrong function.
+        let wrong_function = TransactionContext::default().with_transaction_data(
+            rego_input::to_legacy_json(&move_call_transaction(
+                sender,
+                package,
+                "allowed_module_name",
+                "some_other_function",
+                vec![hello_bcs.clone()],
+            )),
+        );
+        assert!(
+            !rule
+                .match_rego_expression(&wrong_function)
+                .unwrap()
+                .is_matched
+        );
+
+        // Doesn't match: right call, but wrong decoded argument value.
+        let wrong_argument = TransactionContext::default().with_transaction_data(
+            rego_input::to_legacy_json(&move_call_transaction(
+                sender,
+                package,
+                "allowed_module_name",
+                "allowed_function_name",
+                vec![bcs::to_bytes(&"goodbye".to_string()).unwrap()],
+            )),
+        );
+        assert!(
+            !rule
+                .match_rego_expression(&wrong_argument)
                 .unwrap()
                 .is_matched
         );

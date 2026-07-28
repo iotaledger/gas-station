@@ -2,18 +2,16 @@
 // Modifications Copyright (c) 2026 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::base64::Base64;
 use crate::read_auth_env;
+use crate::rpc::effects::TransactionEffectsDto;
 use crate::rpc::rpc_types::{
     ExecuteTransactionRequestType, ExecuteTxRequest, ExecuteTxResponse, ReserveGasRequest,
     ReserveGasResponse,
 };
 use crate::types::ReservationID;
 use anyhow::bail;
-use fastcrypto::encoding::Base64;
-use iota_json_rpc_types::IotaTransactionBlockEffects;
-use iota_types::base_types::{IotaAddress, ObjectRef};
-use iota_types::signature::GenericSignature;
-use iota_types::transaction::TransactionData;
+use iota_sdk_types::{Address, ObjectReference, Transaction, UserSignature};
 use reqwest::header::{HeaderMap, AUTHORIZATION};
 use reqwest::Client;
 
@@ -84,7 +82,7 @@ impl GasStationRpcClient {
         &self,
         gas_budget: u64,
         reserve_duration_secs: u64,
-    ) -> anyhow::Result<(IotaAddress, ReservationID, Vec<ObjectRef>)> {
+    ) -> anyhow::Result<(Address, ReservationID, Vec<ObjectReference>)> {
         let request = ReserveGasRequest {
             gas_budget,
             reserve_duration_secs,
@@ -113,11 +111,7 @@ impl GasStationRpcClient {
                 (
                     result.sponsor_address,
                     result.reservation_id,
-                    result
-                        .gas_coins
-                        .into_iter()
-                        .map(|c| c.to_object_ref())
-                        .collect(),
+                    result.gas_coins.into_iter().map(Into::into).collect(),
                 )
             })
     }
@@ -125,19 +119,19 @@ impl GasStationRpcClient {
     pub async fn execute_tx(
         &self,
         reservation_id: ReservationID,
-        tx_data: &TransactionData,
-        user_sig: &GenericSignature,
+        tx: &Transaction,
+        user_sig: &UserSignature,
         request_type: Option<ExecuteTransactionRequestType>,
         headers: Option<HeaderMap>,
-    ) -> anyhow::Result<IotaTransactionBlockEffects> {
+    ) -> anyhow::Result<TransactionEffectsDto> {
         let mut headers = headers.unwrap_or_default();
         if let Some(auth) = read_auth_env() {
             headers.insert(AUTHORIZATION, format!("Bearer {}", auth).parse().unwrap());
         }
         let request = ExecuteTxRequest {
             reservation_id,
-            tx_bytes: Base64::from_bytes(&bcs::to_bytes(&tx_data).unwrap()),
-            user_sig: Base64::from_bytes(user_sig.as_ref()),
+            tx_bytes: Base64::from_bytes(&bcs::to_bytes(tx)?),
+            user_sig: Base64::from_bytes(&user_sig.to_bytes()),
             request_type,
         };
         let response = self

@@ -3,24 +3,34 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::tx_signer::{SidecarTxSigner, TxSigner};
-use iota_types::base_types::{random_object_ref, IotaAddress};
-use iota_types::transaction::{ProgrammableTransaction, TransactionData, TransactionKind};
+use iota_sdk_types::{
+    Address, GasPayment, ObjectDigest, ObjectId, ObjectReference, ProgrammableTransaction,
+    Transaction, TransactionExpiration, TransactionKind, TransactionV1, Version,
+};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub async fn run_kms_stress_test(kms_url: String, num_tasks: usize) {
     let signer = SidecarTxSigner::new(kms_url).await;
-    let test_tx_data = TransactionData::new(
-        TransactionKind::ProgrammableTransaction(ProgrammableTransaction {
+    let test_tx_data = Transaction::V1(TransactionV1 {
+        kind: TransactionKind::Programmable(ProgrammableTransaction {
             inputs: vec![],
             commands: vec![],
         }),
-        IotaAddress::ZERO,
-        random_object_ref(),
-        1000,
-        1000,
-    );
+        sender: Address::ZERO,
+        gas_payment: GasPayment {
+            objects: vec![ObjectReference::new(
+                ObjectId::random(),
+                Version::from_u64(0),
+                ObjectDigest::random(),
+            )],
+            owner: Address::ZERO,
+            price: 1000,
+            budget: 1000,
+        },
+        expiration: TransactionExpiration::None,
+    });
     // Shared atomic counters for successes and failures
     let success_counter = Arc::new(AtomicUsize::new(0));
     let failure_counter = Arc::new(AtomicUsize::new(0));

@@ -2,14 +2,11 @@
 // Modifications Copyright (c) 2026 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::base64::Base64;
 use anyhow::anyhow;
-use fastcrypto::encoding::{Base64, Encoding};
-use iota_sdk_types::Intent;
-use iota_sdk_types::IntentMessage;
-use iota_types::base_types::IotaAddress;
-use iota_types::crypto::{IotaKeyPair, Signature};
-use iota_types::signature::GenericSignature;
-use iota_types::transaction::TransactionData;
+use iota_sdk_crypto::simple::SimpleKeypair;
+use iota_sdk_crypto::IotaSigner;
+use iota_sdk_types::{Address, Transaction, UserSignature};
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::json;
@@ -18,10 +15,9 @@ use std::sync::Arc;
 
 #[async_trait::async_trait]
 pub trait TxSigner: Send + Sync {
-    async fn sign_transaction(&self, tx_data: &TransactionData)
-        -> anyhow::Result<GenericSignature>;
-    fn get_address(&self) -> IotaAddress;
-    fn is_valid_address(&self, address: &IotaAddress) -> bool {
+    async fn sign_transaction(&self, tx: &Transaction) -> anyhow::Result<UserSignature>;
+    fn get_address(&self) -> Address;
+    fn is_valid_address(&self, address: &Address) -> bool {
         self.get_address() == *address
     }
 }
@@ -35,13 +31,13 @@ struct SignatureResponse {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct IotaAddressResponse {
-    iota_pubkey_address: IotaAddress,
+    iota_pubkey_address: Address,
 }
 
 pub struct SidecarTxSigner {
     sidecar_url: String,
     client: Client,
-    iota_address: IotaAddress,
+    iota_address: Address,
 }
 
 impl SidecarTxSigner {
@@ -67,11 +63,18 @@ impl SidecarTxSigner {
 
 #[async_trait::async_trait]
 impl TxSigner for SidecarTxSigner {
-    async fn sign_transaction(
-        &self,
-        tx_data: &TransactionData,
-    ) -> anyhow::Result<GenericSignature> {
-        let bytes = Base64::encode(bcs::to_bytes(&tx_data)?);
+    // Wire-unchanged from the pre-migration implementation: still
+    // base64(bcs(tx)) posted as `{"txBytes": ...}` to `/sign-transaction`,
+    // with the response's `signature` field parsed via `UserSignature::from_str`
+    // (confirmed in ground truth at `iota-sdk-types/src/crypto/signature.rs`:
+    // `impl FromStr for UserSignature` delegates to `from_base64`, which
+    // base64-decodes then dispatches on the leading scheme-flag byte -- the
+    // same `flag || signature || pubkey` wire shape the old `GenericSignature`
+    // used). Only the type names (and the `fastcrypto::encoding::Base64` ->
+    // `crate::base64::Base64` swap, itself also just a thin wrapper over the
+    // same standard/padded base64 alphabet) changed here.
+    async fn sign_transaction(&self, tx: &Transaction) -> anyhow::Result<UserSignature> {
+        let bytes = Base64::encode(bcs::to_bytes(tx)?);
         let resp = self
             .client
             .post(format!("{}/{}", self.sidecar_url, "sign-transaction"))
@@ -80,38 +83,44 @@ impl TxSigner for SidecarTxSigner {
             .send()
             .await?;
         let sig_bytes = resp.json::<SignatureResponse>().await?;
-        let sig = GenericSignature::from_str(&sig_bytes.signature)
+        let sig = UserSignature::from_str(&sig_bytes.signature)
             .map_err(|err| anyhow!(err.to_string()))?;
         Ok(sig)
     }
 
-    fn get_address(&self) -> IotaAddress {
+    fn get_address(&self) -> Address {
         self.iota_address
     }
 }
 
 pub struct TestTxSigner {
-    keypair: IotaKeyPair,
+    keypair: SimpleKeypair,
 }
 
 impl TestTxSigner {
-    pub fn new(keypair: IotaKeyPair) -> Arc<Self> {
+    pub fn new(keypair: SimpleKeypair) -> Arc<Self> {
         Arc::new(Self { keypair })
     }
 }
 
 #[async_trait::async_trait]
 impl TxSigner for TestTxSigner {
-    async fn sign_transaction(
-        &self,
-        tx_data: &TransactionData,
-    ) -> anyhow::Result<GenericSignature> {
-        let intent_msg = IntentMessage::new(Intent::iota_transaction(), tx_data);
-        let sponsor_sig = Signature::new_secure(&intent_msg, &self.keypair).into();
-        Ok(sponsor_sig)
+    async fn sign_transaction(&self, tx: &Transaction) -> anyhow::Result<UserSignature> {
+        // `IotaSigner::sign_transaction` is blanket-implemented (in
+        // `iota-sdk-crypto`) for any `T: Signer<UserSignature>`, which
+        // `SimpleKeypair` is. It computes the signing digest internally as
+        // `blake2b(Intent::iota_transaction().to_bytes() || bcs(tx))` --
+        // see `iota_sdk_types::Transaction::signing_digest` in ground truth
+        // (`iota-sdk-types/src/hash.rs`) -- so the old manual two-step
+        // (`IntentMessage::new(Intent::iota_transaction(), tx_data)` +
+        // `Signature::new_secure(&intent_msg, &keypair)`) collapses into this
+        // single call.
+        self.keypair
+            .sign_transaction(tx)
+            .map_err(|err| anyhow!(err.to_string()))
     }
 
-    fn get_address(&self) -> IotaAddress {
-        (&self.keypair.public()).into()
+    fn get_address(&self) -> Address {
+        self.keypair.public_key().derive_address()
     }
 }

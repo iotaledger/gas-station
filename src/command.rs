@@ -3,20 +3,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::config::cold_params::ColdParams;
-use crate::config::GasStationConfig;
+use crate::config::{Config, GasStationConfig};
 use crate::gas_station::gas_station_core::GasStationContainer;
 use crate::gas_station::rescan_trigger::RescanGasObjectsTrigger;
 use crate::gas_station_initializer::GasStationInitializer;
 use crate::iota_client::IotaClient;
-use crate::metrics::{GasStationCoreMetrics, GasStationRpcMetrics, StorageMetrics};
+use crate::metrics::{
+    start_prometheus_server, GasStationCoreMetrics, GasStationRpcMetrics, StorageMetrics,
+};
 use crate::rpc::GasStationServer;
 use crate::storage::{connect_storage, get_storage_namespace};
 use crate::tracker::stats_tracker_storage::redis::connect_stats_storage;
 use crate::tracker::StatsTracker;
-use crate::{TRANSACTION_LOGGING_ENV_NAME, TRANSACTION_LOGGING_TARGET_NAME, VERSION};
+use crate::VERSION;
 use arc_swap::ArcSwap;
 use clap::*;
-use iota_config::Config;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -73,21 +74,14 @@ impl Command {
             coin_init_config,
             daily_gas_usage_cap,
             max_gas_budget,
+            checkpoint_wait_ms,
             mut access_controller,
         } = config;
 
-        let metric_address = SocketAddr::new(IpAddr::V4(rpc_host_ip), metrics_port);
-        let registry_service = iota_metrics::start_prometheus_server(metric_address);
-        let prometheus_registry = registry_service.default_registry();
-        let mut telemetry_config = telemetry_subscribers::TelemetryConfig::new()
-            .with_log_level("off,iota_gas_station=debug")
-            .with_env()
-            .with_prom_registry(&prometheus_registry);
+        crate::logging::init();
 
-        if std::env::var(TRANSACTION_LOGGING_ENV_NAME) == Ok("true".to_string()) {
-            telemetry_config = telemetry_config.with_trace_target(TRANSACTION_LOGGING_TARGET_NAME);
-        }
-        let _guard = telemetry_config.init();
+        let metric_address = SocketAddr::new(IpAddr::V4(rpc_host_ip), metrics_port);
+        let prometheus_registry = start_prometheus_server(metric_address);
         info!("Metrics server started at {:?}", metric_address);
 
         let signer = signer_config.new_signer().await;
@@ -103,7 +97,9 @@ impl Command {
             storage_metrics,
         )
         .await;
-        let iota_client = IotaClient::new(&fullnode_url, fullnode_basic_auth).await;
+        let iota_client = IotaClient::new(&fullnode_url, fullnode_basic_auth)
+            .await
+            .expect("Failed to connect to fullnode gRPC endpoint");
 
         let mut rescan_config = RescanGasObjectsTrigger::new(
             coin_init_config
@@ -162,6 +158,7 @@ impl Command {
             iota_client,
             daily_gas_usage_cap,
             max_gas_budget,
+            checkpoint_wait_ms,
             core_metrics,
             rescan_config,
         )
