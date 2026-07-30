@@ -337,14 +337,7 @@ impl IotaClient {
                 ExecuteTransactionRequestType::WaitForLocalExecution => Some(checkpoint_wait_ms),
             };
         // Narrow read mask: this service only ever reads the digest (for
-        // logging) and the effects. The default mask also pulls
-        // events/input_objects/output_objects, which are never used here;
-        // balance_changes/object_changes aren't in any default mask and are
-        // deliberately not requested either way -- we could not
-        // independently verify (from the ground-truth source/docs available
-        // here) the claim that requesting them can turn a pruned-object
-        // lookup into a hard `FAILED_PRECONDITION`, but not requesting them
-        // is the safe default regardless, since this service never reads them.
+        // logging) and the effects.
         let mask = ReadMask::from(&["transaction.digest", "effects"]);
         let outcome = retry_with_max_attempts!(
             async {
