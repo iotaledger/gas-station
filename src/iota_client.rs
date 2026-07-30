@@ -305,7 +305,7 @@ impl IotaClient {
 
     /// Executes a fully-signed transaction.
     ///
-    /// `checkpoint_wait_ms` is only used when `request_type` is
+    /// `checkpoint_inclusion_timeout_ms` is only used when `request_type` is
     /// `WaitForLocalExecution`; it maps to the gRPC call's
     /// `checkpoint_inclusion_timeout_ms`, which asks the server to wait up to
     /// that long for checkpoint inclusion before responding.
