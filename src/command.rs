@@ -74,7 +74,7 @@ impl Command {
             coin_init_config,
             daily_gas_usage_cap,
             max_gas_budget,
-            checkpoint_wait_ms,
+            checkpoint_inclusion_timeout_ms,
             mut access_controller,
         } = config;
 
