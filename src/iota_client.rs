@@ -247,10 +247,8 @@ impl IotaClient {
     /// `gas_payment.objects` empty, the authority fabricates its own mock
     /// gas coin owned by `gas_payment.owner`, and with `gas_payment.budget ==
     /// 0` under skipped checks the server rewrites the budget to the
-    /// protocol max and reports back the actual cost incurred (verified
-    /// against `crates/iota-grpc-server/src/**/simulate.rs` and
-    /// `crates/iota-core/src/authority.rs` on the `iotaledger/iota` monorepo
-    /// `develop` branch). `gas_coin` itself is a real, separate object: it's
+    /// protocol max and reports back the actual cost incurred.
+    /// `gas_coin` itself is a real, separate object: it's
     /// the *input* being split by the move call, not the fee-paying gas
     /// object, so its object reference must be real and correct.
     pub async fn calibrate_gas_cost_per_object(
