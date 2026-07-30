@@ -158,7 +158,7 @@ impl Command {
             iota_client,
             daily_gas_usage_cap,
             max_gas_budget,
-            checkpoint_wait_ms,
+            checkpoint_inclusion_timeout_ms,
             core_metrics,
             rescan_config,
         )
