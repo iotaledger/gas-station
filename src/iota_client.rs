@@ -427,8 +427,7 @@ fn gas_used_from_effects(effects: &TransactionEffects) -> u64 {
 /// never succeed no matter how many times they're retried, so letting
 /// `retry_forever!` spin on them would just be a silent hang with extra
 /// network chatter; everything else (`Unavailable`, `DeadlineExceeded`,
-/// transport resets, ...) is assumed transient, matching the old JSON-RPC
-/// client's blanket-retry behavior.
+/// transport resets, ...) is assumed transient.
 fn is_transient(err: &GrpcError) -> bool {
     let code = match err {
         GrpcError::Grpc(status) => status.code(),
