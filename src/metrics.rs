@@ -12,8 +12,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing::error;
 
-/// HTTP path metrics are served on, matching the path previously used by
-/// `iota_metrics::start_prometheus_server`.
+/// HTTP path metrics are served on.
 pub const METRICS_ROUTE: &str = "/metrics";
 
 /// Millisecond-scale buckets for RPC/transaction latency histograms.
