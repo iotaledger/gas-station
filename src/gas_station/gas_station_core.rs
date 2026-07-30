@@ -27,13 +27,6 @@ use tracing::{debug, error, info, warn};
 
 use super::gas_usage_cap::GasUsageCap;
 
-/// The new SDK crates carry no protocol-constant equivalent of the old
-/// `iota_types::gas_coin::NANOS_PER_IOTA` (it was never part of the wire
-/// format, just a `u64` unit-conversion constant), so it's defined locally
-/// here instead of pulling in `iota_types` for a single constant. Re-exported
-/// (via `pub`) for the handful of other call sites in this migration stage's
-/// files (`gas_station/mod.rs`'s and `gas_station_initializer.rs`'s test
-/// modules) that used to import it from `iota_types::gas_coin`.
 pub const NANOS_PER_IOTA: u64 = 1_000_000_000;
 
 const EXPIRATION_JOB_INTERVAL: Duration = Duration::from_secs(1);
