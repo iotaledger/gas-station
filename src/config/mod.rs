@@ -16,11 +16,7 @@ use std::sync::Arc;
 
 pub mod cold_params;
 
-/// Local replacement for the (now removed) `iota_config::Config` trait.
-///
 /// Provides simple YAML load/save helpers for any type that is `Serialize + DeserializeOwned`.
-/// Behavior is kept byte-identical to the previous `iota_config::Config` implementation,
-/// including continued use of `serde_yaml` 0.8 semantics.
 pub trait Config: Serialize + DeserializeOwned {
     fn load(path: impl AsRef<Path>) -> anyhow::Result<Self> {
         Ok(serde_yaml::from_reader(fs::File::open(path)?)?)
