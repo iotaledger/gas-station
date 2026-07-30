@@ -469,7 +469,7 @@ impl GasStationContainer {
         iota_client: IotaClient,
         gas_usage_daily_cap: u64,
         max_gas_budget: u64,
-        checkpoint_wait_ms: u64,
+        checkpoint_inclusion_timeout_ms: u64,
         metrics: Arc<GasStationCoreMetrics>,
         rescan_config: RescanGasObjectsTrigger,
     ) -> Self {
