@@ -3,15 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! gRPC client wrapper around `iota-sdk-grpc-client`.
-//!
-//! This replaces the old JSON-RPC (`iota_sdk::IotaClient`) wrapper. The
-//! underlying `iota_sdk_grpc_client::Client` has no retry/backoff or
-//! per-request timeout of its own (only a one-time connect timeout and
-//! HTTP/2 keepalive, see `Client::new`), so every network call here stays
-//! wrapped in this crate's own `retry_forever!`/`retry_with_max_attempts!`
-//! macros (`src/errors.rs`), same as the old client -- see `attempt` and
-//! `is_transient` below for how a per-attempt timeout and a retryability
-//! classifier are layered on top of those macros without changing them.
 
 use crate::rpc::rpc_types::ExecuteTransactionRequestType;
 use crate::types::GasCoin;
