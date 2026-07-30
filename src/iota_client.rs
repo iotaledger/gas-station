@@ -380,11 +380,6 @@ impl IotaClient {
     }
 
     /// Waits for a specific object version to become visible on the fullnode.
-    ///
-    /// Only reachable from `#[cfg(test)]` code (a post-execution consistency
-    /// assertion in `gas_station/gas_station_core.rs`) -- production never
-    /// needs to poll for object visibility, so this isn't compiled into
-    /// production builds.
     #[cfg(test)]
     pub async fn wait_for_object(&self, obj_ref: iota_sdk_types::ObjectReference) {
         loop {
