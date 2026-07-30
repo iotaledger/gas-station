@@ -314,14 +314,6 @@ pub async fn new_stats_tracker_for_testing(sponsor_address: Address) -> StatsTra
 }
 
 /// Constructs an arbitrary `iota_sdk_types::Address` for use in tests.
-///
-/// This used to be generic over a `RandomTestAddress` trait so it could also
-/// produce the old `iota_types::base_types::IotaAddress` (once needed by the
-/// access-controller's `TransactionContext`, before that was retyped onto the
-/// new SDK's `Address` -- see `access_controller/rule.rs`). Now that nothing
-/// in this crate needs the old address type anymore, the indirection is gone
-/// too; every existing `random_address()` call site already inferred `Address`
-/// here, so this is a behavior-preserving simplification.
 pub fn random_address() -> Address {
     Address::random()
 }
