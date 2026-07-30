@@ -56,9 +56,7 @@ impl IotaClient {
     /// here means the URL/config itself was unusable (bad scheme, HTTPS
     /// requested without the `tls-ring` feature, ...) -- not that the
     /// fullnode was unreachable, which only ever surfaces later from an
-    /// actual RPC call. Returning a `Result` instead of panicking lets the
-    /// caller (`src/command.rs`) report that distinctly, instead of the old
-    /// `IotaClientBuilder::build().unwrap()` panic-on-construct behavior.
+    /// actual RPC call.
     pub async fn new(
         fullnode_url: &str,
         basic_auth: Option<(String, String)>,
