@@ -402,8 +402,7 @@ impl IotaClient {
 }
 
 /// Builds a [`GasCoin`] from a `get_objects`/`list_owned_objects` result
-/// object, or `None` if it isn't a (recognizable) IOTA gas coin. Mirrors the
-/// old JSON-RPC client's `try_get_iota_coin_balance`.
+/// object, or `None` if it isn't a (recognizable) IOTA gas coin.
 fn coin_from_object(object: &Object) -> Option<GasCoin> {
     let object_ref = object.object_reference().ok()?;
     let sdk_object = object.object().ok()?;
