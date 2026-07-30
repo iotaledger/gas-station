@@ -48,10 +48,6 @@ pub struct GasStation {
     metrics: Arc<GasStationCoreMetrics>,
     gas_usage_cap: Arc<GasUsageCap>,
     max_gas_budget: u64,
-    /// How long the fullnode should wait for checkpoint inclusion before
-    /// responding to `execute_transaction` when the caller asked to wait for
-    /// local execution (`ExecuteTransactionRequestType::WaitForLocalExecution`).
-    /// Threaded from `GasStationConfig::checkpoint_wait_ms`.
     checkpoint_wait_ms: u64,
     rescan_config: RescanGasObjectsTrigger,
 }
