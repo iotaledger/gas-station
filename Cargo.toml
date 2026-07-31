@@ -30,14 +30,6 @@ arc-swap = { version = "1.7.1" }
 axum = { version = "0.6.6", features = ["headers"] }
 base64ct = { version = "1.6", features = ["alloc", "std"] }
 bcs = "0.1.6"
-# "derive"/"wrap_help" used to be pulled in transitively (this crate itself never
-# requested them) via the now-removed `iota-config`'s `clap.workspace = true`,
-# whose monorepo workspace `[workspace.dependencies]` set `clap = { features =
-# ["derive", "wrap_help"] }`. Removing `iota-config` exposed that this crate's
-# own `#[derive(Parser)]`/`#[derive(ValueEnum)]`/`#[command]`/`#[arg]` usage
-# (`src/command.rs`, `src/bin/tool.rs`, `src/main.rs`, `src/benchmarks/mod.rs`)
-# was silently relying on someone else's feature request the whole time; now
-# declared explicitly and directly by the crate that actually needs it.
 clap = { version = "4.4.10", features = ["env", "derive", "wrap_help"] }
 chrono = "0.4.19"
 const-str = "0.5.6"
