@@ -221,15 +221,6 @@ pub async fn start_rpc_server_for_testing_with_access_controller(
 /// the PTB itself doesn't need to do anything meaningful, it just needs to be
 /// a valid transaction for the gas station to execute -- while `sponsor`
 /// pays with `gas_coins`.
-///
-/// Unlike the pre-migration version of this helper, which built a plain
-/// (unsponsored) transaction via the old `TestTransactionBuilder` and then
-/// hand-patched `gas_data_mut().payment`/`.owner` onto it afterwards (see the
-/// removed `TODO: Add proper sponsored transaction support to test tx
-/// builder` comment that used to sit here), this uses the new SDK
-/// transaction builder's first-class sponsor support
-/// (`TransactionBuilder::sponsor`/`::gas`) directly -- no post-hoc patching
-/// needed.
 pub async fn create_test_transaction(
     test_cluster: &TestCluster,
     sponsor: Address,
