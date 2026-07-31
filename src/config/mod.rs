@@ -128,16 +128,8 @@ impl Default for GasStationStorageConfig {
 #[serde_as]
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
-// NOTE: no `#[cfg_attr(test, derive(PartialEq, Eq))]` here (unlike
-// `GasStationStorageConfig` above) -- `SimpleKeypair` (from `iota-sdk-crypto`)
-// deliberately does not implement `PartialEq`/`Eq` (its wrapped private-key
-// bytes are not meant to be compared), and since neither trait nor type is
-// local to this crate, we cannot provide the impl for it ourselves either.
-// Deriving on the whole enum would require every variant's fields to satisfy
-// the trait even though only `Sidecar` is ever compared in tests; see the
-// `TxSignerConfig::Local` case in `mod::test`'s config-compat test below for
-// how the `Local` variant is asserted on instead (via the derived public
-// key/address, not equality).
+// No test-only `PartialEq`/`Eq` derive here: `SimpleKeypair` doesn't
+// implement them.
 pub enum TxSignerConfig {
     Local {
         #[serde(with = "local_keypair")]
