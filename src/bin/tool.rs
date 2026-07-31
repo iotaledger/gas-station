@@ -253,20 +253,9 @@ pub enum Network {
     Mainnet,
 }
 
-// gRPC equivalents of the old JSON-RPC `iota_sdk::{IOTA_MAINNET_URL,
-// IOTA_TESTNET_URL, IOTA_DEVNET_URL}` constants. The new SDK's
-// `iota_sdk_grpc_client::Client::new_mainnet`/`_testnet`/`_devnet` build a
-// `Client` from the equivalent hosts, but those hosts (`MAINNET_HOST`/
-// `TESTNET_HOST`/`DEVNET_HOST` in `iota-sdk-grpc-client/src/client.rs`) are
-// `pub(crate)` (not importable here), and the constructors themselves
-// require the `tls-ring` feature to build a `Client` for an `https://` URI --
-// a feature this crate doesn't enable on `iota-sdk-grpc-client`, since
-// generating a sample config never actually opens a connection. The values
-// below are copied verbatim from that file; they are gRPC hosts, not
-// JSON-RPC hosts.
-const IOTA_GRPC_MAINNET_URL: &str = "https://grpc.mainnet.iota.cafe:443";
-const IOTA_GRPC_TESTNET_URL: &str = "https://grpc.testnet.iota.cafe:443";
-const IOTA_GRPC_DEVNET_URL: &str = "https://grpc.devnet.iota.cafe:443";
+const IOTA_GRPC_MAINNET_URL: &str = "https://grpc.mainnet.iota.cafe";
+const IOTA_GRPC_TESTNET_URL: &str = "https://grpc.testnet.iota.cafe";
+const IOTA_GRPC_DEVNET_URL: &str = "https://grpc.devnet.iota.cafe";
 
 fn get_fullnode_url(network: Network, is_docker_compose: bool) -> &'static str {
     match network {
