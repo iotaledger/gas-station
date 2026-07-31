@@ -2,16 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt;
+use std::str::FromStr;
 
-use fastcrypto::encoding::decode_bytes_hex;
-use iota_types::base_types::IotaAddress;
+use iota_sdk_types::Address;
 use serde::{
     de::{self, Visitor},
     Deserialize, Serialize,
 };
 
 impl ValueIotaAddress {
-    pub fn new(addresses: impl IntoIterator<Item = IotaAddress>) -> Self {
+    pub fn new(addresses: impl IntoIterator<Item = Address>) -> Self {
         let addresses: Vec<_> = addresses.into_iter().collect();
         if addresses.is_empty() {
             ValueIotaAddress::All
@@ -22,7 +22,7 @@ impl ValueIotaAddress {
         }
     }
 
-    pub fn includes(&self, address: &IotaAddress) -> bool {
+    pub fn includes(&self, address: &Address) -> bool {
         match self {
             ValueIotaAddress::All => true,
             ValueIotaAddress::Single(single) => single == address,
@@ -30,18 +30,18 @@ impl ValueIotaAddress {
         }
     }
 
-    pub fn includes_any<'a>(&self, addresses: impl IntoIterator<Item = &'a IotaAddress>) -> bool {
+    pub fn includes_any<'a>(&self, addresses: impl IntoIterator<Item = &'a Address>) -> bool {
         addresses.into_iter().any(|address| self.includes(&address))
     }
 }
 
-/// The ValueIotaAddress enum represents a single IotaAddress, a list of IotaAddress or all IotaAddresses.
+/// The ValueIotaAddress enum represents a single Address, a list of Address or all Addresses.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum ValueIotaAddress {
     #[default]
     All,
-    Single(IotaAddress),
-    List(Vec<IotaAddress>),
+    Single(Address),
+    List(Vec<Address>),
 }
 
 impl Serialize for ValueIotaAddress {
@@ -68,7 +68,7 @@ impl<'de> Deserialize<'de> for ValueIotaAddress {
             type Value = ValueIotaAddress;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a string, a single IotaAddress, or a list of IotaAddresses")
+                formatter.write_str("a string, a single Address, or a list of Addresses")
             }
 
             fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
@@ -78,8 +78,8 @@ impl<'de> Deserialize<'de> for ValueIotaAddress {
                 if value == "*" {
                     Ok(ValueIotaAddress::All)
                 } else {
-                    let from_hex: IotaAddress = decode_bytes_hex(value).map_err(E::custom)?;
-                    Ok(ValueIotaAddress::Single(from_hex))
+                    let address = Address::from_str(value).map_err(E::custom)?;
+                    Ok(ValueIotaAddress::Single(address))
                 }
             }
 
@@ -98,7 +98,7 @@ impl<'de> Deserialize<'de> for ValueIotaAddress {
 
 impl<K> From<K> for ValueIotaAddress
 where
-    K: IntoIterator<Item = IotaAddress>,
+    K: IntoIterator<Item = Address>,
 {
     fn from(k: K) -> Self {
         ValueIotaAddress::new(k)
@@ -108,14 +108,14 @@ where
 #[cfg(test)]
 mod test {
     use indoc::indoc;
-    use iota_types::base_types::IotaAddress;
+    use iota_sdk_types::Address;
 
     use super::ValueIotaAddress;
 
     #[test]
     fn test_include_from_one() {
-        let iota_address = IotaAddress::from_bytes([1; 32]).unwrap();
-        let iota_address_not_included = IotaAddress::from_bytes([2; 32]).unwrap();
+        let iota_address = Address::from_bytes([1; 32]).unwrap();
+        let iota_address_not_included = Address::from_bytes([2; 32]).unwrap();
 
         let value_iota_address = ValueIotaAddress::from([iota_address]);
 
@@ -125,9 +125,9 @@ mod test {
 
     #[test]
     fn test_include_from_many() {
-        let iota_address1 = IotaAddress::from_bytes([1; 32]).unwrap();
-        let iota_address2 = IotaAddress::from_bytes([2; 32]).unwrap();
-        let iota_address_not_included = IotaAddress::from_bytes([3; 32]).unwrap();
+        let iota_address1 = Address::from_bytes([1; 32]).unwrap();
+        let iota_address2 = Address::from_bytes([2; 32]).unwrap();
+        let iota_address_not_included = Address::from_bytes([3; 32]).unwrap();
 
         let value_iota_address = ValueIotaAddress::from([iota_address1, iota_address2]);
 
@@ -138,7 +138,7 @@ mod test {
 
     #[test]
     fn test_serde_one_address() {
-        let iota_address = IotaAddress::from_bytes([1; 32]).unwrap();
+        let iota_address = Address::from_bytes([1; 32]).unwrap();
         let value_iota_address = ValueIotaAddress::Single(iota_address);
         let data = serde_yaml::to_string(&value_iota_address).unwrap();
 
@@ -157,7 +157,7 @@ mod test {
 
     #[test]
     fn test_serde_multiple_addresses() {
-        let iota_address = IotaAddress::from_bytes([1; 32]).unwrap();
+        let iota_address = Address::from_bytes([1; 32]).unwrap();
         let value_iota_address = ValueIotaAddress::List(vec![iota_address, iota_address]);
         let data = serde_yaml::to_string(&value_iota_address).unwrap();
         assert_eq!(

@@ -3,9 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod client;
+pub(crate) mod effects;
 pub(crate) mod rpc_types;
 mod server;
 
+pub use effects::TransactionEffectsDto;
 pub use rpc_types::ExecuteTransactionRequestType;
 pub use server::GasStationServer;
 
@@ -17,7 +19,7 @@ mod tests {
     use crate::access_controller::predicates::{ValueAggregate, ValueNumber};
     use crate::access_controller::rule::{predicate_names, AccessRuleBuilder};
     use crate::access_controller::AccessController;
-    use crate::config::GasStationConfig;
+    use crate::config::{Config, GasStationConfig};
     use crate::rpc::ExecuteTransactionRequestType;
     use crate::test_env::{
         create_test_transaction, fetch_redis_val, remove_redis_key, start_rpc_server_for_testing,
@@ -26,10 +28,9 @@ mod tests {
     };
     use crate::tracker::stats_tracker_storage::redis::get_redis_aggr_key;
     use crate::tracker::stats_tracker_storage::AggregateType;
+    use crate::gas_station::gas_station_core::NANOS_PER_IOTA;
+    use crate::rpc::effects::ExecutionStatusDto;
     use crate::AUTH_ENV_NAME;
-    use iota_config::Config;
-    use iota_json_rpc_types::IotaTransactionBlockEffectsAPI;
-    use iota_types::gas_coin::NANOS_PER_IOTA;
 
     #[tokio::test]
     async fn test_basic_rpc_flow() {
@@ -50,7 +51,7 @@ mod tests {
             .execute_tx(reservation_id, &tx_data, &user_sig, None, None)
             .await
             .unwrap();
-        assert!(effects.status().is_ok());
+        assert!(matches!(effects.status, ExecutionStatusDto::Success));
     }
 
     #[tokio::test]
@@ -287,7 +288,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(effects.status().is_ok());
+        assert!(matches!(effects.status, ExecutionStatusDto::Success));
     }
 
     #[tokio::test]
@@ -315,6 +316,6 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(effects.status().is_ok());
+        assert!(matches!(effects.status, ExecutionStatusDto::Success));
     }
 }

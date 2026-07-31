@@ -8,32 +8,35 @@ repository = "https://github.com/iotaledger/gas-station"
 
 [dependencies]
 
-fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "69d496c71fb37e3d22fe85e5bbfd4256d61422b9" }
-
-iota-metrics = { git = "https://github.com/iotaledger/iota", tag = "v1.20.1", package = "iota-metrics" }
-iota-config = { git = "https://github.com/iotaledger/iota", tag = "v1.20.1", package = "iota-config" }
-iota-json-rpc-types = { git = "https://github.com/iotaledger/iota", tag = "v1.20.1", package = "iota-json-rpc-types" }
-iota-sdk = { git = "https://github.com/iotaledger/iota", tag = "v1.20.1", package = "iota-sdk" }
-iota-sdk-types = { package = "iota-sdk-types", git = "https://github.com/iotaledger/iota-rust-sdk.git", rev = "e19c78a1bee17e0bf85fcd5b16a2f080cef26274", features = [
+iota-sdk-types = { package = "iota-sdk-types", git = "https://github.com/iotaledger/iota-rust-sdk.git", rev = "2f021d0556e47564e9b04bcd0b3e8347c41a0a26", features = [
   "hash",
   "serde",
-  "schemars",
+  "rand",
 ] }
-iota-types = { git = "https://github.com/iotaledger/iota", tag = "v1.20.1", package = "iota-types" }
-telemetry-subscribers = { git = "https://github.com/iotaledger/iota", tag = "v1.20.1", package = "telemetry-subscribers" }
+iota-sdk-crypto = { git = "https://github.com/iotaledger/iota-rust-sdk.git", rev = "2f021d0556e47564e9b04bcd0b3e8347c41a0a26", features = [
+  "ed25519",
+  "secp256k1",
+  "secp256r1",
+  "bech32",
+] }
+iota-sdk-grpc-client = { git = "https://github.com/iotaledger/iota-rust-sdk.git", rev = "2f021d0556e47564e9b04bcd0b3e8347c41a0a26" }
+iota-sdk-grpc-types = { git = "https://github.com/iotaledger/iota-rust-sdk.git", rev = "2f021d0556e47564e9b04bcd0b3e8347c41a0a26" }
+iota-sdk-transaction-builder = { git = "https://github.com/iotaledger/iota-rust-sdk.git", rev = "2f021d0556e47564e9b04bcd0b3e8347c41a0a26" }
 
 
 anyhow = "1.0.75"
 async-trait = "0.1.51"
 arc-swap = { version = "1.7.1" }
 axum = { version = "0.6.6", features = ["headers"] }
+base64ct = { version = "1.6", features = ["alloc", "std"] }
 bcs = "0.1.6"
-clap = { version = "4.4.10", features = ["env"] }
+clap = { version = "4.4.10", features = ["env", "derive", "wrap_help"] }
 chrono = "0.4.19"
 const-str = "0.5.6"
 eyre = "0.6.9"
 futures-util = "0.3.30"
 git-version = "0.3.9"
+hex = "0.4"
 hostname = "0.4.0"
 itertools = "0.14.0"
 once_cell = "1.19.0"
@@ -49,9 +52,18 @@ reqwest = { version = "0.11.22", features = ["json"] }
 serde = { version = "1.0.193", features = ["derive", "rc"] }
 serde_with = "3.4.0"
 schemars = "0.8.16"
+sha2 = "0.10"
 tap = "1.0.1"
 tempfile = "3.2.0"
+tonic = { version = "0.14", default-features = false }
 tracing = "0.1.40"
+tracing-subscriber = { version = "0.3", features = [
+  "env-filter",
+  "fmt",
+  "json",
+  "ansi",
+  "registry",
+] }
 tokio = { version = "1.46", features = ["full"] }
 tokio-retry = "0.3.0"
 serde_json = "1.0.95"
@@ -68,8 +80,14 @@ url = { version = "2.5.7", features = ["serde"] }
 indoc = "2"
 rand = "0.8.5"
 wiremock = "0.6.3"
-iota-swarm-config = { git = "https://github.com/iotaledger/iota", tag = "v1.20.1", package = "iota-swarm-config" }
-test-cluster = { git = "https://github.com/iotaledger/iota", tag = "v1.20.1", package = "test-cluster" }
+iota-swarm-config = { git = "https://github.com/iotaledger/iota", rev = "066018d705bd3a1e29d5e9634a80adf693439587", package = "iota-swarm-config" }
+test-cluster = { git = "https://github.com/iotaledger/iota", rev = "066018d705bd3a1e29d5e9634a80adf693439587", package = "test-cluster" }
+http = "1"
+
+# Patch fastcrypto to the same version the monorepo pins in its own
+# [patch] table; kept in sync by scripts/sync-sdk-rev.sh --with-monorepo.
+[patch."https://github.com/MystenLabs/fastcrypto"]
+fastcrypto = "=0.1.11"
 
 [profile.release]
 panic = "abort"

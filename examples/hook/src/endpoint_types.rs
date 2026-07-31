@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use anyhow::Context as _;
 use axum::http::StatusCode;
 use base64::prelude::*;
-use iota_types::transaction::TransactionData;
+use iota_sdk_types::Transaction;
 use serde::Deserialize;
 use serde::Serialize;
 use utoipa::ToSchema;
@@ -37,7 +37,7 @@ pub struct ExecuteTxRequestPayload {
     /// ID used to reference a gas reservation.
     #[schema(format = "uint64")]
     pub reservation_id: u64,
-    /// Transaction as base64 encoded BCS serialized `TransactionData`.
+    /// Transaction as base64 encoded BCS serialized `Transaction`.
     #[schema(content_encoding = "base64")]
     pub tx_bytes: String,
     /// Base64 encoded user signature.
@@ -56,12 +56,12 @@ pub enum ExecuteTransactionRequestType {
 
 impl ExecuteTxHookRequest {
     /// Helper function to allow accessing transaction data easily.
-    pub fn parse_transaction_data(&self) -> Result<TransactionData, RequestError> {
+    pub fn parse_transaction_data(&self) -> Result<Transaction, RequestError> {
         BASE64_STANDARD
             .decode(&self.execute_tx_request.payload.tx_bytes)
             .context("failed to decode base64 string with transaction data")
             .and_then(|bytes| {
-                bcs::from_bytes(&bytes).context("failed to parse BCS bytes to `TransactionData`")
+                bcs::from_bytes(&bytes).context("failed to parse BCS bytes to `Transaction`")
             })
             .map_err(|err| RequestError::new(err).with_status(StatusCode::BAD_REQUEST))
     }

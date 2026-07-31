@@ -6,17 +6,25 @@ pub mod kms_stress;
 
 use crate::rpc::client::GasStationRpcClient;
 use clap::ValueEnum;
-use iota_config::node::DEFAULT_VALIDATOR_GAS_PRICE;
-use iota_sdk_types::Intent;
-use iota_sdk_types::IntentMessage;
-use iota_types::crypto::{get_account_key_pair, Signature};
-use iota_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
-use iota_types::transaction::{TransactionData, TransactionKind};
+use iota_sdk_crypto::ed25519::Ed25519PrivateKey;
+use iota_sdk_crypto::simple::SimpleKeypair;
+use iota_sdk_crypto::IotaSigner;
+use iota_sdk_types::{
+    GasPayment, ProgrammableTransaction, Transaction, TransactionExpiration, TransactionKind,
+    TransactionV1,
+};
 use parking_lot::RwLock;
 use rand::rngs::OsRng;
 use rand::Rng;
 use std::sync::Arc;
 use tokio::time::{interval, Duration, Instant};
+
+/// Was `iota_config::node::DEFAULT_VALIDATOR_GAS_PRICE` (itself a re-export of
+/// `iota_types::transaction::DEFAULT_VALIDATOR_GAS_PRICE`, confirmed still
+/// `1000` at the `v1.20.1` tag). Not part of any wire format -- just a
+/// stand-in gas price for this benchmark's synthetic transactions -- so a
+/// local constant replaces the dependency instead of a real SDK equivalent.
+const DEFAULT_VALIDATOR_GAS_PRICE: u64 = 1000;
 
 #[derive(Copy, Clone, ValueEnum)]
 pub enum BenchmarkMode {
@@ -58,7 +66,8 @@ impl BenchmarkMode {
             let client = client.clone();
             let stats = stats.clone();
             let handle = tokio::spawn(async move {
-                let (sender, keypair) = get_account_key_pair();
+                let keypair = SimpleKeypair::from(Ed25519PrivateKey::generate(OsRng));
+                let sender = keypair.public_key().derive_address();
                 let mut rng = OsRng;
                 loop {
                     let now = Instant::now();
@@ -77,20 +86,31 @@ impl BenchmarkMode {
                         continue;
                     }
 
-                    let pt_builder = ProgrammableTransactionBuilder::new();
-                    let pt = pt_builder.finish();
-                    let tx_data = TransactionData::new_with_gas_coins_allow_sponsor(
-                        TransactionKind::ProgrammableTransaction(pt),
+                    let pt = ProgrammableTransaction {
+                        inputs: vec![],
+                        commands: vec![],
+                    };
+                    let tx = Transaction::V1(TransactionV1 {
+                        kind: TransactionKind::Programmable(pt),
                         sender,
-                        gas_coins,
-                        budget,
-                        DEFAULT_VALIDATOR_GAS_PRICE,
-                        sponsor,
-                    );
-                    let intent_msg = IntentMessage::new(Intent::iota_transaction(), &tx_data);
-                    let user_sig = Signature::new_secure(&intent_msg, &keypair).into();
+                        gas_payment: GasPayment {
+                            objects: gas_coins,
+                            owner: sponsor,
+                            price: DEFAULT_VALIDATOR_GAS_PRICE,
+                            budget,
+                        },
+                        expiration: TransactionExpiration::None,
+                    });
+                    let user_sig = match keypair.sign_transaction(&tx) {
+                        Ok(sig) => sig,
+                        Err(err) => {
+                            stats.write().update_error();
+                            println!("Error: {}", err);
+                            continue;
+                        }
+                    };
                     let result = client
-                        .execute_tx(reservation_id, &tx_data, &user_sig, None, None)
+                        .execute_tx(reservation_id, &tx, &user_sig, None, None)
                         .await;
                     if let Err(err) = result {
                         stats.write().update_error();

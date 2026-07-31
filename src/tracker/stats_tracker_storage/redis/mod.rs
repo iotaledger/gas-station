@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use async_trait::async_trait;
-use fastcrypto::hash::*;
+use base64ct::Encoding as _;
+use sha2::{Digest, Sha256};
 
 use anyhow::Result;
 use itertools::Itertools;
@@ -89,9 +90,13 @@ fn generate_hash_from_key<'a>(key: &[(String, Value)]) -> String {
         hash_key.push_str(&to_string(&v).unwrap());
     }
 
-    let mut hasher = Sha256::default();
+    // NOTE: fastcrypto's `Digest` `Display` impl base64-encodes the raw hash bytes (NOT hex),
+    // so to keep producing byte-identical Redis keys for existing data we must reproduce that
+    // exact "SHA-256 then base64 (standard alphabet, padded)" encoding here, rather than the
+    // more obvious sha2 + hex::encode combination.
+    let mut hasher = Sha256::new();
     hasher.update(hash_key.as_bytes());
-    hasher.finalize().to_string()
+    base64ct::Base64::encode_string(&hasher.finalize())
 }
 
 pub async fn connect_stats_storage(
@@ -185,5 +190,37 @@ mod test {
         let hash_key_reversed = generate_hash_from_key(&key_map_rev);
 
         assert_eq!(hash_key, hash_key_reversed);
+    }
+
+    /// Regression test pinning `generate_hash_from_key`'s output for a known input to the
+    /// value the *old* `fastcrypto::hash::Sha256` + `Digest::to_string()` implementation
+    /// produced for the exact same input.
+    ///
+    /// `fastcrypto`'s `Digest` `Display` impl base64-encodes the raw hash bytes (not hex), so
+    /// the sha2+base64ct replacement must keep producing this exact string, otherwise every
+    /// Redis key this service has ever written for daily-gas-cap counters would be orphaned
+    /// (silently resetting existing customers' counters to zero).
+    ///
+    /// The expected value below was obtained empirically by running fastcrypto's old
+    /// `Sha256::default().update(input).finalize().to_string()` against the identical input
+    /// this test uses (a throwaway scratch binary depending on the still-present `fastcrypto`
+    /// crate), then hardcoded here as a permanent pin.
+    #[test]
+    fn test_generate_hash_from_key_pinned_digest() {
+        let key_meta = json!({
+            "sender_address": "0x1234567890abcdef",
+        })
+        .as_object()
+        .unwrap()
+        .to_owned()
+        .into_iter()
+        .collect::<Vec<_>>();
+
+        let hash = generate_hash_from_key(&key_meta);
+
+        // Empirically derived from fastcrypto's Sha256 + Base64 Digest::Display for the input
+        // "sender_address\"0x1234567890abcdef\"" (i.e. key "sender_address" concatenated with
+        // the canonical JSON string form of its value, per `generate_hash_from_key`).
+        assert_eq!(hash, "ppIC+GjLAl03pJy3GK0aFwo9XtX1Vl/i12ek/NaYIpw=");
     }
 }

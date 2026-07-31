@@ -8,6 +8,7 @@ pub mod decision;
 pub mod hook;
 pub mod policy;
 pub mod predicates;
+pub(crate) mod rego_input;
 pub mod reports;
 pub mod rule;
 pub mod utils;
@@ -17,7 +18,7 @@ use std::{collections::HashMap, fmt::Formatter, sync::Arc};
 use anyhow::{Context, Result};
 use decision::Decision;
 use hook::SkippableDecision;
-use iota_types::digests::TransactionDigest;
+use iota_sdk_types::TransactionDigest;
 use policy::AccessPolicy;
 use predicates::Action;
 use rule::{AccessRule, GasUsageConfirmationRequest, TransactionContext};
@@ -211,7 +212,7 @@ mod test {
     use std::collections::BTreeMap;
 
     use indoc::indoc;
-    use iota_types::base_types::IotaAddress;
+    use iota_sdk_types::Address;
     use url::Url;
 
     use crate::access_controller::{
@@ -229,8 +230,8 @@ mod test {
 
     #[tokio::test]
     async fn test_deny_policy_rules_should_allow() {
-        let sender_address = IotaAddress::from_bytes([1; 32]).unwrap();
-        let blocked_address = IotaAddress::from_bytes([2; 32]).unwrap();
+        let sender_address = Address::from_bytes([1; 32]).unwrap();
+        let blocked_address = Address::from_bytes([2; 32]).unwrap();
         let allow_rule = AccessRuleBuilder::new()
             .sender_address(sender_address)
             .allow()
@@ -269,8 +270,8 @@ mod test {
 
     #[tokio::test]
     async fn test_allow_policy_rules_should_block() {
-        let blocked_address = IotaAddress::from_bytes([1; 32]).unwrap();
-        let sender_address = IotaAddress::from_bytes([2; 32]).unwrap();
+        let blocked_address = Address::from_bytes([1; 32]).unwrap();
+        let sender_address = Address::from_bytes([2; 32]).unwrap();
 
         let deny_rule = AccessRuleBuilder::new()
             .sender_address(blocked_address)
@@ -310,7 +311,7 @@ mod test {
 
     #[tokio::test]
     async fn test_deny_policy_rules_gas_budget() {
-        let sender_address = IotaAddress::from_bytes([1; 32]).unwrap();
+        let sender_address = Address::from_bytes([1; 32]).unwrap();
         let gas_budget = 100;
         let allow_rule = AccessRuleBuilder::new()
             .sender_address(sender_address)
@@ -338,7 +339,7 @@ mod test {
 
     #[tokio::test]
     async fn test_allow_policy_rules_gas_budget() {
-        let sender_address = IotaAddress::from_bytes([1; 32]).unwrap();
+        let sender_address = Address::from_bytes([1; 32]).unwrap();
         let gas_budget = 100;
         let deny_rule = AccessRuleBuilder::new()
             .sender_address(sender_address)
@@ -365,8 +366,8 @@ mod test {
 
     #[tokio::test]
     async fn test_allow_policy_rules_move_call_package_address() {
-        let sender_address = IotaAddress::from_bytes([1; 32]).unwrap();
-        let package_address = IotaAddress::from_bytes([2; 32]).unwrap();
+        let sender_address = Address::from_bytes([1; 32]).unwrap();
+        let package_address = Address::from_bytes([2; 32]).unwrap();
         let deny_rule = AccessRuleBuilder::new()
             .sender_address(sender_address)
             .move_call_package_address(package_address)
@@ -377,7 +378,7 @@ mod test {
             .with_move_call_package_addresses(vec![package_address]);
         let allowed_tx = TransactionContext::default()
             .with_sender_address(sender_address)
-            .with_move_call_package_addresses(vec![IotaAddress::from_bytes([3; 32]).unwrap()]);
+            .with_move_call_package_addresses(vec![Address::from_bytes([3; 32]).unwrap()]);
 
         let ac = AccessController::new(AccessPolicy::AllowAll, [deny_rule]);
         assert!(matches!(
@@ -392,8 +393,8 @@ mod test {
 
     #[tokio::test]
     async fn test_deny_policy_rules_move_call_package_address() {
-        let sender_address = IotaAddress::from_bytes([1; 32]).unwrap();
-        let package_address = IotaAddress::from_bytes([2; 32]).unwrap();
+        let sender_address = Address::from_bytes([1; 32]).unwrap();
+        let package_address = Address::from_bytes([2; 32]).unwrap();
         let allow_rule = AccessRuleBuilder::new()
             .sender_address(sender_address)
             .move_call_package_address(package_address)
@@ -404,7 +405,7 @@ mod test {
             .with_move_call_package_addresses(vec![package_address]);
         let denied_tx = TransactionContext::default()
             .with_sender_address(sender_address)
-            .with_move_call_package_addresses(vec![IotaAddress::from_bytes([3; 32]).unwrap()]);
+            .with_move_call_package_addresses(vec![Address::from_bytes([3; 32]).unwrap()]);
 
         let ac = AccessController::new(AccessPolicy::DenyAll, [allow_rule]);
         assert!(matches!(
@@ -419,7 +420,7 @@ mod test {
 
     #[tokio::test]
     async fn test_allow_policy_rules_ptb_command_count() {
-        let sender_address = IotaAddress::from_bytes([1; 32]).unwrap();
+        let sender_address = Address::from_bytes([1; 32]).unwrap();
         let deny_rule = AccessRuleBuilder::new()
             .sender_address(sender_address)
             .ptb_command_count(ValueNumber::GreaterThan(1))
@@ -445,7 +446,7 @@ mod test {
 
     #[tokio::test]
     async fn test_deny_policy_rules_ptb_command_count() {
-        let sender_address = IotaAddress::from_bytes([1; 32]).unwrap();
+        let sender_address = Address::from_bytes([1; 32]).unwrap();
         let allow_rule = AccessRuleBuilder::new()
             .sender_address(sender_address)
             .ptb_command_count(ValueNumber::LessThanOrEqual(1))
@@ -484,7 +485,7 @@ mod test {
         assert_eq!(ac.rules.len(), 1);
         assert_eq!(
             ac.rules[0].sender_address,
-            ValueIotaAddress::List(vec![IotaAddress::from_bytes([1; 32]).unwrap()])
+            ValueIotaAddress::List(vec![Address::from_bytes([1; 32]).unwrap()])
         );
         assert_eq!(
             ac.rules[0].transaction_gas_budget,
@@ -502,7 +503,7 @@ mod test {
         let ac = AccessController::new(
             AccessPolicy::DenyAll,
             [AccessRuleBuilder::new()
-                .sender_address(IotaAddress::from_bytes([1; 32]).unwrap())
+                .sender_address(Address::from_bytes([1; 32]).unwrap())
                 .gas_budget(ValueNumber::LessThanOrEqual(10000))
                 .ptb_command_count(ValueNumber::LessThanOrEqual(5))
                 .allow()
@@ -530,8 +531,8 @@ mod test {
         let ac = AccessController::new(
             AccessPolicy::DenyAll,
             [AccessRuleBuilder::new()
-                .sender_address(IotaAddress::from_bytes([1; 32]).unwrap())
-                .move_call_package_address(IotaAddress::from_bytes([2; 32]).unwrap())
+                .sender_address(Address::from_bytes([1; 32]).unwrap())
+                .move_call_package_address(Address::from_bytes([2; 32]).unwrap())
                 .allow()
                 .build()],
         );
@@ -565,11 +566,11 @@ mod test {
         assert_eq!(ac.rules.len(), 1);
         assert_eq!(
             ac.rules[0].sender_address,
-            ValueIotaAddress::List(vec![IotaAddress::from_bytes([1; 32]).unwrap()])
+            ValueIotaAddress::List(vec![Address::from_bytes([1; 32]).unwrap()])
         );
         assert_eq!(
             ac.rules[0].move_call_package_address,
-            Some(ValueIotaAddress::List(vec![IotaAddress::from_bytes(
+            Some(ValueIotaAddress::List(vec![Address::from_bytes(
                 [2; 32]
             )
             .unwrap()]))
@@ -645,7 +646,7 @@ mod test {
 
     #[tokio::test]
     async fn test_evaluation_order_multiple_rules_policy_deny() {
-        let sender_address = IotaAddress::from_bytes([1; 32]).unwrap();
+        let sender_address = Address::from_bytes([1; 32]).unwrap();
         let deny_rule = AccessRuleBuilder::new()
             .sender_address(sender_address)
             .deny()
@@ -666,7 +667,7 @@ mod test {
 
     #[tokio::test]
     async fn test_evaluation_order_multiple_rules_policy_allow() {
-        let sender_address = IotaAddress::from_bytes([1; 32]).unwrap();
+        let sender_address = Address::from_bytes([1; 32]).unwrap();
 
         let deny_rule = AccessRuleBuilder::new()
             .sender_address(sender_address)
@@ -686,9 +687,9 @@ mod test {
 
     #[tokio::test]
     async fn test_evaluation_logic_matching() {
-        let sender_1 = IotaAddress::from_bytes([1; 32]).unwrap();
-        let sender_2 = IotaAddress::from_bytes([2; 32]).unwrap();
-        let package_id = IotaAddress::from_bytes([10; 32]).unwrap();
+        let sender_1 = Address::from_bytes([1; 32]).unwrap();
+        let sender_2 = Address::from_bytes([2; 32]).unwrap();
+        let package_id = Address::from_bytes([10; 32]).unwrap();
 
         let allow_sender_1_and_package = AccessRuleBuilder::new()
             .sender_address(sender_1)
@@ -884,7 +885,7 @@ mod test {
         #[tokio::test]
         async fn test_hook_is_called_if_another_rule_term_applies() {
             let (mock_server, url, error) = get_mock_server_bad_request().await;
-            let sender_address = IotaAddress::from_bytes([1; 32]).unwrap();
+            let sender_address = Address::from_bytes([1; 32]).unwrap();
             let hook_rule = AccessRuleBuilder::new()
                 .sender_address(sender_address)
                 .hook(url, None)
@@ -907,8 +908,8 @@ mod test {
         #[tokio::test]
         async fn test_hook_is_not_called_if_another_rule_term_does_not_apply() {
             let (mock_server, url, _) = get_mock_server_bad_request().await;
-            let sender_address = IotaAddress::from_bytes([1; 32]).unwrap();
-            let blocked_address = IotaAddress::from_bytes([2; 32]).unwrap();
+            let sender_address = Address::from_bytes([1; 32]).unwrap();
+            let blocked_address = Address::from_bytes([2; 32]).unwrap();
             let hook_rule = AccessRuleBuilder::new()
                 .sender_address(sender_address)
                 .hook(url, None)

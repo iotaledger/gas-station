@@ -4,7 +4,7 @@
 use std::fmt::Display;
 
 use anyhow::{bail, Context};
-use iota_sdk::json::{IotaJsonValue, MoveTypeLayout};
+use iota_sdk_types::Address;
 use regorus::Value;
 use serde::{Deserialize, Serialize};
 
@@ -121,31 +121,31 @@ fn bcs_decode_bytes(data_bytes: &[u8], data_type: BcsDataType) -> Result<Value, 
         }
 
         BcsDataType::Bool => {
-            let decoded =
-                IotaJsonValue::from_bcs_bytes(Some(&MoveTypeLayout::Bool.into()), data_bytes)?;
-            Ok(Value::from(decoded.to_json_value()))
+            let decoded: bool = bcs::from_bytes(data_bytes)
+                .map_err(|e| anyhow::anyhow!("Failed to decode bool: {}", e))?;
+            Ok(Value::Bool(decoded))
         }
         BcsDataType::Address => {
-            let decoded =
-                IotaJsonValue::from_bcs_bytes(Some(&MoveTypeLayout::Address.into()), data_bytes)?;
-            let address_str = decoded
-                .to_iota_address()
-                .map_err(|e| anyhow::anyhow!("Failed to convert to Iota address: {}", e))?;
-            Ok(Value::from(address_str.to_string()))
+            let decoded: Address = bcs::from_bytes(data_bytes)
+                .map_err(|e| anyhow::anyhow!("Failed to decode address: {}", e))?;
+            Ok(Value::from(decoded.to_string()))
         }
         BcsDataType::VectorAddress => {
-            let decoded = IotaJsonValue::from_bcs_bytes(
-                Some(&MoveTypeLayout::Vector(MoveTypeLayout::Address.into())),
-                data_bytes,
-            )?;
-            Ok(Value::from(decoded.to_json_value()))
+            let decoded: Vec<Address> = bcs::from_bytes(data_bytes)
+                .map_err(|e| anyhow::anyhow!("Failed to decode vector of addresses: {}", e))?;
+            Ok(Value::from(
+                decoded
+                    .into_iter()
+                    .map(|address| Value::from(address.to_string()))
+                    .collect::<Vec<_>>(),
+            ))
         }
         BcsDataType::VectorBool => {
-            let decoded = IotaJsonValue::from_bcs_bytes(
-                Some(&MoveTypeLayout::Vector(MoveTypeLayout::Bool.into())),
-                data_bytes,
-            )?;
-            Ok(Value::from(decoded.to_json_value()))
+            let decoded: Vec<bool> = bcs::from_bytes(data_bytes)
+                .map_err(|e| anyhow::anyhow!("Failed to decode vector of bools: {}", e))?;
+            Ok(Value::from(
+                decoded.into_iter().map(Value::Bool).collect::<Vec<_>>(),
+            ))
         }
         // We don't use the IotaJsonValue here, we use the BCS directly
         // It seems the SDK is inconsistent with nested MoveType declarations.
@@ -209,26 +209,34 @@ mod tests {
     // Its important to use original encoding to ensure that the BCS decoder works correctly.
     const TRANSACTION_KIND_JSON: &str = include_str!("./../test_files/transaction_kind.json");
 
-    use iota_types::transaction::{CallArg, TransactionKind};
-
     use super::*;
     use std::collections::HashMap;
-    fn get_test_data() -> HashMap<Vec<u8>, BcsDataType> {
-        let tx_kind = serde_json::from_str::<TransactionKind>(TRANSACTION_KIND_JSON)
-            .expect("Failed to parse transaction kind JSON");
 
-        let TransactionKind::ProgrammableTransaction(ptb) = tx_kind else {
-            panic!("Expected a ProgrammableTransaction kind");
-        };
-        let inputs_bytes: Vec<Vec<u8>> = ptb
-            .inputs
+    /// Parses the fixture's `Pure` inputs directly out of its raw JSON,
+    /// rather than deserializing into a full transaction-kind type: this
+    /// fixture is in the *pre-migration* `iota_types::transaction::TransactionKind`
+    /// JSON shape (see `access_controller/rego_input.rs`'s module docs for the
+    /// documented list of shape divergences from the new SDK type), and this
+    /// crate no longer depends on that old type at all. Mirrors the same
+    /// raw-JSON-parsing approach already used by `rego_input.rs`'s own test
+    /// against this identical fixture file.
+    fn get_test_data() -> HashMap<Vec<u8>, BcsDataType> {
+        let fixture: serde_json::Value = serde_json::from_str(TRANSACTION_KIND_JSON)
+            .expect("Failed to parse transaction kind JSON");
+        let pt_json = fixture
+            .get("ProgrammableTransaction")
+            .expect("fixture is a ProgrammableTransaction kind");
+        let inputs_bytes: Vec<Vec<u8>> = pt_json["inputs"]
+            .as_array()
+            .expect("fixture inputs is an array")
             .iter()
-            .filter_map(|input| {
-                if let CallArg::Pure(pure_input) = input {
-                    Some(pure_input.clone())
-                } else {
-                    None
-                }
+            .map(|input| {
+                input["Pure"]
+                    .as_array()
+                    .expect("fixture inputs are all Pure byte arrays")
+                    .iter()
+                    .map(|b| b.as_u64().unwrap() as u8)
+                    .collect()
             })
             .collect();
 

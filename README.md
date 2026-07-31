@@ -97,7 +97,7 @@ metrics-port: 9184
 storage-config:
   redis:
     redis-url: "redis://127.0.0.1"
-fullnode-url: "https://api.testnet.iota.cafe" # requires redis to be cleared
+fullnode-url: "https://grpc.testnet.iota.cafe" # requires redis to be cleared, gRPC endpoint (see "Upgrading from JSON-RPC to gRPC" below)
 coin-init-config:
   target-init-balance: 100000000 # requires redis to be cleared
   refresh-interval-sec: 86400
@@ -109,26 +109,30 @@ access-controller:
 
 ### Configuration parameters
 
-| Parameter                               | Db rebuild required?| Description                                                               | Example                                                                                         |
-| --------------------------------------- |---------------------|---------------------------------------------------------------------------| ----------------------------------------------------------------------------------------------- |
-| `signer-config`                         | no                  | Configuration of signer. It can be a local or an external KMS.            | See [down below](#signer-configuration)                                                         |
-| `rpc-host-ip`                           | no                  | IP address for the RPC server                                             | `0.0.0.0`                                                                                       |
-| `rpc-port`                              | no                  | Port for the RPC server                                                   | `9527`                                                                                          |
-| `metrics-port`                          | no                  | Port for collecting and exposing metrics                                  | `9184`                                                                                          |
-| `storage-config.redis.redis-url`        | no                  | Redis connection URL                                                      | `redis://127.0.0.1`                                                                             |
-| `fullnode-url`                          | yes ⚠               | URL of the IOTA full node                                                 | `https://api.testnet.iota.cafe`                                                                 |
-| `coin-init-config.target-init-balance`  | yes ⚠               | Target balance for the new coins when we splitting new gas coins in NANOs | `100000000`                                                                                     |
-| `coin-init-config.refresh-interval-sec` | no                  | Interval in seconds to refresh balance and check for new coins to split   | `86400`                                                                                         |
-| `daily-gas-usage-cap`                   | no                  | Maximum allowed daily gas usage                                           | `1500000000000`                                                                                 |
-| `max-gas-budget`                        | no                  | Maximum allowed reservable gas budget                                     | `2000000000`                                                                                    |
-| `access-controller.access-policy`       | no                  | Access policy mode.                                                       | `disabled`, `allow-all`, `deny-all`. See [this link](./docs/access-controller.md) to learn more |
+| Parameter | Db rebuild required? | Description | Example |
+| --- | --- | --- | --- |
+| `signer-config` | no | Configuration of signer. It can be a local or an external KMS. | See [down below](#signer-configuration) |
+| `rpc-host-ip` | no | IP address for the RPC server | `0.0.0.0` |
+| `rpc-port` | no | Port for the RPC server | `9527` |
+| `metrics-port` | no | Port for collecting and exposing metrics | `9184` |
+| `storage-config.redis.redis-url` | no | Redis connection URL | `redis://127.0.0.1` |
+| `fullnode-url` | yes ⚠ | **gRPC** endpoint of the IOTA full node. See [Upgrading from JSON-RPC to gRPC](./docs/common-issues.md#upgrading-from-json-rpc-to-grpc) if you are updating an existing deployment. | `https://grpc.testnet.iota.cafe` |
+| `coin-init-config.target-init-balance` | yes ⚠ | Target balance for the new coins when we splitting new gas coins in NANOs | `100000000` |
+| `coin-init-config.refresh-interval-sec` | no | Interval in seconds to refresh balance and check for new coins to split | `86400` |
+| `daily-gas-usage-cap` | no | Maximum allowed daily gas usage | `1500000000000` |
+| `max-gas-budget` | no | Maximum allowed reservable gas budget | `2000000000` |
+| `checkpoint-inclusion-timeout-ms` | no | Milliseconds the full node should wait for a transaction to reach checkpoint inclusion (local execution) before responding, when a request asks to wait for local execution. Passed through as the gRPC `execute_transaction` call's `checkpoint_inclusion_timeout_ms`. Defaults to `10000` if omitted. | `10000` |
+| `access-controller.access-policy` | no | Access policy mode. | `disabled`, `allow-all`, `deny-all`. See [this link](./docs/access-controller.md) to learn more |
 
+### Upgrading from JSON-RPC to gRPC
 
-#### Gas Station reinitialization
+> **Operator-visible breaking change:** the Gas Station now talks to the IOTA full node over **gRPC** instead of JSON-RPC. See [Upgrading from JSON-RPC to gRPC](./docs/common-issues.md#upgrading-from-json-rpc-to-grpc) for the migration steps when updating an existing deployment.
+
+### Gas Station reinitialization
 
 The configuration parameter `target-init-balance` requires the Redis database to be cleared (flushed) before any changes to those settings can take effect safely. If you modify these parameters, you will typically be notified that a reinitialization is required. To prevent accidental or unintended reinitializations — which may take a significant amount of time — you must explicitly start the gas station with the `--allow-reinit` flag to allow automatic reinitialization. Alternatively, you can revert the changed parameters to their original values and plan the reinitialization for a more convenient time.
 
-#### Signer Configuration
+### Signer Configuration
 
 You can configure the signer in two ways:
 

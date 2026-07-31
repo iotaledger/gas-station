@@ -5,12 +5,14 @@
 use crate::access_controller::decision::Decision;
 use crate::access_controller::rule::TransactionContext;
 use crate::access_controller::{AccessController, TransactionExecutionResult};
-use crate::config::GasStationConfig;
+use crate::base64::Base64;
+use crate::config::{Config, GasStationConfig};
 use crate::errors::generate_event_id;
 use crate::gas_station::gas_station_core::GasStation;
 use crate::logging::TxLogMessage;
 use crate::metrics::GasStationRpcMetrics;
 use crate::rpc::client::GasStationRpcClient;
+use crate::rpc::effects::TransactionEffectsDto;
 use crate::rpc::rpc_types::{
     ExecuteTxRequest, ExecuteTxResponse, GasStationResponse, ReserveGasRequest, ReserveGasResponse,
 };
@@ -24,12 +26,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router, TypedHeader};
-use fastcrypto::encoding::Base64;
-use iota_config::Config;
-use iota_json_rpc_types::IotaTransactionBlockEffectsAPI;
-use iota_types::crypto::ToFromBytes;
-use iota_types::signature::GenericSignature;
-use iota_types::transaction::TransactionData;
+use iota_sdk_types::{Transaction, UserSignature};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -156,6 +153,7 @@ async fn reserve_gas(
     Extension(server): Extension<ServerState>,
     Json(payload): Json<ReserveGasRequest>,
 ) -> impl IntoResponse {
+    server.metrics.num_reserve_gas_requests.inc();
     if let Some(secret) = server.secret.as_ref() {
         let token = authorization.as_ref().map(|auth| auth.token());
         if token != Some(secret.as_str()) {
@@ -186,11 +184,11 @@ async fn reserve_gas(
     server
         .metrics
         .target_gas_budget_per_request
-        .observe(gas_budget);
+        .observe(gas_budget as f64);
     server
         .metrics
         .reserve_duration_per_request
-        .observe(reserve_duration_secs);
+        .observe(reserve_duration_secs as f64);
     // Spawn a thread to process the request so that it will finish even when client drops the connection.
     tokio::task::spawn(reserve_gas_impl(
         server.gas_station.clone(),
@@ -276,11 +274,11 @@ async fn execute_tx(
         user_sig: user_sig_raw,
         request_type,
     } = payload;
-    let Ok((tx_data, user_sig)) = convert_tx_and_sig(tx_bytes.clone(), user_sig_raw.clone()) else {
+    let Ok((tx, user_sig)) = convert_tx_and_sig(tx_bytes.clone(), user_sig_raw.clone()) else {
         return (
             StatusCode::BAD_REQUEST,
             Json(ExecuteTxResponse::new_err(anyhow::anyhow!(
-                "Invalid bcs bytes for TransactionData"
+                "Invalid bcs bytes for Transaction"
             ))),
         );
     };
@@ -288,7 +286,7 @@ async fn execute_tx(
     // collect information about request and transaction
     let ctx = TransactionContext::new(
         &user_sig,
-        &tx_data,
+        &tx,
         server.stats_tracker.clone(),
         reservation_id,
         tx_bytes,
@@ -301,7 +299,7 @@ async fn execute_tx(
     tokio::task::spawn(execute_tx_impl(
         server.gas_station.clone(),
         server.metrics.clone(),
-        tx_data,
+        tx,
         user_sig,
         server.access_controller.clone(),
         ctx,
@@ -321,12 +319,12 @@ async fn execute_tx(
 async fn execute_tx_impl(
     gas_station: Arc<GasStation>,
     metrics: Arc<GasStationRpcMetrics>,
-    tx_data: TransactionData,
-    user_sig: GenericSignature,
+    tx: Transaction,
+    user_sig: UserSignature,
     access_controller: Arc<ArcSwap<AccessController>>,
     ctx: TransactionContext,
 ) -> (StatusCode, Json<ExecuteTxResponse>) {
-    let transaction_digest = tx_data.digest();
+    let transaction_digest = tx.digest();
 
     let is_rejected = match access_controller.load().check_access(&ctx).await {
         Ok(Decision::Allow) => {
@@ -373,23 +371,23 @@ async fn execute_tx_impl(
     }
 
     match gas_station
-        .execute_transaction(ctx.reservation_id, tx_data, user_sig, ctx.request_type)
+        .execute_transaction(ctx.reservation_id, tx, user_sig, ctx.request_type)
         .await
     {
         Ok(effects) => {
             info!(
                 ?ctx.reservation_id,
                 "Successfully executed transaction {:?} with status: {:?}",
-                effects.transaction_digest(),
-                effects.status()
+                transaction_digest,
+                effects.as_v1().status
             );
             trace!(target: "transactions", "{}", TxLogMessage::new(&effects));
 
+            let gas_used = effects.as_v1().gas_cost_summary.gas_used();
             let confirmation_result = access_controller
                 .load()
                 .confirm_transaction(
-                    TransactionExecutionResult::new(transaction_digest)
-                        .with_gas_usage(effects.gas_cost_summary().gas_used()),
+                    TransactionExecutionResult::new(transaction_digest).with_gas_usage(gas_used),
                     &ctx.stats_tracker.clone(),
                 )
                 .await;
@@ -399,7 +397,12 @@ async fn execute_tx_impl(
                 error!("Error while confirming transaction in AC: {:?}", err);
             }
             metrics.num_successful_execute_tx_requests.inc();
-            (StatusCode::OK, Json(ExecuteTxResponse::new_ok(effects)))
+            (
+                StatusCode::OK,
+                Json(ExecuteTxResponse::new_ok(TransactionEffectsDto::from(
+                    effects,
+                ))),
+            )
         }
         Err(err) => {
             error!("Failed to execute transaction: {:?}", err);
@@ -470,14 +473,14 @@ async fn reload_access_controller(
 fn convert_tx_and_sig(
     tx_bytes: Base64,
     user_sig: Base64,
-) -> anyhow::Result<(TransactionData, GenericSignature)> {
+) -> anyhow::Result<(Transaction, UserSignature)> {
     let tx = bcs::from_bytes(
         &tx_bytes
             .to_vec()
             .map_err(|_| anyhow::anyhow!("Failed to convert tx_bytes to vector"))?,
     )?;
-    let user_sig = GenericSignature::from_bytes(
-        &user_sig
+    let user_sig = UserSignature::from_bytes(
+        user_sig
             .to_vec()
             .map_err(|_| anyhow::anyhow!("Failed to convert user_sig to vector"))?,
     )?;

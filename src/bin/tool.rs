@@ -2,14 +2,16 @@
 // Modifications Copyright (c) 2025 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
+use base64ct::Encoding;
 use clap::*;
 use iota_gas_station::benchmarks::kms_stress::run_kms_stress_test;
 use iota_gas_station::benchmarks::BenchmarkMode;
 use iota_gas_station::config::{GasStationConfig, GasStationStorageConfig, TxSignerConfig};
 use iota_gas_station::rpc::client::GasStationRpcClient;
-use iota_sdk::{IOTA_DEVNET_URL, IOTA_MAINNET_URL, IOTA_TESTNET_URL};
-use iota_types::base_types::IotaAddress;
-use iota_types::crypto::{get_account_key_pair, EncodeDecodeBase64, IotaKeyPair};
+use iota_sdk_crypto::ed25519::Ed25519PrivateKey;
+use iota_sdk_crypto::simple::SimpleKeypair;
+use iota_sdk_crypto::{ToFromBech32, ToFromFlaggedBytes};
+use iota_sdk_types::Address;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -133,17 +135,15 @@ impl ToolCommand {
                 force,
                 network,
             } => {
-                let mut new_iota_address: Option<IotaAddress> = None;
+                let mut new_iota_address: Option<Address> = None;
                 let signer_config = if with_sidecar_signer {
                     TxSignerConfig::Sidecar {
                         sidecar_url: "http://localhost:3000".to_string(),
                     }
                 } else {
-                    let (iota_address, keypair) = get_account_key_pair();
-                    new_iota_address = Some(iota_address);
-                    TxSignerConfig::Local {
-                        keypair: keypair.into(),
-                    }
+                    let keypair = SimpleKeypair::from(Ed25519PrivateKey::generate(rand::rngs::OsRng));
+                    new_iota_address = Some(keypair.public_key().derive_address());
+                    TxSignerConfig::Local { keypair }
                 };
                 let redis_url = if docker_compose {
                     "redis://redis:6379".to_string()
@@ -205,14 +205,17 @@ impl ToolCommand {
                 }
             },
             ToolCommand::ConvertKeyConfig { key } => {
-                let key = IotaKeyPair::decode(&key).unwrap();
-                println!("{}", key.encode_base64());
+                let keypair = SimpleKeypair::from_bech32(&key).unwrap();
+                println!(
+                    "{}",
+                    base64ct::Base64::encode_string(&keypair.to_flagged_bytes())
+                );
             }
             ToolCommand::GeneratePrivateKey => {
-                let (iota_address, keypair) = get_account_key_pair();
-                let iota_keypair = IotaKeyPair::Ed25519(keypair);
-                let bech32_key = iota_keypair.encode().unwrap();
-                let encoded_key = iota_keypair.encode_base64();
+                let keypair = SimpleKeypair::from(Ed25519PrivateKey::generate(rand::rngs::OsRng));
+                let iota_address = keypair.public_key().derive_address();
+                let bech32_key = keypair.to_bech32().unwrap();
+                let encoded_key = base64ct::Base64::encode_string(&keypair.to_flagged_bytes());
                 println!(
                     "IOTA Address: {}\nPrivate key (iotaprivkey): {}\nBase64 private key: {}",
                     iota_address, bech32_key, encoded_key,
@@ -250,6 +253,10 @@ pub enum Network {
     Mainnet,
 }
 
+const IOTA_GRPC_MAINNET_URL: &str = "https://grpc.mainnet.iota.cafe";
+const IOTA_GRPC_TESTNET_URL: &str = "https://grpc.testnet.iota.cafe";
+const IOTA_GRPC_DEVNET_URL: &str = "https://grpc.devnet.iota.cafe";
+
 fn get_fullnode_url(network: Network, is_docker_compose: bool) -> &'static str {
     match network {
         Network::Local => {
@@ -259,9 +266,9 @@ fn get_fullnode_url(network: Network, is_docker_compose: bool) -> &'static str {
                 "http://localhost:9000"
             }
         }
-        Network::Devnet => IOTA_DEVNET_URL,
-        Network::Testnet => IOTA_TESTNET_URL,
-        Network::Mainnet => IOTA_MAINNET_URL,
+        Network::Devnet => IOTA_GRPC_DEVNET_URL,
+        Network::Testnet => IOTA_GRPC_TESTNET_URL,
+        Network::Mainnet => IOTA_GRPC_MAINNET_URL,
     }
 }
 

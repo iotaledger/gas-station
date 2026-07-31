@@ -2,21 +2,21 @@
 // Modifications Copyright (c) 2026 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
+pub(crate) mod effects_util;
 pub mod gas_station_core;
 mod gas_usage_cap;
 pub(crate) mod rescan_trigger;
 
 #[cfg(test)]
 mod tests {
+    use crate::gas_station::gas_station_core::NANOS_PER_IOTA;
     use crate::test_env::{create_test_transaction, start_gas_station};
-    use iota_json_rpc_types::IotaTransactionBlockEffectsAPI;
-    use iota_sdk_types::Intent;
-    use iota_sdk_types::IntentMessage;
-    use iota_types::{
-        crypto::{get_account_key_pair, Signature},
-        gas_coin::NANOS_PER_IOTA,
-        programmable_transaction_builder::ProgrammableTransactionBuilder,
-        transaction::{TransactionData, TransactionKind},
+    use iota_sdk_crypto::ed25519::Ed25519PrivateKey;
+    use iota_sdk_crypto::simple::SimpleKeypair;
+    use iota_sdk_crypto::IotaSigner;
+    use iota_sdk_types::{
+        GasPayment, ProgrammableTransaction, Transaction, TransactionExpiration, TransactionKind,
+        TransactionV1,
     };
     use std::time::Duration;
 
@@ -70,13 +70,13 @@ mod tests {
             .execute_transaction(reservation_id, tx_data, user_sig, None)
             .await
             .unwrap();
-        assert!(effects.status().is_ok());
+        assert!(effects.as_v1().status.is_success());
         assert_eq!(station.query_pool_available_coin_count().await, 1);
     }
 
     #[tokio::test]
     async fn test_invalid_transaction() {
-        telemetry_subscribers::init_for_testing();
+        crate::logging::init_for_testing();
         let (_test_cluster, container) =
             start_gas_station(vec![NANOS_PER_IOTA], NANOS_PER_IOTA, None).await;
         let station = container.get_gas_station_arc();
@@ -84,17 +84,30 @@ mod tests {
             .reserve_gas(NANOS_PER_IOTA, Duration::from_secs(10))
             .await
             .unwrap();
-        let (sender, keypair) = get_account_key_pair();
-        let tx_kind = TransactionKind::programmable(ProgrammableTransactionBuilder::new().finish());
-        let tx_data = TransactionData::new_with_gas_coins_allow_sponsor(
-            tx_kind, sender, gas_coins, 1, 1, sponsor,
-        );
-        let user_sig = Signature::new_secure(
-            &IntentMessage::new(Intent::iota_transaction(), &tx_data),
-            &keypair,
-        );
+        // A fresh, unrelated keypair standing in for a "user" that is not the
+        // sponsor -- this test builds its own transaction directly (rather
+        // than going through `test_env.rs`'s `create_test_transaction`), so
+        // it is fully self-contained and needed no bridging to old types.
+        let keypair = SimpleKeypair::from(Ed25519PrivateKey::generate(rand::rngs::OsRng));
+        let sender = keypair.public_key().derive_address();
+        let tx_kind = TransactionKind::Programmable(ProgrammableTransaction {
+            inputs: vec![],
+            commands: vec![],
+        });
+        let tx = Transaction::V1(TransactionV1 {
+            kind: tx_kind,
+            sender,
+            gas_payment: GasPayment {
+                objects: gas_coins,
+                owner: sponsor,
+                price: 1,
+                budget: 1,
+            },
+            expiration: TransactionExpiration::None,
+        });
+        let user_sig = keypair.sign_transaction(&tx).unwrap();
         let result = station
-            .execute_transaction(reservation_id, tx_data, user_sig.into(), None)
+            .execute_transaction(reservation_id, tx, user_sig, None)
             .await;
         println!("{:?}", result);
         assert!(result.is_err());
@@ -103,7 +116,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_coin_expiration() {
-        telemetry_subscribers::init_for_testing();
+        crate::logging::init_for_testing();
         let (test_cluster, container) =
             start_gas_station(vec![NANOS_PER_IOTA], NANOS_PER_IOTA, None).await;
         let station = container.get_gas_station_arc();
@@ -159,7 +172,7 @@ mod tests {
             .execute_transaction(reservation_id, tx_data, user_sig, None)
             .await
             .unwrap();
-        assert!(effects.status().is_ok());
+        assert!(effects.as_v1().status.is_success());
     }
 
     #[ignore]
@@ -194,7 +207,7 @@ mod tests {
             .execute_transaction(reservation_id1, tx_data, user_sig, None)
             .await
             .unwrap();
-        assert!(effects.status().is_ok());
+        assert!(effects.as_v1().status.is_success());
     }
 
     mod check_reserve_gas_request_validity {

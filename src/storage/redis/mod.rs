@@ -11,7 +11,7 @@ use crate::storage::{SetGetStorage, Storage, MAINTENANCE_MODE_ERROR_MESSAGE};
 use crate::types::{GasCoin, ReservationID};
 use anyhow::bail;
 use chrono::Utc;
-use iota_types::base_types::{IotaAddress, ObjectDigest, ObjectID, SequenceNumber};
+use iota_sdk_types::{Address, ObjectDigest, ObjectId, ObjectReference, Version};
 use redis::aio::ConnectionManager;
 use redis::AsyncCommands;
 use std::ops::Add;
@@ -30,7 +30,7 @@ pub struct RedisStorage {
 impl RedisStorage {
     pub async fn new(
         redis_url: &str,
-        sponsor_address: IotaAddress,
+        sponsor_address: Address,
         namespace_prefix: &str,
         metrics: Arc<StorageMetrics>,
     ) -> Self {
@@ -79,6 +79,35 @@ impl RedisStorage {
 
 fn generate_namespace(namespace_prefix: &str) -> String {
     format!("{}:registry", namespace_prefix)
+}
+
+/// Encodes a single gas coin into the CSV-ish format used by the coin registry:
+/// `balance,object_id,version,digest`.
+///
+/// This is how coins are encoded in `reserve_gas_coins.lua` and in existing
+/// registries, so it has to stay like this.
+fn encode_gas_coin(coin: &GasCoin) -> String {
+    format!(
+        "{},{},{},{}",
+        coin.balance,
+        coin.object_ref.object_id,
+        coin.object_ref.version.as_u64(),
+        coin.object_ref.digest
+    )
+}
+
+/// Decodes a single gas coin from the format produced by [`encode_gas_coin`].
+fn decode_gas_coin(s: &str) -> GasCoin {
+    // Each coin is in the form of: balance,object_id,version,digest
+    let mut splits = s.split(',');
+    let balance = splits.next().unwrap().parse::<u64>().unwrap();
+    let object_id = ObjectId::from_str(splits.next().unwrap()).unwrap();
+    let version = Version::from_u64(splits.next().unwrap().parse::<u64>().unwrap());
+    let digest = ObjectDigest::from_str(splits.next().unwrap()).unwrap();
+    GasCoin {
+        balance,
+        object_ref: ObjectReference::new(object_id, version, digest),
+    }
 }
 
 #[async_trait::async_trait]
@@ -133,21 +162,7 @@ impl Storage for RedisStorage {
         if coins.is_empty() {
             bail!("Unable to reserve gas coins for the given budget.");
         }
-        let gas_coins: Vec<_> = coins
-            .into_iter()
-            .map(|s| {
-                // Each coin is in the form of: balance,object_id,version,digest
-                let mut splits = s.split(',');
-                let balance = splits.next().unwrap().parse::<u64>().unwrap();
-                let object_id = ObjectID::from_str(splits.next().unwrap()).unwrap();
-                let version = SequenceNumber::from(splits.next().unwrap().parse::<u64>().unwrap());
-                let digest = ObjectDigest::from_str(splits.next().unwrap()).unwrap();
-                GasCoin {
-                    balance,
-                    object_ref: (object_id, version, digest),
-                }
-            })
-            .collect();
+        let gas_coins: Vec<_> = coins.into_iter().map(|s| decode_gas_coin(&s)).collect();
 
         self.metrics
             .gas_station_available_gas_coin_count
@@ -179,20 +194,11 @@ impl Storage for RedisStorage {
 
     async fn add_new_coins(&self, new_coins: Vec<GasCoin>) -> anyhow::Result<()> {
         self.metrics.num_add_new_coins_requests.inc();
+        // The way we turn coins into strings must be consistent with the way we parse them in
+        // reserve_gas_coins_script (via decode_gas_coin).
         let formatted_coins = new_coins
             .iter()
-            .map(|c| {
-                // The format is: balance,object_id,version,digest
-                // The way we turn them into strings must be consistent with the way we parse them in
-                // reserve_gas_coins_script.
-                format!(
-                    "{},{},{},{}",
-                    c.balance,
-                    c.object_ref.0,
-                    c.object_ref.1.value(),
-                    c.object_ref.2
-                )
-            })
+            .map(encode_gas_coin)
             .collect::<Vec<String>>();
 
         let mut conn = self.conn_manager.clone();
@@ -218,7 +224,7 @@ impl Storage for RedisStorage {
         Ok(())
     }
 
-    async fn expire_coins(&self) -> anyhow::Result<Vec<ObjectID>> {
+    async fn expire_coins(&self) -> anyhow::Result<Vec<ObjectId>> {
         self.metrics.num_expire_coins_requests.inc();
 
         let now = Utc::now().timestamp_millis() as u64;
@@ -231,7 +237,7 @@ impl Storage for RedisStorage {
         // The script returns a list of comma separated coin ids.
         let expired_coin_ids = expired_coin_strings
             .iter()
-            .flat_map(|s| s.split(',').map(|id| ObjectID::from_str(id).unwrap()))
+            .flat_map(|s| s.split(',').map(|id| ObjectId::from_str(id).unwrap()))
             .collect();
 
         self.metrics.num_successful_expire_coins_requests.inc();
@@ -398,13 +404,13 @@ impl Storage for RedisStorage {
 }
 #[cfg(test)]
 mod tests {
-    use iota_types::base_types::{random_object_ref, IotaAddress};
+    use iota_sdk_types::Address;
     use serde::{Deserialize, Serialize};
 
     use crate::{
         metrics::StorageMetrics,
         storage::{redis::RedisStorage, SetGetStorage, Storage},
-        types::GasCoin,
+        types::{random_object_ref, GasCoin},
     };
 
     #[tokio::test]
@@ -611,7 +617,7 @@ mod tests {
     }
 
     async fn setup_storage() -> RedisStorage {
-        let sponsor = IotaAddress::ZERO;
+        let sponsor = Address::ZERO;
         let namespace_prefix = "test";
         let redis_url = "redis://127.0.0.1:6379";
         let storage = RedisStorage::new(
@@ -688,5 +694,36 @@ mod tests {
 
         // Should be able to acquire lock again
         assert!(storage.acquire_maintenance_lock(60).await.unwrap());
+    }
+
+    /// Regression test pinning the coin registry's CSV encoding to the exact
+    /// string the pre-migration implementation produced for the same
+    /// (object_id, version, digest) triple. If this ever stops matching,
+    /// gas coins already stored in production Redis registries become
+    /// unparseable.
+    #[test]
+    fn test_encode_decode_gas_coin_pinned_format() {
+        let object_id_bytes: [u8; 32] = std::array::from_fn(|i| i as u8);
+        let digest_bytes: [u8; 32] = std::array::from_fn(|i| (255 - i) as u8);
+        let coin = GasCoin {
+            balance: 12345,
+            object_ref: iota_sdk_types::ObjectReference::new(
+                iota_sdk_types::ObjectId::new(object_id_bytes),
+                iota_sdk_types::Version::from_u64(42),
+                iota_sdk_types::ObjectDigest::new(digest_bytes),
+            ),
+        };
+
+        let encoded = super::encode_gas_coin(&coin);
+        assert_eq!(
+            encoded,
+            "12345,0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f,42,\
+             JEJUoGfGEPTZ1XTwN39dYdFxYxDiDaSKVNy5qYWJmZt3"
+        );
+
+        // And the round trip back through decode_gas_coin must reproduce the
+        // original coin exactly.
+        let decoded = super::decode_gas_coin(&encoded);
+        assert_eq!(decoded, coin);
     }
 }
