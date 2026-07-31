@@ -196,7 +196,9 @@ pub struct GasStationInitializer {
 
 impl Drop for GasStationInitializer {
     fn drop(&mut self) {
-        self.cancel_sender.take().unwrap().send(()).unwrap();
+        // Best-effort: the send fails only if the task has already exited
+        // (e.g. it panicked), in which case there is nothing left to cancel.
+        let _ = self.cancel_sender.take().unwrap().send(());
     }
 }
 
@@ -385,6 +387,19 @@ impl GasStationInitializer {
         let coins = iota_client
             .get_all_owned_iota_coins_above_balance_threshold(sponsor_address, balance_threshold)
             .await;
+        // `list_owned_objects` is index-backed and can lag behind execution, so
+        // the scan may return coins at versions (and balances) that are already
+        // outdated -- e.g. a coin this task split during the previous refresh
+        // cycle. Re-resolve every candidate to its live state with a point read
+        // and re-apply the threshold, so calibration and splitting never
+        // operate on stale object refs.
+        let coins: Vec<GasCoin> = iota_client
+            .get_latest_gas_objects(coins.iter().map(|coin| coin.object_ref.object_id))
+            .await
+            .into_values()
+            .flatten()
+            .filter(|coin| coin.balance >= balance_threshold)
+            .collect();
         if coins.is_empty() {
             info!(
                 "No coins with balance above {} found. Skipping new coin initialization",
