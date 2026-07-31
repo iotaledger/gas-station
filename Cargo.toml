@@ -82,15 +82,6 @@ rand = "0.8.5"
 wiremock = "0.6.3"
 iota-swarm-config = { git = "https://github.com/iotaledger/iota", rev = "f47b4448f7efaa50ae79156c163fed11b926c7da", package = "iota-swarm-config" }
 test-cluster = { git = "https://github.com/iotaledger/iota", rev = "f47b4448f7efaa50ae79156c163fed11b926c7da", package = "test-cluster" }
-# Used only by the `sponsored_transaction` example to build `HeaderName`/`HeaderValue`
-# values for `TransactionBuilder::add_gas_station_header`. That method's signature is
-# pinned to `iota-sdk-transaction-builder`'s own `reqwest` (0.12, i.e. `http` 1.x), which
-# is a different major version than this crate's own direct `reqwest = "0.11.22"` (i.e.
-# `http` 0.2.x) used everywhere in src/ -- the two are separate, non-interchangeable
-# types, so the example needs its own `http` 1.x handle. Both versions already coexist
-# in the dependency graph regardless (iota-sdk-transaction-builder pulls reqwest 0.12
-# transitively), so this adds no new dependency, just a direct name for one already
-# being built.
 http = "1"
 
 # Patch fastcrypto to the same version the monorepo pins in its own
