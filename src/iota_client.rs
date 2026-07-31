@@ -18,7 +18,7 @@ use iota_sdk_types::{
 };
 use std::collections::HashMap;
 use std::time::Duration;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Per-attempt timeout for a single gRPC call. Without this, a stalled
 /// stream (e.g. a fullnode that accepted the connection but never responds)
@@ -49,8 +49,40 @@ pub struct IotaClient {
     client: Client,
 }
 
+/// The public networks' legacy JSON-RPC hosts and the gRPC endpoints that
+/// replace them, for [`rewrite_legacy_fullnode_url`].
+const LEGACY_JSON_RPC_HOST_TO_GRPC_URL: [(&str, &str); 3] = [
+    ("api.mainnet.iota.cafe", "https://grpc.mainnet.iota.cafe"),
+    ("api.testnet.iota.cafe", "https://grpc.testnet.iota.cafe"),
+    ("api.devnet.iota.cafe", "https://grpc.devnet.iota.cafe"),
+];
+
+/// Maps a `fullnode-url` that still points at one of the public networks'
+/// legacy JSON-RPC endpoints to the corresponding gRPC endpoint, or `None`
+/// if the URL is not a known legacy endpoint (including any self-hosted
+/// node, which we cannot guess a gRPC address for).
+///
+/// This is deliberately applied only here, at the last moment before the
+/// connection is created -- everything else in the process (most
+/// importantly the Redis storage namespace, which
+/// `storage::get_storage_namespace` derives from the *configured* URL)
+/// keeps seeing the original value, so a pre-migration config keeps its
+/// existing coin registry untouched.
+fn rewrite_legacy_fullnode_url(fullnode_url: &str) -> Option<&'static str> {
+    let url = url::Url::parse(fullnode_url).ok()?;
+    let host = url.host_str()?.to_ascii_lowercase();
+    LEGACY_JSON_RPC_HOST_TO_GRPC_URL
+        .iter()
+        .find(|(legacy_host, _)| *legacy_host == host)
+        .map(|(_, grpc_url)| *grpc_url)
+}
+
 impl IotaClient {
     /// Connects to the fullnode's gRPC endpoint.
+    ///
+    /// A `fullnode_url` still pointing at one of the public networks' legacy
+    /// JSON-RPC endpoints is transparently redirected to the matching gRPC
+    /// endpoint (with a warning) -- see [`rewrite_legacy_fullnode_url`].
     ///
     /// The underlying channel connects lazily (`Client::new` never touches
     /// the network, see `iota_sdk_grpc_client::Client::new`), so failure
@@ -62,6 +94,22 @@ impl IotaClient {
         fullnode_url: &str,
         basic_auth: Option<(String, String)>,
     ) -> anyhow::Result<Self> {
+        let fullnode_url = match rewrite_legacy_fullnode_url(fullnode_url) {
+            Some(grpc_url) => {
+                warn!(
+                    "fullnode-url {fullnode_url:?} is a legacy JSON-RPC endpoint, which the gas \
+                     station no longer speaks; connecting to the gRPC endpoint {grpc_url:?} \
+                     instead. Please update fullnode-url in your config. Note that changing the \
+                     configured URL also changes the Redis storage namespace: the coin registry \
+                     is re-initialized from scratch (in-flight reservations are dropped and the \
+                     daily gas usage counter resets), so update all instances together during a \
+                     full stop, not via a rolling deploy -- see the README section 'Upgrading \
+                     from JSON-RPC to gRPC'."
+                );
+                grpc_url
+            }
+            None => fullnode_url,
+        };
         let mut headers = HeadersInterceptor::new();
         if let Some((username, password)) = basic_auth {
             headers.basic_auth(username, Some(password));
@@ -474,5 +522,42 @@ mod tests {
         // non_refundable_storage_fee -- pinning this catches an accidental
         // switch to net_gas_usage() (which subtracts storage_rebate) instead.
         assert_eq!(gas_used_from_effects(&effects), 150);
+    }
+
+    #[test]
+    fn legacy_json_rpc_urls_are_rewritten_to_grpc() {
+        for (legacy, grpc) in [
+            (
+                "https://api.mainnet.iota.cafe",
+                "https://grpc.mainnet.iota.cafe",
+            ),
+            (
+                "https://api.testnet.iota.cafe",
+                "https://grpc.testnet.iota.cafe",
+            ),
+            (
+                "https://api.devnet.iota.cafe",
+                "https://grpc.devnet.iota.cafe",
+            ),
+        ] {
+            assert_eq!(rewrite_legacy_fullnode_url(legacy), Some(grpc));
+        }
+        // Host matching is scheme/port/path/case-insensitive.
+        assert_eq!(
+            rewrite_legacy_fullnode_url("https://API.TESTNET.IOTA.CAFE:443/"),
+            Some("https://grpc.testnet.iota.cafe")
+        );
+    }
+
+    #[test]
+    fn non_legacy_urls_are_left_untouched() {
+        for url in [
+            "https://grpc.testnet.iota.cafe",
+            "http://localhost:9000",
+            "https://fullnode.example.com:9000",
+            "not a url at all",
+        ] {
+            assert_eq!(rewrite_legacy_fullnode_url(url), None);
+        }
     }
 }

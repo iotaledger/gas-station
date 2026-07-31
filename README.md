@@ -138,6 +138,8 @@ access-controller:
 
 If you run your own full node, use its gRPC address instead.
 
+If `fullnode-url` still points at one of the three public JSON-RPC endpoints above, the Gas Station **automatically connects to the matching gRPC endpoint instead** and logs a warning at startup, so an existing deployment keeps working unmodified. This redirect only covers the well-known public hosts — a self-hosted JSON-RPC URL cannot be guessed and will simply fail at the first RPC call.
+
 **Why:** JSON-RPC is being retired upstream in favor of gRPC as the full node transport, so the Gas Station has moved to the [iota-rust-sdk](https://github.com/iotaledger/iota-rust-sdk) gRPC client ahead of that deprecation.
 
 **What you need to do when upgrading an existing deployment:**
@@ -146,7 +148,9 @@ If you run your own full node, use its gRPC address instead.
 2. Make sure the full node you're pointing at actually has its gRPC API enabled: `enable-grpc-api: true` in the node's own config (`grpc-api-config` can be left at its defaults unless you need to tune message-size or timeout limits). A node that only serves JSON-RPC will refuse the connection, or requests against it will fail.
 3. `fullnode-basic-auth`, if you use it, is unaffected and passed through the same way.
 
-No Redis flush is required for this change by itself — the gas coin pool doesn't depend on the transport used to talk to the full node. Note also that the new gRPC client connects lazily, so a bad or unreachable `fullnode-url` will now surface as a connection error at startup or on first use, rather than at config-load time.
+**Changing `fullnode-url` changes the Redis storage namespace.** The Gas Station namespaces all of its Redis state (coin registry, reservations, daily gas usage counter) by the configured full node host, so repointing the URL makes it start from a fresh, empty namespace: the coin pool is re-initialized from the sponsor's on-chain coins, in-flight reservations are dropped, and the daily gas usage counter resets. The old namespace's keys are left behind in Redis and can be cleaned up manually. Because of this, update the URL on **all instances at once during a full stop** — in a rolling deploy, old and new instances would track the same on-chain coins in two independent namespaces and could hand out the same coin twice (equivocation). The automatic redirect described above deliberately does *not* change the namespace, so you can defer the config edit to a convenient maintenance window.
+
+Note also that the new gRPC client connects lazily, so a bad or unreachable `fullnode-url` will now surface as a connection error at startup or on first use, rather than at config-load time.
 
 #### Gas Station reinitialization
 
