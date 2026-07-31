@@ -232,10 +232,9 @@ impl From<&Command> for ShadowCommand {
                     address.into(),
                 )
             }
-            Command::SplitCoins(SplitCoins { coin, amounts }) => ShadowCommand::SplitCoins(
-                coin.into(),
-                amounts.iter().map(Into::into).collect(),
-            ),
+            Command::SplitCoins(SplitCoins { coin, amounts }) => {
+                ShadowCommand::SplitCoins(coin.into(), amounts.iter().map(Into::into).collect())
+            }
             Command::MergeCoins(MergeCoins {
                 coin,
                 coins_to_merge,
@@ -408,8 +407,7 @@ mod tests {
             .collect();
 
         let move_call_json = &pt_json["commands"][0]["MoveCall"];
-        let package =
-            Address::from_str(move_call_json["package"].as_str().unwrap()).unwrap();
+        let package = Address::from_str(move_call_json["package"].as_str().unwrap()).unwrap();
         let arguments: Vec<Argument> = (0..move_call_json["arguments"].as_array().unwrap().len()
             as u16)
             .map(Argument::Input)
@@ -420,9 +418,7 @@ mod tests {
             commands: vec![Command::MoveCall(MoveCall {
                 package: ObjectId::from(package),
                 module: Identifier::new_unchecked(move_call_json["module"].as_str().unwrap()),
-                function: Identifier::new_unchecked(
-                    move_call_json["function"].as_str().unwrap(),
-                ),
+                function: Identifier::new_unchecked(move_call_json["function"].as_str().unwrap()),
                 type_arguments: vec![],
                 arguments,
             })],
@@ -473,7 +469,10 @@ mod tests {
 
         let json = to_legacy_json(&tx);
         let v1 = &json["V1"];
-        assert!(v1.get("gas_data").is_some(), "expected old `gas_data` key, got: {v1}");
+        assert!(
+            v1.get("gas_data").is_some(),
+            "expected old `gas_data` key, got: {v1}"
+        );
         assert!(v1.get("gas_payment").is_none());
         assert_eq!(v1["gas_data"]["price"], serde_json::json!(1000));
         assert_eq!(v1["gas_data"]["budget"], serde_json::json!(3_000_000));
@@ -511,19 +510,21 @@ mod tests {
             })],
         }));
         let json = to_legacy_json(&tx);
-        let transfer = &json["V1"]["kind"]["ProgrammableTransaction"]["commands"][0]
-            ["TransferObjects"];
-        assert!(transfer.is_array(), "expected old-style array, got: {transfer}");
+        let transfer =
+            &json["V1"]["kind"]["ProgrammableTransaction"]["commands"][0]["TransferObjects"];
+        assert!(
+            transfer.is_array(),
+            "expected old-style array, got: {transfer}"
+        );
         assert_eq!(transfer[0], serde_json::json!([{ "Input": 0 }]));
         assert_eq!(transfer[1], serde_json::json!({ "Input": 1 }));
     }
 
     #[test]
     fn move_calls_extracts_package_module_function_for_ptb_only() {
-        let package = Address::from_str(
-            "0xb674e2ed79db3c25fa4c00d5c7d62a9c18089e1fc4c2de5b5ee8b2836a85ae26",
-        )
-        .unwrap();
+        let package =
+            Address::from_str("0xb674e2ed79db3c25fa4c00d5c7d62a9c18089e1fc4c2de5b5ee8b2836a85ae26")
+                .unwrap();
         let tx = wrap_in_transaction(TransactionKind::Programmable(ProgrammableTransaction {
             inputs: vec![],
             commands: vec![

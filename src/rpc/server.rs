@@ -153,6 +153,7 @@ async fn reserve_gas(
     Extension(server): Extension<ServerState>,
     Json(payload): Json<ReserveGasRequest>,
 ) -> impl IntoResponse {
+    server.metrics.num_reserve_gas_requests.inc();
     if let Some(secret) = server.secret.as_ref() {
         let token = authorization.as_ref().map(|auth| auth.token());
         if token != Some(secret.as_str()) {
