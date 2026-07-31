@@ -37,7 +37,7 @@ pub const DEFAULT_DAILY_GAS_USAGE_CAP: u64 = 1500 * NANOS_PER_IOTA;
 // 2 IOTA.
 pub const DEFAULT_MAX_GAS_BUDGET: u64 = 2 * NANOS_PER_IOTA;
 // 5 seconds.
-pub const DEFAULT_CHECKPOINT_WAIT_MS: u64 = 5_000;
+pub const DEFAULT_CHECKPOINT_INCLUSION_TIMEOUT_MS: u64 = 5_000;
 
 // Use 127.0.0.1 for tests to avoid OS complaining about permissions.
 #[cfg(test)]
@@ -51,8 +51,8 @@ fn default_max_gas_budget() -> u64 {
 }
 
 /// Helper function for serde deserialization.
-fn default_checkpoint_wait_ms() -> u64 {
-    DEFAULT_CHECKPOINT_WAIT_MS
+fn default_checkpoint_inclusion_timeout_ms() -> u64 {
+    DEFAULT_CHECKPOINT_INCLUSION_TIMEOUT_MS
 }
 
 #[serde_as]
@@ -79,8 +79,8 @@ pub struct GasStationConfig {
     /// milliseconds. Only used when a request asks to wait for local
     /// execution; passed through as the gRPC `execute_transaction` call's
     /// `checkpoint_inclusion_timeout_ms`.
-    #[serde(default = "default_checkpoint_wait_ms")]
-    pub checkpoint_wait_ms: u64,
+    #[serde(default = "default_checkpoint_inclusion_timeout_ms")]
+    pub checkpoint_inclusion_timeout_ms: u64,
     #[serde(default)]
     pub access_controller: AccessController,
 }
@@ -100,7 +100,7 @@ impl Default for GasStationConfig {
             coin_init_config: Some(CoinInitConfig::default()),
             daily_gas_usage_cap: DEFAULT_DAILY_GAS_USAGE_CAP,
             max_gas_budget: DEFAULT_MAX_GAS_BUDGET,
-            checkpoint_wait_ms: DEFAULT_CHECKPOINT_WAIT_MS,
+            checkpoint_inclusion_timeout_ms: DEFAULT_CHECKPOINT_INCLUSION_TIMEOUT_MS,
             access_controller: AccessController::default(),
         }
     }

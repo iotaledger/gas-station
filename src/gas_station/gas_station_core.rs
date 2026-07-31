@@ -48,7 +48,7 @@ pub struct GasStation {
     metrics: Arc<GasStationCoreMetrics>,
     gas_usage_cap: Arc<GasUsageCap>,
     max_gas_budget: u64,
-    checkpoint_wait_ms: u64,
+    checkpoint_inclusion_timeout_ms: u64,
     rescan_config: RescanGasObjectsTrigger,
 }
 
@@ -60,7 +60,7 @@ impl GasStation {
         metrics: Arc<GasStationCoreMetrics>,
         gas_usage_cap: Arc<GasUsageCap>,
         max_gas_budget: u64,
-        checkpoint_wait_ms: u64,
+        checkpoint_inclusion_timeout_ms: u64,
         rescan_config: RescanGasObjectsTrigger,
     ) -> Arc<Self> {
         let pool = Self {
@@ -70,7 +70,7 @@ impl GasStation {
             metrics,
             gas_usage_cap,
             max_gas_budget,
-            checkpoint_wait_ms,
+            checkpoint_inclusion_timeout_ms,
             rescan_config,
         };
 
@@ -258,7 +258,7 @@ impl GasStation {
         let cur_time = std::time::Instant::now();
         let effects = self
             .iota_client
-            .execute_transaction(signed_tx, 3, request_type, self.checkpoint_wait_ms)
+            .execute_transaction(signed_tx, 3, request_type, self.checkpoint_inclusion_timeout_ms)
             .await?;
         debug!(?reservation_id, "Transaction executed");
         let elapsed = cur_time.elapsed().as_millis();
@@ -480,7 +480,7 @@ impl GasStationContainer {
             metrics,
             Arc::new(GasUsageCap::new(gas_usage_daily_cap)),
             max_gas_budget,
-            checkpoint_wait_ms,
+            checkpoint_inclusion_timeout_ms,
             rescan_config,
         )
         .await;

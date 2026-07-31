@@ -4,7 +4,7 @@
 
 use crate::access_controller::AccessController;
 use crate::config::{
-    CoinInitConfig, GasStationStorageConfig, DEFAULT_CHECKPOINT_WAIT_MS,
+    CoinInitConfig, GasStationStorageConfig, DEFAULT_CHECKPOINT_INCLUSION_TIMEOUT_MS,
     DEFAULT_DAILY_GAS_USAGE_CAP, DEFAULT_MAX_GAS_BUDGET,
 };
 use crate::gas_station::gas_station_core::{GasStationContainer, NANOS_PER_IOTA};
@@ -124,7 +124,7 @@ pub async fn start_gas_station(
         iota_client,
         DEFAULT_DAILY_GAS_USAGE_CAP,
         max_gas_budget.unwrap_or(DEFAULT_MAX_GAS_BUDGET),
-        DEFAULT_CHECKPOINT_WAIT_MS,
+        DEFAULT_CHECKPOINT_INCLUSION_TIMEOUT_MS,
         GasStationCoreMetrics::new_for_testing(),
         rescan_config,
     )

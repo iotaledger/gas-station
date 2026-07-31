@@ -314,14 +314,14 @@ impl IotaClient {
         tx: SignedTransaction,
         max_attempts: usize,
         request_type: Option<ExecuteTransactionRequestType>,
-        checkpoint_wait_ms: u64,
+        checkpoint_inclusion_timeout_ms: u64,
     ) -> anyhow::Result<TransactionEffects> {
         let digest = tx.transaction().digest();
         debug!(?digest, "Executing transaction: {:?}", tx);
         let checkpoint_inclusion_timeout_ms =
             match request_type.unwrap_or(ExecuteTransactionRequestType::WaitForEffectsCert) {
                 ExecuteTransactionRequestType::WaitForEffectsCert => None,
-                ExecuteTransactionRequestType::WaitForLocalExecution => Some(checkpoint_wait_ms),
+                ExecuteTransactionRequestType::WaitForLocalExecution => Some(checkpoint_inclusion_timeout_ms),
             };
         // Narrow read mask: this service only ever reads the digest (for
         // logging) and the effects.
