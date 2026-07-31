@@ -527,11 +527,6 @@ impl GasStationInitializer {
     }
 }
 
-// `start_iota_cluster` (in `src/test_env.rs`) and `IotaClient::new`'s
-// now-fallible, gRPC-only constructor were migrated together in the
-// `test_env.rs` migration stage: `cluster.fullnode_handle.rpc_url` (the old
-// JSON-RPC URL) was replaced with `cluster.grpc_url()` throughout this
-// module, since `IotaClient` now speaks gRPC exclusively.
 #[cfg(test)]
 mod tests {
     use crate::config::CoinInitConfig;
