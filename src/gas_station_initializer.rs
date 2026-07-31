@@ -84,17 +84,6 @@ impl CoinSplitEnv {
         );
         let budget = self.gas_cost_per_object * split_count;
         let effects = loop {
-            // Built entirely offline (no client attached to the builder): this
-            // service already holds the full (id, version, digest) for every
-            // coin it owns, so there is no need to pay a `get_objects`
-            // round-trip per coin the way the online (client-attached) `gas()`
-            // overload would. This same coin is both the object being split
-            // (referenced as `unresolved::Argument::Gas`, the pre-resolution
-            // equivalent of the old `Argument::GasCoin`) *and* the sole gas
-            // payment object for the transaction -- a self-funded split,
-            // exactly like the pre-migration code's single
-            // `TransactionData::new_programmable(sponsor, vec![coin.object_ref], ...)`
-            // with sender/sponsor both defaulting to `self.sponsor_address`.
             let mut builder = TransactionBuilder::new(self.sponsor_address);
             builder
                 .move_call(ObjectId::FRAMEWORK, "pay", "divide_and_keep")
