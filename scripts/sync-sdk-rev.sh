@@ -100,6 +100,24 @@ if [ "$WITH_MONOREPO" -eq 1 ]; then
   ' "$MANIFEST" > "$TMP"
   cp "$TMP" "$MANIFEST"
   echo "updated monorepo rev      -> $MONO_SHA  (ref: $MONO_REF)"
+
+  # Keep the fastcrypto [patch] pinned to the same version as the monorepo's
+  # own [patch."https://github.com/MystenLabs/fastcrypto"] table.
+  MONO_FC_VER="$(printf '%s\n' "$MONO_TOML" \
+    | awk '/^\[patch\."https:\/\/github\.com\/MystenLabs\/fastcrypto"\]/{s=1; next} s && /^\[/{s=0} s && /^fastcrypto[ =]/{print; exit}' \
+    | grep -oE '"=?[0-9][^"]*"' | head -n1 | tr -d '"')"
+  if [ -n "$MONO_FC_VER" ] && grep -q '^\[patch\."https://github\.com/MystenLabs/fastcrypto"\]' "$MANIFEST"; then
+    awk -v want="$MONO_FC_VER" '
+      /^\[patch\."https:\/\/github\.com\/MystenLabs\/fastcrypto"\]/{s=1; print; next}
+      s && /^\[/{s=0}
+      s && /^fastcrypto *=/{ sub(/"[^"]*"/, "\"" want "\"") }
+      { print }
+    ' "$MANIFEST" > "$TMP"
+    cp "$TMP" "$MANIFEST"
+    echo "updated fastcrypto patch  -> $MONO_FC_VER"
+  else
+    echo "warning: could not sync the fastcrypto patch version (patch table missing on one side)" >&2
+  fi
 fi
 
 echo
