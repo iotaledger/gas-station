@@ -197,6 +197,10 @@ impl IotaClient {
     /// routine here (coins get consumed/smashed during execution), so we
     /// fall back to resolving the chunk one object at a time only when the
     /// batch call fails, keeping the common (nothing missing) case batched.
+    ///
+    /// TODO: the SDK fixed this in iotaledger/iota-rust-sdk#1292 (`get_objects`
+    /// now returns one result per request instead of failing the whole batch);
+    /// once this crate's pinned rev includes it, drop the one-by-one fallback.
     async fn fetch_gas_object_chunk(
         &self,
         chunk: &[ObjectId],
