@@ -183,24 +183,16 @@ impl IotaClient {
         result
     }
 
-    /// Fetches one chunk via a single batched `get_objects` call when possible.
+    /// Fetches one chunk via a single batched `get_objects` call.
     ///
-    /// `get_objects` guarantees response order matches the request order
-    /// (`iota-sdk-grpc-client`'s `api/ledger/objects.rs`: "Server guarantees
-    /// results are returned in request order"), so no client-side
-    /// reordering is needed. It also, however, fails the *entire* batch as
-    /// soon as any single requested object comes back with a per-item error
-    /// -- including the common, expected case of "this object no longer
-    /// exists" (that same module's `get_objects` drains the response stream
-    /// via `collect_stream`, which propagates the first per-item error with
-    /// `?`, discarding every item collected so far). A missing gas coin is
-    /// routine here (coins get consumed/smashed during execution), so we
-    /// fall back to resolving the chunk one object at a time only when the
-    /// batch call fails, keeping the common (nothing missing) case batched.
-    ///
-    /// TODO: the SDK fixed this in iotaledger/iota-rust-sdk#1292 (`get_objects`
-    /// now returns one result per request instead of failing the whole batch);
-    /// once this crate's pinned rev includes it, drop the one-by-one fallback.
+    /// `get_objects` returns one result per requested ref, in request order
+    /// (`iota-sdk-grpc-client`'s `api/ledger/objects.rs`: results line up
+    /// with the requested refs, and a count mismatch fails the call), so no
+    /// client-side reordering is needed. A missing gas coin is routine here
+    /// (coins get consumed/smashed during execution) and surfaces as a
+    /// per-item `NOT_FOUND` in that ref's slot only, leaving the rest of the
+    /// batch intact -- it maps to `None`, like any object that isn't a
+    /// recognizable gas coin.
     async fn fetch_gas_object_chunk(
         &self,
         chunk: &[ObjectId],
@@ -210,36 +202,19 @@ impl IotaClient {
         let outcome = retry_forever!(async {
             attempt(async { self.client.get_objects(&refs, None).await }).await
         });
-        match into_anyhow(outcome) {
-            Ok(envelope) => {
-                let objects = envelope.into_inner();
-                debug_assert_eq!(objects.len(), chunk.len());
-                for (id, object) in chunk.iter().zip(objects.iter()) {
-                    result.insert(*id, coin_from_object(object));
+        let objects = into_anyhow(outcome)
+            .unwrap_or_else(|err| panic!("failed to fetch gas objects: {err}"))
+            .into_inner();
+        for (id, object) in chunk.iter().zip(objects) {
+            let coin = match object {
+                Ok(object) => coin_from_object(&object),
+                Err(err) if err.is_not_found() => {
+                    debug!("Object no longer exists: {:?}", id);
+                    None
                 }
-            }
-            Err(_) => {
-                for id in chunk {
-                    result.insert(*id, self.fetch_gas_object_one(*id).await);
-                }
-            }
-        }
-    }
-
-    /// Resolves a single object, treating "not found" as `None` (the object
-    /// no longer exists) rather than a failure.
-    async fn fetch_gas_object_one(&self, id: ObjectId) -> Option<GasCoin> {
-        let outcome = retry_forever!(async {
-            attempt(async { self.client.get_objects(&[(id, None)], None).await }).await
-        });
-        match outcome {
-            Ok(Ok(envelope)) => envelope.into_inner().first().and_then(coin_from_object),
-            Ok(Err(err)) if is_not_found(&err) => {
-                debug!("Object no longer exists: {:?}", id);
-                None
-            }
-            Ok(Err(err)) => panic!("failed to fetch gas object {id}: {err}"),
-            Err(err) => panic!("failed to fetch gas object {id}: exhausted retries: {err}"),
+                Err(err) => panic!("failed to fetch gas object {id}: {err}"),
+            };
+            result.insert(*id, coin);
         }
     }
 
@@ -373,11 +348,16 @@ impl IotaClient {
     #[cfg(test)]
     pub async fn wait_for_object(&self, obj_ref: iota_sdk_types::ObjectReference) {
         loop {
-            let found = self
+            // A missing object is a per-item error inside an `Ok` envelope,
+            // so the call-level `Result` alone doesn't mean "found".
+            let found = match self
                 .client
                 .get_objects(&[(obj_ref.object_id, Some(obj_ref.version))], None)
                 .await
-                .is_ok();
+            {
+                Ok(envelope) => envelope.into_inner().iter().all(|item| item.is_ok()),
+                Err(_) => false,
+            };
             if found {
                 break;
             }
@@ -431,15 +411,6 @@ fn is_transient(err: &GrpcError) -> bool {
             | tonic::Code::Unauthenticated
             | tonic::Code::FailedPrecondition
             | tonic::Code::Unimplemented
-    )
-}
-
-/// `err` is specifically "the requested object does not exist / this version
-/// does not exist", as opposed to any other server-side per-item error.
-fn is_not_found(err: &GrpcError) -> bool {
-    matches!(
-        err,
-        GrpcError::Server(status) if tonic::Code::from_i32(status.code) == tonic::Code::NotFound
     )
 }
 
