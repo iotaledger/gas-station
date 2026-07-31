@@ -269,12 +269,6 @@ pub async fn create_test_transaction(
         .await
         .expect("failed to resolve test transaction");
 
-    // `TestCluster::sign_transaction` accepts our `Transaction` directly
-    // (`TransactionData` is a re-export of it on develop) but returns the
-    // monorepo's own signed-transaction envelope type, not
-    // `iota_sdk_types::UserSignature` -- so the single user signature is
-    // pulled back out of it here, mirroring what the pre-migration version
-    // did with `tx_signatures_mut_for_testing().pop()`.
     let user_sig = test_cluster
         .sign_transaction(&tx)
         .into_data()
