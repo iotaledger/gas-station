@@ -119,12 +119,7 @@ impl CoinSplitEnv {
                     10,
                     None,
                     // `request_type: None` resolves to `WaitForEffectsCert`,
-                    // which never reads `checkpoint_inclusion_timeout_ms` -- see
-                    // `IotaClient::execute_transaction`. This value is
-                    // therefore inert today; it's still threaded through
-                    // (rather than a made-up placeholder like `0`) so it
-                    // reads correctly if a future change ever does pass
-                    // `Some(WaitForLocalExecution)` here.
+                    // which never reads `checkpoint_inclusion_timeout_ms`.
                     crate::config::DEFAULT_CHECKPOINT_INCLUSION_TIMEOUT_MS,
                 )
                 .await;
