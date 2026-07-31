@@ -696,39 +696,11 @@ mod tests {
         assert!(storage.acquire_maintenance_lock(60).await.unwrap());
     }
 
-    /// Regression test pinning the coin registry's CSV encoding (`encode_gas_coin`
-    /// / `decode_gas_coin`, i.e. `balance,object_id,version,digest`) for a known
-    /// `GasCoin` to the exact string the *pre-migration* implementation -- which
-    /// used `iota_types::base_types::{ObjectID, SequenceNumber}` and
-    /// `iota_types::digests::ObjectDigest` instead of the new SDK's
-    /// `iota_sdk_types::{ObjectId, Version, ObjectDigest}` -- would have produced
-    /// for the same triple.
-    ///
-    /// If this ever stops matching, every gas coin already sitting in a
-    /// production Redis registry becomes unparseable (silently "losing" coins,
-    /// since `decode_gas_coin`/the Lua scripts would then choke on or misread
-    /// live data), so this pin exists as a tripwire independent of whatever the
-    /// current code happens to compute.
-    ///
-    /// The expected literal below was derived from first principles (not by
-    /// calling this file's own `encode_gas_coin`), then cross-checked two more
-    /// ways before being hardcoded here:
-    ///   - the object id is `0x` followed by `hex::encode([0u8, 1, 2, .., 31])`
-    ///     (plain lowercase hex -- both old `ObjectID` and new `ObjectId`
-    ///     `Display` produce this, see `src/types.rs` for the verification);
-    ///   - the version is the plain decimal `42`;
-    ///   - the digest is the Base58 (Bitcoin alphabet, as used by both the old
-    ///     `fastcrypto::encoding::Base58` and the new `bs58` crate) encoding of
-    ///     `[255u8, 254, .., 224]`, computed by hand and cross-checked against
-    ///     both Python's `base58` package and `bs58`'s own documented test
-    ///     vector (`bs58::encode(b"Hello world!") == "2NEpo7TZRhna7vSvL"`);
-    ///   - finally, this exact literal was independently reproduced by two
-    ///     standalone scratch binaries built outside this crate: one against
-    ///     the real, unmodified `iota_sdk_types` (rev b77fcd5, this migration's
-    ///     target) and one against the real, unmodified pre-migration
-    ///     `iota_types` (tag v1.20.1), each formatting the same
-    ///     (object_id, version, digest) triple the same way `encode_gas_coin`
-    ///     / the old `add_new_coins` code did/does.
+    /// Regression test pinning the coin registry's CSV encoding to the exact
+    /// string the pre-migration implementation produced for the same
+    /// (object_id, version, digest) triple. If this ever stops matching,
+    /// gas coins already stored in production Redis registries become
+    /// unparseable.
     #[test]
     fn test_encode_decode_gas_coin_pinned_format() {
         let object_id_bytes: [u8; 32] = std::array::from_fn(|i| i as u8);
