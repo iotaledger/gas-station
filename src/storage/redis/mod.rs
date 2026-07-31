@@ -84,16 +84,8 @@ fn generate_namespace(namespace_prefix: &str) -> String {
 /// Encodes a single gas coin into the CSV-ish format used by the coin registry:
 /// `balance,object_id,version,digest`.
 ///
-/// This exact format is embedded, byte-for-byte, in existing production Redis
-/// registries (written by earlier, pre-migration versions of this service) and is
-/// independently re-implemented in `reserve_gas_coins.lua`'s parsing logic. Any
-/// change here MUST stay compatible with what's already stored, which is why the
-/// object id and digest are formatted via `Display` (verified to produce the exact
-/// same strings as the pre-migration `iota_types` `ObjectID`/`ObjectDigest` Display
-/// impls -- see `src/types.rs`) and the version via `.as_u64()` rather than via
-/// `Version`'s own `Display` (mirroring the pre-migration code, which likewise
-/// called `SequenceNumber::value()` explicitly instead of relying on
-/// `SequenceNumber`'s own -- differently formatted -- `Display` impl).
+/// This is how coins are encoded in `reserve_gas_coins.lua` and in existing
+/// registries, so it has to stay like this.
 fn encode_gas_coin(coin: &GasCoin) -> String {
     format!(
         "{},{},{},{}",
