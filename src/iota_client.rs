@@ -8,6 +8,7 @@ use crate::rpc::rpc_types::ExecuteTransactionRequestType;
 use crate::types::GasCoin;
 use crate::{retry_forever, retry_with_max_attempts};
 use iota_sdk_grpc_client::api::Error as GrpcError;
+use iota_sdk_grpc_client::read_mask_fields::{SimulateExecutedTransactionField, TransactionField};
 use iota_sdk_grpc_client::{Client, HeadersInterceptor, ReadMask};
 use iota_sdk_grpc_types::v1::object::Object;
 use iota_sdk_transaction_builder::TransactionBuilder;
@@ -281,7 +282,7 @@ impl IotaClient {
                     .simulate_transaction(
                         tx.clone(),
                         true,
-                        Some(ReadMask::from(&["executed_transaction.effects"])),
+                        Some(ReadMask::from(&[SimulateExecutedTransactionField::EFFECTS])),
                     )
                     .await
             })
@@ -325,7 +326,10 @@ impl IotaClient {
             };
         // Narrow read mask: this service only ever reads the digest (for
         // logging) and the effects.
-        let mask = ReadMask::from(&["transaction.digest", "effects"]);
+        let mask = ReadMask::from(&[
+            TransactionField::TRANSACTION_DIGEST,
+            TransactionField::EFFECTS,
+        ]);
         let outcome = retry_with_max_attempts!(
             async {
                 attempt(async {
