@@ -103,4 +103,8 @@ if [ "$WITH_MONOREPO" -eq 1 ]; then
 fi
 
 echo
-echo "next: cargo update --workspace && cargo check --all-targets"
+echo "running: cargo update --workspace"
+(cd "$ROOT" && cargo update --workspace)
+
+echo
+echo "next: cargo check --all-targets"
