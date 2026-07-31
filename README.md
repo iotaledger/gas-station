@@ -121,7 +121,7 @@ access-controller:
 | `coin-init-config.refresh-interval-sec` | no                  | Interval in seconds to refresh balance and check for new coins to split   | `86400`                                                                                         |
 | `daily-gas-usage-cap`                   | no                  | Maximum allowed daily gas usage                                           | `1500000000000`                                                                                 |
 | `max-gas-budget`                        | no                  | Maximum allowed reservable gas budget                                     | `2000000000`                                                                                    |
-| `checkpoint-inclusion-timeout-ms`       | no                  | Milliseconds the full node should wait for a transaction to reach checkpoint inclusion (local execution) before responding, when a request asks to wait for local execution. Passed through as the gRPC `execute_transaction` call's `checkpoint_inclusion_timeout_ms`. Defaults to `5000` if omitted. | `5000` |
+| `checkpoint-inclusion-timeout-ms`       | no                  | Milliseconds the full node should wait for a transaction to reach checkpoint inclusion (local execution) before responding, when a request asks to wait for local execution. Passed through as the gRPC `execute_transaction` call's `checkpoint_inclusion_timeout_ms`. Defaults to `10000` if omitted. | `10000` |
 | `access-controller.access-policy`       | no                  | Access policy mode.                                                       | `disabled`, `allow-all`, `deny-all`. See [this link](./docs/access-controller.md) to learn more |
 
 ### Upgrading from JSON-RPC to gRPC

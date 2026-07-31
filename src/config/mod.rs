@@ -36,8 +36,8 @@ const DEFAULT_COIN_POOL_REFRESH_INTERVAL_SEC: u64 = 60 * 60 * 24;
 pub const DEFAULT_DAILY_GAS_USAGE_CAP: u64 = 1500 * NANOS_PER_IOTA;
 // 2 IOTA.
 pub const DEFAULT_MAX_GAS_BUDGET: u64 = 2 * NANOS_PER_IOTA;
-// 5 seconds.
-pub const DEFAULT_CHECKPOINT_INCLUSION_TIMEOUT_MS: u64 = 5_000;
+// 10 seconds.
+pub const DEFAULT_CHECKPOINT_INCLUSION_TIMEOUT_MS: u64 = 10_000;
 
 // Use 127.0.0.1 for tests to avoid OS complaining about permissions.
 #[cfg(test)]
