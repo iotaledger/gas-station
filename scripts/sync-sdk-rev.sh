@@ -6,13 +6,18 @@
 # monorepo pins -- otherwise Cargo builds two incompatible copies of
 # iota_sdk_types and monorepo types (test-cluster) stop unifying with ours.
 #
-#   ./scripts/sync-sdk-rev.sh                  # update to develop's rev
+#   ./scripts/sync-sdk-rev.sh                  # sync to the monorepo rev pinned here
 #   ./scripts/sync-sdk-rev.sh --check          # exit 1 if out of sync (CI)
-#   ./scripts/sync-sdk-rev.sh --ref v1.29.0    # follow a tag/branch instead
-#   ./scripts/sync-sdk-rev.sh --with-monorepo  # also bump the dev-dep rev
+#   ./scripts/sync-sdk-rev.sh --ref v1.29.0    # follow a tag/branch/sha instead
+#   ./scripts/sync-sdk-rev.sh --with-monorepo  # bump the dev-dep rev to develop + sync
+#
+# Without --ref, the reference point is the monorepo rev this repo already
+# pins for its dev-deps (test-cluster), so --check verifies internal
+# consistency instead of chasing the develop tip. --with-monorepo defaults
+# to develop because it deliberately moves that pin forward.
 set -euo pipefail
 
-MONO_REF="develop"
+MONO_REF=""
 CHECK_ONLY=0
 WITH_MONOREPO=0
 
@@ -21,7 +26,7 @@ while [ $# -gt 0 ]; do
     --check)         CHECK_ONLY=1 ;;
     --with-monorepo) WITH_MONOREPO=1 ;;
     --ref)           MONO_REF="${2:?--ref needs a value}"; shift ;;
-    -h|--help)       sed -n '2,12p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,17p' "$0"; exit 0 ;;
     *)               echo "unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -33,6 +38,23 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 [ -n "$ROOT" ] || die "not inside a git repository"
 MANIFEST="$ROOT/Cargo.toml"
 [ -f "$MANIFEST" ] || die "no Cargo.toml at $MANIFEST"
+
+if [ -z "$MONO_REF" ]; then
+  if [ "$WITH_MONOREPO" -eq 1 ]; then
+    MONO_REF="develop"
+  else
+    PINNED_ALL="$(grep -E 'iotaledger/iota(\.git)?"' "$MANIFEST" \
+      | grep -oE 'rev *= *"[0-9a-f]{40}"' | grep -oE '[0-9a-f]{40}' | sort -u)"
+    PINNED_N="$(printf '%s\n' "$PINNED_ALL" | grep -c . || true)"
+    [ "$PINNED_N" -le 1 ] || die "this repo pins $PINNED_N different monorepo revs; pass --ref"
+    if [ "$PINNED_N" -eq 1 ]; then
+      MONO_REF="$PINNED_ALL"
+    else
+      echo "warning: no monorepo rev pinned in $MANIFEST; falling back to develop" >&2
+      MONO_REF="develop"
+    fi
+  fi
+fi
 
 RAW="https://raw.githubusercontent.com/iotaledger/iota/${MONO_REF}/Cargo.toml"
 MONO_TOML="$(curl -sfL "$RAW")" || die "cannot fetch $RAW"
@@ -63,8 +85,10 @@ REV_LINES=$(grep -E 'iotaledger/iota-rust-sdk' "$MANIFEST" | grep -cE 'rev *= *"
 [ "$URL_LINES" -eq "$REV_LINES" ] \
   || die "$((URL_LINES - REV_LINES)) iota-rust-sdk line(s) have no rev on the same line; fix by hand"
 
-echo "monorepo ${MONO_REF} pins : $WANT"
-echo "this repo pins           : $(echo $OURS_ALL)"
+REF_LABEL="$MONO_REF"
+printf '%s' "$MONO_REF" | grep -qE '^[0-9a-f]{40}$' && REF_LABEL="${MONO_REF:0:12} (pinned here)"
+printf '%-40s : %s\n' "monorepo ${REF_LABEL} pins" "$WANT"
+printf '%-40s : %s\n' "this repo pins" "$(echo $OURS_ALL)"
 
 if [ "$OURS_N" -eq 1 ] && [ "$OURS_ALL" = "$WANT" ] && [ "$WITH_MONOREPO" -eq 0 ]; then
   echo "already in sync."
@@ -84,11 +108,15 @@ cp "$TMP" "$MANIFEST"
 echo "updated iota-rust-sdk rev -> $WANT"
 
 if [ "$WITH_MONOREPO" -eq 1 ]; then
-  MONO_SHA="$(git ls-remote https://github.com/iotaledger/iota "refs/heads/${MONO_REF}" | awk '{print $1}')"
-  if [ -z "$MONO_SHA" ]; then
-    MONO_SHA="$(git ls-remote https://github.com/iotaledger/iota "refs/tags/${MONO_REF}" | awk '{print $1}')"
+  if printf '%s' "$MONO_REF" | grep -qE '^[0-9a-f]{40}$'; then
+    MONO_SHA="$MONO_REF"
+  else
+    MONO_SHA="$(git ls-remote https://github.com/iotaledger/iota "refs/heads/${MONO_REF}" | awk '{print $1}')"
+    if [ -z "$MONO_SHA" ]; then
+      MONO_SHA="$(git ls-remote https://github.com/iotaledger/iota "refs/tags/${MONO_REF}" | awk '{print $1}')"
+    fi
+    [ -n "$MONO_SHA" ] || die "cannot resolve iotaledger/iota ref '${MONO_REF}'"
   fi
-  [ -n "$MONO_SHA" ] || die "cannot resolve iotaledger/iota ref '${MONO_REF}'"
 
   if grep -E 'iotaledger/iota(\.git)?"' "$MANIFEST" | grep -q 'tag *= *"'; then
     die "monorepo deps use tag = \"...\"; convert them to rev = \"...\" by hand first"
