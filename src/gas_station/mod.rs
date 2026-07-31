@@ -7,20 +7,6 @@ pub mod gas_station_core;
 mod gas_usage_cap;
 pub(crate) mod rescan_trigger;
 
-// NOTE on this test module's migration status: `create_test_transaction` and
-// `start_gas_station` (both in `src/test_env.rs`) are out of this migration
-// stage's scope (`test_env.rs` is `#[cfg(test)]`-gated in `lib.rs`, so it is
-// not compiled -- and therefore not part of -- `cargo check --lib`'s error
-// count; it is a later stage's file to migrate). They still return the *old*
-// `iota_types::transaction::TransactionData`/`iota_types::signature::GenericSignature`
-// pair, which no longer matches `GasStation::execute_transaction`'s new
-// `iota_sdk_types::{Transaction, UserSignature}` parameters now that this
-// stage has migrated `gas_station_core.rs`. Every call site below that goes
-// through those two helpers is therefore left exactly as it was (their
-// signatures/types will only line up again once `test_env.rs` is migrated);
-// everything else in this module (imports, `NANOS_PER_IOTA`, effects
-// inspection, and the one test that builds its transaction locally without
-// `test_env.rs`'s help) has been fully migrated to the new types.
 #[cfg(test)]
 mod tests {
     use crate::gas_station::gas_station_core::NANOS_PER_IOTA;
