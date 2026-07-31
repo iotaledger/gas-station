@@ -88,9 +88,6 @@ impl ReservedGasGroup {
     }
 }
 
-/// Test-only helper equivalent to the old `iota_types::base_types::random_object_ref()`:
-/// a random object id paired with version 0 and the all-zero digest (the new SDK has no
-/// direct equivalent, so we reconstruct it here for use by `storage`'s test modules).
 #[cfg(test)]
 pub fn random_object_ref() -> ObjectReference {
     ObjectReference::new(
