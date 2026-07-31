@@ -38,10 +38,7 @@ use tracing::debug;
 pub const DEFAULT_TEST_CONFIG_PATH: &str = "./test-env-config.yaml";
 
 /// Loopback address the gas-station server's own test-only HTTP listener
-/// binds to. There is no SDK equivalent of the old
-/// `iota_config::local_ip_utils::localhost_for_testing` -- this is purely
-/// this crate's own test infrastructure, not part of any wire format --
-/// so it is just a plain constant now.
+/// binds to.
 fn localhost_for_testing() -> String {
     "127.0.0.1".to_string()
 }
