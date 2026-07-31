@@ -118,13 +118,10 @@ async fn main() -> anyhow::Result<()> {
 
     println!("Transaction effects: {effects:#?}");
 
-    // `effects` is the JSON-RPC-shaped wire DTO this service returns; check the nested
-    // `status.status` field the same way an external HTTP client of this API would.
-    let effects_json = serde_json::to_value(&effects)?;
-    assert_eq!(
-        effects_json["status"]["status"].as_str(),
-        Some("success"),
-        "transaction did not succeed: {effects_json}"
+    assert!(
+        effects.status.is_success(),
+        "transaction did not succeed: {:?}",
+        effects.status
     );
 
     Ok(())

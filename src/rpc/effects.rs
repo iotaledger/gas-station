@@ -180,6 +180,13 @@ pub enum ExecutionStatusDto {
     Failure { error: String },
 }
 
+impl ExecutionStatusDto {
+    /// Returns `true` if the transaction executed successfully.
+    pub fn is_success(&self) -> bool {
+        matches!(self, Self::Success)
+    }
+}
+
 impl From<ExecutionStatus> for ExecutionStatusDto {
     fn from(status: ExecutionStatus) -> Self {
         match status {
