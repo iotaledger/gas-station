@@ -63,16 +63,6 @@ impl SidecarTxSigner {
 
 #[async_trait::async_trait]
 impl TxSigner for SidecarTxSigner {
-    // Wire-unchanged from the pre-migration implementation: still
-    // base64(bcs(tx)) posted as `{"txBytes": ...}` to `/sign-transaction`,
-    // with the response's `signature` field parsed via `UserSignature::from_str`
-    // (confirmed in ground truth at `iota-sdk-types/src/crypto/signature.rs`:
-    // `impl FromStr for UserSignature` delegates to `from_base64`, which
-    // base64-decodes then dispatches on the leading scheme-flag byte -- the
-    // same `flag || signature || pubkey` wire shape the old `GenericSignature`
-    // used). Only the type names (and the `fastcrypto::encoding::Base64` ->
-    // `crate::base64::Base64` swap, itself also just a thin wrapper over the
-    // same standard/padded base64 alphabet) changed here.
     async fn sign_transaction(&self, tx: &Transaction) -> anyhow::Result<UserSignature> {
         let bytes = Base64::encode(bcs::to_bytes(tx)?);
         let resp = self
