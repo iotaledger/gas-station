@@ -44,13 +44,9 @@ fn localhost_for_testing() -> String {
 }
 
 /// Binds an OS-assigned ephemeral TCP port on `host` and immediately drops
-/// the listener, returning the port number that was assigned. Same
-/// bind-then-release approach (and the same TOCTOU race against another
-/// caller grabbing the port before the caller of this function does) as the
-/// old `iota_config::local_ip_utils::get_available_port` it replaces; that
-/// crate is gone from our dependency tree, and the SDK has no equivalent
-/// (it's not part of any wire format either), so this is a small local
-/// helper instead.
+/// the listener, returning the port number that was assigned.
+/// (Warning: TOCTOU race against another caller grabbing the port before the
+/// caller of this function does)
 fn get_available_port(host: &str) -> u16 {
     TcpListener::bind((host, 0))
         .expect("failed to bind to an OS-assigned port")
