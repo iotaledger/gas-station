@@ -1,96 +1,25 @@
 // Copyright (c) 2026 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
-//! Compatibility shim reproducing the *pre-SDK-migration* JSON shape of
+//! Compatibility shim reproducing the legacy JSON shape of
 //! `iota_types::transaction::TransactionData` for `input.transaction_data` in
 //! Rego policies (see `docs/access-controller.md`).
 //!
 //! Rego policies are configuration deployed by customers, not code reviewed
 //! in this repository, so the JSON shape of `input.transaction_data` is a
-//! wire contract this migration must not silently change. This module
-//! defines Serialize-only "shadow" types mirroring the old
-//! `#[derive(Serialize)]`-based `iota_types::transaction` JSON shape, and
-//! converts a `&iota_sdk_types::Transaction` into them, instead of directly
-//! serializing the new SDK type (whose native JSON shape has diverged from
-//! the old one in multiple ways -- see below).
+//! wire contract that must not silently change. This module defines
+//! Serialize-only "shadow" types mirroring the legacy JSON shape and converts
+//! a `&iota_sdk_types::Transaction` into them, instead of directly serializing
+//! the SDK type (whose native JSON shape diverges from the legacy one in
+//! several ways -- e.g. `Pure` inputs as base64 strings instead of byte
+//! arrays, renamed variants, and tuple-vs-struct command encodings; the
+//! golden tests below pin the required shape against
+//! `predicates/test_files/transaction_kind.json`).
 //!
-//! ## Known JSON-shape divergences bridged here
-//!
-//! Found by diffing `iota-sdk-types`' native serde output (see
-//! `crates/iota-sdk-types/src/transaction/{mod,serialization}.rs` in the
-//! pinned SDK checkout) against `docs/access-controller.md` and
-//! `predicates/test_files/transaction_kind.json`:
-//!
-//! 1. `Input::Pure` serializes as a base64 **string** (`{"Pure": "AQIDBA=="}`)
-//!    natively; old `CallArg::Pure` serialized as a **byte array**
-//!    (`{"Pure": [1,2,3,4]}`). `bcs_decoder.rs`'s `bcs.decode_typed` extension
-//!    calls `.as_array()` on this value, so this one is load-bearing, not
-//!    cosmetic.
-//! 2. `TransactionV1` has a `gas_payment: GasPayment` field; old
-//!    `TransactionDataV1` had `gas_data: GasData`. Field also renamed
-//!    (`objects` -> `payment` in the shadow, mirroring `GasPayment.objects`
-//!    vs `GasData.payment`).
-//! 3. `GasPayment.objects: Vec<ObjectReference>` serializes each entry as a
-//!    **struct** (`{"object_id":..,"version":"1","digest":..}`, `version` as
-//!    a **string** via `ReadableDisplay`); old `GasData.payment:
-//!    Vec<(ObjectID, SequenceNumber, ObjectDigest)>` serialized each entry as
-//!    a plain 3-element **array** with `version` as a JSON **number**.
-//! 4. `GasPayment.price`/`.budget` serialize as **strings** (`ReadableDisplay`);
-//!    old `GasData.price`/`.budget` were plain `u64` (JSON **numbers** --
-//!    confirmed against the literal numbers in the documented example
-//!    payload).
-//! 5. `TransactionExpiration::Epoch(EpochId)`'s inner value serializes as a
-//!    **string** (`ReadableDisplay`); old `TransactionExpiration::Epoch`'s
-//!    inner value was a plain `u64` (JSON **number**).
-//! 6. `TransactionKind::Programmable` is the new variant name; old was
-//!    `TransactionKind::ProgrammableTransaction`. Both `docs/access-controller.md`
-//!    and the fixture key on the old name.
-//! 7. `Input`'s object-carrying variants (`ImmutableOrOwned`, `Shared`,
-//!    `Receiving`) are top-level `Input` variants; old nested them one level
-//!    deeper under `CallArg::Object(ObjectArg::..)`, e.g.
-//!    `{"Object": {"ImmOrOwnedObject": [..]}}` rather than
-//!    `{"ImmutableOrOwned": {..}}`. `SharedObjectReference`'s object-id field
-//!    is also renamed: `object_id` (new) vs `id` (old
-//!    `ObjectArg::SharedObject`), and `initial_shared_version` is a
-//!    `Version` (`ReadableDisplay` string) vs old plain `u64`.
-//! 8. Every `Command` variant other than `MoveCall` changed from an
-//!    old-style multi-field **tuple** variant (serializing as a JSON array,
-//!    e.g. `{"TransferObjects": [[...objects...], address]}`) to a new-style
-//!    newtype-around-a-named-struct variant (serializing as a JSON object,
-//!    e.g. `{"TransferObjects": {"objects": [...], "address": ...}}`).
-//! 9. `Command::MakeMoveVec` (old name) is `Command::MakeMoveVector` (new
-//!    name).
-//! 10. `Argument::GasCoin` (old name) is `Argument::Gas` (new name).
-//! 11. `Publish`/`Upgrade`'s `modules: Vec<Vec<u8>>` serialize each module as
-//!     a base64 **string** natively; old serialized each module as a plain
-//!     byte **array**.
-//!
-//! ## Residual, deliberately-not-fully-bridged divergences
-//!
-//! - `MoveCall.type_arguments` (`Vec<TypeTag>`) and `MakeMoveVector.type_`
-//!   (`Option<TypeTag>`): the new `TypeTag` serializes as a `Display`-based
-//!   string (e.g. `"u64"`, `"0x2::coin::Coin<0x2::iota::IOTA>"`). The old
-//!   `type_arguments`/`type_` fields used `move_core_types::type_input::TypeInput`,
-//!   whose exact JSON shape wasn't verified here (that crate isn't one of
-//!   the ground-truth locations given for this migration, and every fixture
-//!   and documented policy example uses an empty `type_arguments` list, so
-//!   this is untested in practice). The shadow renders these as
-//!   `Display`-based strings too, which is a reasonable compatibility bet
-//!   but is *not* independently confirmed against the old shape. Flagged for
-//!   follow-up if a customer policy is found inspecting non-empty
-//!   `type_arguments`.
-//! - System-transaction `TransactionKind` variants (`Genesis`,
-//!   `ConsensusCommitPrologueV1`, `AuthenticatorStateUpdateV1(Deprecated)`,
-//!   `EndOfEpochTransaction`, `RandomnessStateUpdate`): these are never
-//!   submitted by a user through the gas station's public `/execute_tx`
-//!   endpoint (they are validator/consensus-internal transaction kinds), so
-//!   full old-shape fidelity for their *contents* was not pursued. The old
-//!   variant *names* (tags) are preserved so a policy branching only on
-//!   `kind`'s discriminant still behaves the same, but the nested payload is
-//!   serialized using the new SDK type's own (new-shape) `Serialize` impl.
-//!   `AuthenticatorStateUpdateV1` additionally lost its payload entirely
-//!   between SDK revisions (new variant is a unit variant, deprecated), so
-//!   the shadow can only emit an empty payload for it regardless.
+//! `TypeTag`s are rendered as `Display` strings, and system-transaction
+//! `TransactionKind` variants (which can't arrive through the public API)
+//! preserve only the legacy variant *name*, with their payload serialized in
+//! the SDK type's native shape.
 
 use iota_sdk_types::{
     Address, Argument, Command, ConsensusCommitPrologueV1, GasPayment, GenesisTransaction, Input,
@@ -101,7 +30,7 @@ use iota_sdk_types::{
 use serde::Serialize;
 use serde_json::Value;
 
-/// Converts `transaction` into the pre-migration
+/// Converts `transaction` into the legacy
 /// `iota_types::transaction::TransactionData` JSON shape, for use as
 /// `input.transaction_data` in Rego policies.
 pub(crate) fn to_legacy_json(transaction: &Transaction) -> Value {
@@ -109,11 +38,8 @@ pub(crate) fn to_legacy_json(transaction: &Transaction) -> Value {
         .expect("shadow transaction-data shapes are always representable as JSON")
 }
 
-/// Old-shape equivalent of `iota_types::transaction::TransactionDataAPI::move_calls`:
 /// `(package, module, function)` for every `Command::MoveCall` in a
-/// programmable transaction (empty for any other transaction kind). Ported
-/// from `ProgrammableTransaction::move_calls` /
-/// `TransactionKind::move_calls` at the `v1.20.1` tag.
+/// programmable transaction (empty for any other transaction kind).
 pub(crate) fn move_calls(transaction: &Transaction) -> Vec<(ObjectId, &str, &str)> {
     let Transaction::V1(v1) = transaction else {
         return vec![];
@@ -134,13 +60,10 @@ pub(crate) fn move_calls(transaction: &Transaction) -> Vec<(ObjectId, &str, &str
 #[derive(Serialize)]
 enum ShadowTransactionData {
     V1(ShadowTransactionDataV1),
-    /// `Transaction` is `#[non_exhaustive]` in `iota_sdk_types`, but the
-    /// pinned rev this crate builds against (`b77fcd5`) defines only `V1`.
-    /// A successfully-deserialized `Transaction` value can therefore never
-    /// take this arm today -- it exists solely so this keeps compiling (and
-    /// degrades instead of panicking on attacker-controlled transaction
-    /// bytes) if a future SDK bump adds a real variant here before this
-    /// file is updated to handle it explicitly.
+    /// `Transaction` is `#[non_exhaustive]` in `iota_sdk_types`; unreachable
+    /// at the pinned SDK rev (which defines only `V1`), this arm only ensures
+    /// a future SDK bump degrades instead of panicking on
+    /// attacker-controlled transaction bytes.
     Unrecognized(String),
 }
 
@@ -178,16 +101,14 @@ impl From<&TransactionV1> for ShadowTransactionDataV1 {
 enum ShadowTransactionKind {
     ProgrammableTransaction(ShadowProgrammableTransaction),
     // System-transaction kinds: never submitted by a user through the gas
-    // station's public API. Tag preserved for old-name compatibility; nested
-    // payload uses the new SDK type's own `Serialize` impl (see module docs).
+    // station's public API. Tag preserved for legacy-name compatibility;
+    // nested payload uses the SDK type's own `Serialize` impl (see module docs).
     Genesis(GenesisTransaction),
     ConsensusCommitPrologueV1(ConsensusCommitPrologueV1),
     AuthenticatorStateUpdateV1(()),
     EndOfEpochTransaction(Vec<iota_sdk_types::EndOfEpochTransactionKind>),
     RandomnessStateUpdate(RandomnessStateUpdate),
-    /// See `ShadowTransactionData::Unrecognized`: unreachable with the
-    /// currently pinned SDK rev (all 6 variants above are matched
-    /// exhaustively), kept only for forward-compat with a future SDK bump.
+    /// See `ShadowTransactionData::Unrecognized`.
     Unrecognized(String),
 }
 
@@ -236,9 +157,7 @@ impl From<&iota_sdk_types::ProgrammableTransaction> for ShadowProgrammableTransa
 enum ShadowCallArg {
     Pure(Vec<u8>),
     Object(ShadowObjectArg),
-    /// See `ShadowTransactionData::Unrecognized`. `Input` is
-    /// `#[non_exhaustive]` but the pinned rev defines only the 4 variants
-    /// matched below, so this is unreachable today for the same reason.
+    /// See `ShadowTransactionData::Unrecognized`.
     Unrecognized(String),
 }
 
@@ -274,10 +193,8 @@ enum ShadowObjectArg {
     Receiving(ShadowObjectRef),
 }
 
-/// Mirrors old `type ObjectRef = (ObjectID, SequenceNumber, ObjectDigest)`:
-/// a 3-element tuple (a 3-field tuple struct serializes identically to a
-/// plain 3-tuple), with the version as a plain number rather than the new
-/// SDK's `ReadableDisplay`-string `Version`.
+/// Mirrors legacy `type ObjectRef = (ObjectID, SequenceNumber, ObjectDigest)`:
+/// a 3-element tuple with the version as a plain JSON number.
 #[derive(Serialize)]
 struct ShadowObjectRef(ObjectId, u64, ObjectDigest);
 
@@ -301,12 +218,7 @@ enum ShadowCommand {
     Publish(Vec<Vec<u8>>, Vec<ObjectId>),
     MakeMoveVec(Option<String>, Vec<ShadowArgument>),
     Upgrade(Vec<Vec<u8>>, Vec<ObjectId>, ObjectId, ShadowArgument),
-    /// See `ShadowTransactionData::Unrecognized`. `Command` is
-    /// `#[non_exhaustive]` but the pinned rev defines only the 7 variants
-    /// matched below, so this is unreachable today for the same reason. Note
-    /// this arm is *not* used by [`super::move_calls`] (which only ever
-    /// looks for `Command::MoveCall` and otherwise ignores/skips a command,
-    /// exactly like this arm's semantics for that security-relevant path).
+    /// See `ShadowTransactionData::Unrecognized`.
     Unrecognized(String),
 }
 
@@ -390,9 +302,7 @@ enum ShadowArgument {
     Input(u16),
     Result(u16),
     NestedResult(u16, u16),
-    /// See `ShadowTransactionData::Unrecognized`. `Argument` is
-    /// `#[non_exhaustive]` but the pinned rev defines only the 4 variants
-    /// matched below, so this is unreachable today for the same reason.
+    /// See `ShadowTransactionData::Unrecognized`.
     Unrecognized(String),
 }
 
@@ -433,9 +343,7 @@ impl From<&GasPayment> for ShadowGasData {
 enum ShadowTransactionExpiration {
     None,
     Epoch(u64),
-    /// See `ShadowTransactionData::Unrecognized`. `TransactionExpiration` is
-    /// `#[non_exhaustive]` but the pinned rev defines only the 2 variants
-    /// matched below, so this is unreachable today for the same reason.
+    /// See `ShadowTransactionData::Unrecognized`.
     Unrecognized(String),
 }
 

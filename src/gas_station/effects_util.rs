@@ -2,33 +2,23 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Small helpers for deriving specific pieces of information out of a raw
-//! `iota_sdk_types::TransactionEffects`.
+//! `iota_sdk_types::TransactionEffects` (which only exposes the compact
+//! `changed_objects` representation).
 //!
-//! The SDK's `TransactionEffects` only exposes the compact `changed_objects:
-//! Vec<ChangedObject>` representation (see `TransactionEffectsV1`) -- there is
-//! no `TransactionEffectsAPI`-style convenience trait in this SDK revision
-//! with `created()`/`gas_object()`/etc. accessors the way the old
-//! `iota_json_rpc_types::IotaTransactionBlockEffectsAPI` had.
-//!
-//! `crate::rpc::effects` already ported this exact derivation logic once (for
-//! its JSON-RPC-shaped DTO), straight from `crates/iota-types/src/effects/v1.rs`
-//! (`impl TransactionEffectsAPI for TransactionEffectsV1`) on the
-//! `iotaledger/iota` monorepo `develop` branch -- but its helpers are private
-//! to that module and can't be reused directly. The two helpers below are the
-//! minimal subset `gas_station_core.rs` and `gas_station_initializer.rs` each
-//! need (the gas coin's post-execution reference, and the set of newly
-//! created objects), ported the same way, so there is exactly one shared
-//! definition for both call sites instead of two independent copies.
+//! `crate::rpc::effects` contains the same derivation logic for its
+//! JSON-RPC-shaped DTO, but its helpers are private to that module. The two
+//! helpers below are the minimal subset `gas_station_core.rs` and
+//! `gas_station_initializer.rs` need: the gas coin's post-execution reference
+//! and the set of newly created objects.
 
 use iota_sdk_types::{IdOperation, ObjectIn, ObjectOut, ObjectReference, TransactionEffects};
 
 /// The transaction's own gas coin, as it exists after execution.
 ///
-/// Ported from `TransactionEffectsAPI::gas_object` (see the module doc for
-/// provenance). Panics if `gas_object_index` is unset (a system transaction
-/// that doesn't pay gas) or points at an entry that isn't a plain
-/// `ObjectWrite` -- neither can happen for the signed, gas-paying,
-/// programmable transactions this crate ever executes.
+/// Panics if `gas_object_index` is unset (a system transaction that doesn't
+/// pay gas) or points at an entry that isn't a plain `ObjectWrite` -- neither
+/// can happen for the signed, gas-paying, programmable transactions this
+/// crate ever executes.
 pub(crate) fn gas_object_reference(effects: &TransactionEffects) -> ObjectReference {
     let v1 = effects.as_v1();
     let gas_object_index = v1
@@ -45,13 +35,9 @@ pub(crate) fn gas_object_reference(effects: &TransactionEffects) -> ObjectRefere
 
 /// Object references for every object created by the transaction.
 ///
-/// Ported from `TransactionEffectsAPI::created` (see the module doc for
-/// provenance). Note the asymmetry called out there for package writes
-/// (package versions come from the write itself, never from
-/// `lamport_version`) is irrelevant here: a created object always reaches
-/// this function via a plain `ObjectWrite`, never a `PackageWrite` -- the
-/// only caller (`gas_station_initializer.rs`'s coin-splitting) only ever
-/// creates new `Coin<IOTA>` objects via `pay::divide_and_keep`, never packages.
+/// `PackageWrite` entries are deliberately not handled: the only caller
+/// (`gas_station_initializer.rs`'s coin-splitting) only ever creates new
+/// `Coin<IOTA>` objects, never packages.
 pub(crate) fn created_object_refs(effects: &TransactionEffects) -> Vec<ObjectReference> {
     let v1 = effects.as_v1();
     v1.changed_objects

@@ -4,48 +4,15 @@
 
 //! JSON-RPC-shaped transaction effects DTOs.
 //!
-//! The SDK's own [`iota_sdk_types::TransactionEffects`] (and its `V1` payload,
-//! [`TransactionEffectsV1`]) use a *compact* representation: a single
-//! `changed_objects: Vec<ChangedObject>` list (each entry carrying its
-//! before/after state plus an [`IdOperation`]), rather than the flat
-//! `created`/`mutated`/`deleted`/... lists that this service's existing
-//! `/v1/execute_tx` clients (including this SDK's own [`super::client`]) have
-//! always received on the wire and depend on byte-for-byte.
+//! The SDK's [`iota_sdk_types::TransactionEffects`] uses a compact
+//! representation (a single `changed_objects` list carrying before/after
+//! state), while this service's `/v1/execute_tx` clients depend byte-for-byte
+//! on the flat `created`/`mutated`/`deleted`/... JSON-RPC shape
+//! (`IotaTransactionBlockEffectsV1`). This module defines that flat wire type
+//! and derives it from the compact one.
 //!
-//! This module defines that flat, JSON-RPC-shaped wire type (mirroring
-//! `IotaTransactionBlockEffectsV1` from `iota-json-rpc-types` on the
-//! `iotaledger/iota` monorepo) and derives it from the SDK's compact
-//! `TransactionEffectsV1`. Both the *derivation* (the `created()`/`mutated()`/
-//! .../`gas_object()` logic below) and the *serde shape* (every
-//! `#[serde(...)]`/`#[schemars(...)]` annotation) are ported from the
-//! monorepo's `develop` branch, which has already done this exact migration
-//! for the node itself against the same pinned `iota-sdk-types` revision this
-//! crate uses:
-//!   - `crates/iota-types/src/effects/v1.rs`
-//!     (`impl TransactionEffectsAPI for TransactionEffectsV1`) for the
-//!     derivation logic.
-//!   - `crates/iota-json-rpc-types/src/iota_transaction.rs`
-//!     (`IotaTransactionBlockEffectsV1` and
-//!     `impl<T: TransactionEffectsAPI> From<T> for IotaTransactionBlockEffectsV1`)
-//!     for the wire shape and the flattening logic.
-//!   - `crates/iota-json-rpc-types/src/{iota_gas_cost_summary,iota_owner,iota_object,iota_primitives}.rs`
-//!     for the exact per-field serde/schemars adapters (`IotaGasCostSummary`,
-//!     `OwnerSchema`, `ObjectRefSchema`, `SequenceNumberU64`,
-//!     `SequenceNumberString`, ...) that this module's local DTOs replicate.
-//!
-//! Renames encountered while porting (monorepo `iota-types` re-exports the SDK
-//! types under old names in some places -- this module always uses the real
-//! `iota_sdk_types` names): `ObjectIn::NotExist` -> `Missing`,
-//! `ObjectOut::NotExist` -> `Missing`, `IDOperation` -> `IdOperation`.
-//!
-//! One design simplification versus the monorepo: `IotaTransactionBlockEffects`
-//! there is an enum (`V1(IotaTransactionBlockEffectsV1)`) internally tagged on
-//! `messageVersion`, so that on the wire the tag and the `V1` payload's fields
-//! are flattened into one JSON object. Since the SDK's `TransactionEffects`
-//! only ever has a single `V1` variant, [`TransactionEffectsDto`] below bakes
-//! that flattening in directly as a single struct with a `message_version`
-//! field fixed to `"v1"`, rather than modeling the enum -- this produces
-//! byte-identical JSON while being simpler to define and to test.
+//! The JSON shape is a wire contract: field names, casing, number-vs-string
+//! renderings, and empty-list omission must not change.
 
 use iota_sdk_types::{
     Address, EpochId, ExecutionStatus, GasCostSummary, IdOperation, ObjectDigest, ObjectId,
@@ -58,13 +25,9 @@ use serde_with::{serde_as, DisplayFromStr};
 
 /// JSON-RPC-shaped object reference: `{"objectId": "0x..", "version": N, "digest": ".."}`.
 ///
-/// This intentionally does *not* reuse `iota_sdk_types::ObjectReference`'s own
-/// `Serialize` impl (which is snake_case and not part of our wire contract);
-/// note also that `version` here is a plain JSON **number**, unlike
-/// [`ModifiedAtVersionDto::sequence_number`] below, which is a **string** --
-/// this mirrors the monorepo's `ObjectRefSchema` (numeric, via
-/// `SequenceNumberU64`) vs. `SequenceNumberString` distinction exactly; the
-/// two are not interchangeable despite both ultimately wrapping a `Version`.
+/// `version` here is a plain JSON **number**, unlike
+/// [`ModifiedAtVersionDto::sequence_number`], which is a **string** -- the two
+/// are not interchangeable despite both wrapping a `Version`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ObjectRefDto {
@@ -91,13 +54,11 @@ impl From<ObjectRefDto> for ObjectReference {
     }
 }
 
-/// JSON-RPC-shaped owner, mirroring the monorepo's `OwnerSchema`/`IotaOwner`:
-/// `{"AddressOwner": "0x.."}` / `{"ObjectOwner": "0x.."}` /
-/// `{"Shared": {"initial_shared_version": N}}` / `"Immutable"`.
+/// JSON-RPC-shaped owner: `{"AddressOwner": "0x.."}` / `{"ObjectOwner": "0x.."}`
+/// / `{"Shared": {"initial_shared_version": N}}` / `"Immutable"`.
 ///
-/// Deliberately *not* `#[serde(rename_all = "camelCase")]`: the monorepo's
-/// `OwnerSchema` has no `rename_all` either, so `Shared`'s inner field stays
-/// `initial_shared_version` verbatim on the wire (not `initialSharedVersion`).
+/// Deliberately *not* `#[serde(rename_all = "camelCase")]`: `Shared`'s inner
+/// field stays `initial_shared_version` verbatim on the wire.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub enum OwnerDto {
     AddressOwner(#[schemars(with = "String")] Address),
@@ -115,24 +76,21 @@ impl From<Owner> for OwnerDto {
                 initial_shared_version: initial_shared_version.as_u64(),
             },
             Owner::Immutable => OwnerDto::Immutable,
-            // `Owner` is `#[non_exhaustive]` in iota-sdk-types; mirrors the monorepo's own
-            // defensive arm in `impl From<Owner> for OwnerSchema`.
+            // `Owner` is `#[non_exhaustive]` in iota-sdk-types.
             _ => unimplemented!("a new Owner enum variant was added and needs to be handled"),
         }
     }
 }
 
-/// `{"owner": <OwnerDto>, "reference": <ObjectRefDto>}`, mirroring the
-/// monorepo's `OwnedObjectRef` (which has `#[serde(rename = "OwnedObjectRef")]`
-/// but *no* `rename_all`, so the field names stay `owner`/`reference` verbatim).
+/// `{"owner": <OwnerDto>, "reference": <ObjectRefDto>}` (no `rename_all`; the
+/// field names stay `owner`/`reference` verbatim on the wire).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct OwnedObjectRefDto {
     pub owner: OwnerDto,
     pub reference: ObjectRefDto,
 }
 
-/// Mirrors the monorepo's `IotaGasCostSummary`: every field is a JSON string
-/// (`DisplayFromStr`), camelCase.
+/// Gas cost summary; every field is a JSON string (`DisplayFromStr`), camelCase.
 #[serde_as]
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -166,13 +124,9 @@ impl From<GasCostSummary> for GasCostSummaryDto {
     }
 }
 
-/// Mirrors the monorepo's `IotaExecutionStatus`: internally tagged on
-/// `"status"`, camelCase tag values (`"success"` / `"failure"`), with the
-/// error rendered as its `Display` string -- *not* the clever-error /
-/// Move-package-resolved form (`IotaExecutionStatus::from_native_with_clever_error`),
-/// since that requires an online Move package resolver this service does not
-/// have; this mirrors the plain `From<ExecutionStatus> for IotaExecutionStatus`
-/// impl instead.
+/// Execution status: internally tagged on `"status"`, camelCase tag values
+/// (`"success"` / `"failure"`), with the error rendered as its `Display`
+/// string.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename = "ExecutionStatus", rename_all = "camelCase", tag = "status")]
 pub enum ExecutionStatusDto {
@@ -203,8 +157,7 @@ impl From<ExecutionStatus> for ExecutionStatusDto {
             } => Self::Failure {
                 error: format!("{error} in command {idx}"),
             },
-            // `ExecutionStatus` is `#[non_exhaustive]`; mirrors the monorepo's own
-            // defensive arm in `impl From<ExecutionStatus> for IotaExecutionStatus`.
+            // `ExecutionStatus` is `#[non_exhaustive]` in iota-sdk-types.
             _ => unimplemented!(
                 "a new ExecutionStatus enum variant was added and needs to be handled"
             ),
@@ -212,10 +165,8 @@ impl From<ExecutionStatus> for ExecutionStatusDto {
     }
 }
 
-/// Mirrors the monorepo's `IotaTransactionBlockEffectsModifiedAtVersions`.
-///
-/// Note `sequence_number` here is a JSON **string** (`SequenceNumberString` in
-/// the monorepo) -- unlike [`ObjectRefDto::version`], which is a plain number.
+/// Note `sequence_number` here is a JSON **string** -- unlike
+/// [`ObjectRefDto::version`], which is a plain number.
 #[serde_as]
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -227,9 +178,8 @@ pub struct ModifiedAtVersionDto {
     pub sequence_number: Version,
 }
 
-/// JSON-RPC-shaped transaction effects (`IotaTransactionBlockEffectsV1`'s wire
-/// shape, flattened -- see the module doc for why this isn't modeled as an
-/// enum). `#[serde(rename_all = "camelCase")]` applies to every field below.
+/// JSON-RPC-shaped transaction effects. `#[serde(rename_all = "camelCase")]`
+/// applies to every field below.
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -269,9 +219,7 @@ pub struct TransactionEffectsDto {
 }
 
 // ---------------------------------------------------------------------------
-// Derivation from the SDK's compact `TransactionEffectsV1`, ported from
-// `crates/iota-types/src/effects/v1.rs` (`impl TransactionEffectsAPI for
-// TransactionEffectsV1`) on the `iotaledger/iota` monorepo `develop` branch.
+// Derivation of the flat lists from the SDK's compact `TransactionEffectsV1`.
 // ---------------------------------------------------------------------------
 
 fn modified_at_versions(v1: &TransactionEffectsV1) -> Vec<(ObjectId, Version)> {
@@ -448,11 +396,6 @@ fn gas_object(v1: &TransactionEffectsV1) -> (ObjectReference, Owner) {
     }
 }
 
-/// Ported from `TransactionEffectsAPI::input_shared_objects` (which returns
-/// `Vec<InputSharedObject>`) fused with `InputSharedObject::object_ref()`,
-/// since the JSON-RPC DTO only ever needs the flattened `ObjectReference`
-/// list (`IotaTransactionBlockEffectsV1::shared_objects`), not the
-/// `InputSharedObject` enum itself.
 fn shared_object_refs(v1: &TransactionEffectsV1) -> Vec<ObjectReference> {
     v1.changed_objects
         .iter()
@@ -488,11 +431,10 @@ fn shared_object_refs(v1: &TransactionEffectsV1) -> Vec<ObjectReference> {
                     *version,
                     ObjectDigest::OBJECT_CANCELLED,
                 )),
-                // Per-epoch config objects don't require sequencing and are excluded from
-                // the shared-objects view, matching `TransactionEffectsAPI::input_shared_objects`.
+                // Per-epoch config objects don't require sequencing and are
+                // excluded from the shared-objects view.
                 UnchangedSharedKind::PerEpochConfig => None,
-                // `UnchangedSharedKind` is `#[non_exhaustive]`; mirrors the monorepo's own
-                // defensive arm in `TransactionEffectsV1::input_shared_objects`.
+                // `UnchangedSharedKind` is `#[non_exhaustive]` in iota-sdk-types.
                 _ => unimplemented!(
                     "a new UnchangedSharedKind enum variant was added and needs to be handled"
                 ),
@@ -554,9 +496,6 @@ impl From<TransactionEffectsV1> for TransactionEffectsDto {
 
 impl From<TransactionEffects> for TransactionEffectsDto {
     fn from(effects: TransactionEffects) -> Self {
-        // `TransactionEffects` only has a `V1` payload today; `into_v1()` is an
-        // inherent method on the SDK's own (non_exhaustive-to-us, but not to
-        // itself) enum, so no wildcard arm is needed here.
         effects.into_v1().into()
     }
 }
@@ -833,8 +772,7 @@ mod tests {
     }
 
     /// (e) `PackageWrite`: the created package's `ObjectRefDto.version` must come
-    /// from `ObjectOut::PackageWrite`'s own `version` field, *not* `lamport_version`
-    /// -- this is the asymmetry called out explicitly in this stage's task.
+    /// from `ObjectOut::PackageWrite`'s own `version` field, *not* `lamport_version`.
     #[test]
     fn package_write_uses_its_own_version_not_lamport_version() {
         let package_id = oid(100);
@@ -881,10 +819,7 @@ mod tests {
         );
     }
 
-    /// (d) Failure status golden-JSON coverage for the four `ExecutionError`
-    /// variants that were permuted at the *old* (now-superseded) iota-sdk-types
-    /// revision this codebase used to pin -- proving these round-trip correctly
-    /// through `ExecutionStatusDto` is the most important regression check here.
+    /// (d) Failure status golden-JSON coverage for four `ExecutionError` variants.
     fn failure_effects_with(error: ExecutionError) -> TransactionEffectsV1 {
         TransactionEffectsV1 {
             status: ExecutionStatus::new_failure(error, None),
