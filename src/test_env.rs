@@ -82,13 +82,12 @@ pub async fn start_gas_station(
 ) -> (TestCluster, GasStationContainer) {
     debug!("Starting Iota cluster..");
     let (test_cluster, signer) = start_iota_cluster(init_gas_amounts).await;
-    // On develop, `TestCluster` starts its fullnode's gRPC API by default and
+    // `TestCluster` starts its fullnode's gRPC API by default and
     // self-allocates the port (see `TestClusterBuilder`'s
     // `fullnode_enable_grpc_api: true` default and
     // `node_config_builder.rs`'s `local_ip_utils::get_available_port` use) --
     // `grpc_url()` (on `TestCluster` itself, not `FullNodeHandle`) is all
-    // that's needed to reach it, replacing the old JSON-RPC
-    // `fullnode_handle.rpc_url`, since our own `IotaClient` now speaks gRPC.
+    // that's needed to reach it.
     let grpc_url = test_cluster.grpc_url();
     let sponsor_address = signer.get_address();
     debug!("Starting storage. Sponsor address: {:?}", sponsor_address);
