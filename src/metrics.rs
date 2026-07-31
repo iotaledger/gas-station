@@ -56,8 +56,7 @@ fn small_count_buckets() -> Vec<f64> {
 }
 
 /// Builds an axum [`Router`] that serves `registry`'s metrics as Prometheus
-/// text format at [`METRICS_ROUTE`], replacing the router that used to be set
-/// up internally by `iota_metrics::start_prometheus_server`.
+/// text format at [`METRICS_ROUTE`].
 pub fn metrics_router(registry: Registry) -> Router {
     Router::new()
         .route(METRICS_ROUTE, get(metrics_handler))
@@ -76,10 +75,8 @@ async fn metrics_handler(Extension(registry): Extension<Registry>) -> (StatusCod
 }
 
 /// Creates a fresh [`Registry`] and spawns an axum HTTP server bound to
-/// `addr` that serves it at [`METRICS_ROUTE`], mirroring the behavior of the
-/// now-removed `iota_metrics::start_prometheus_server`. Returns the
-/// [`Registry`] so callers can register metrics against it, exactly as they
-/// previously did with `RegistryService::default_registry()`.
+/// `addr` that serves it at [`METRICS_ROUTE`]. Returns the
+/// [`Registry`] so callers can register metrics against it.
 pub fn start_prometheus_server(addr: SocketAddr) -> Registry {
     let registry = Registry::new();
     let app = metrics_router(registry.clone());
