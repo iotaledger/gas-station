@@ -109,54 +109,30 @@ access-controller:
 
 ### Configuration parameters
 
-| Parameter                               | Db rebuild required?| Description                                                               | Example                                                                                         |
-| --------------------------------------- |---------------------|---------------------------------------------------------------------------| ----------------------------------------------------------------------------------------------- |
-| `signer-config`                         | no                  | Configuration of signer. It can be a local or an external KMS.            | See [down below](#signer-configuration)                                                         |
-| `rpc-host-ip`                           | no                  | IP address for the RPC server                                             | `0.0.0.0`                                                                                       |
-| `rpc-port`                              | no                  | Port for the RPC server                                                   | `9527`                                                                                          |
-| `metrics-port`                          | no                  | Port for collecting and exposing metrics                                  | `9184`                                                                                          |
-| `storage-config.redis.redis-url`        | no                  | Redis connection URL                                                      | `redis://127.0.0.1`                                                                             |
-| `fullnode-url`                          | yes ⚠               | **gRPC** endpoint of the IOTA full node. See [Upgrading from JSON-RPC to gRPC](#upgrading-from-json-rpc-to-grpc) if you are updating an existing deployment. | `https://grpc.testnet.iota.cafe`                                                            |
-| `coin-init-config.target-init-balance`  | yes ⚠               | Target balance for the new coins when we splitting new gas coins in NANOs | `100000000`                                                                                     |
-| `coin-init-config.refresh-interval-sec` | no                  | Interval in seconds to refresh balance and check for new coins to split   | `86400`                                                                                         |
-| `daily-gas-usage-cap`                   | no                  | Maximum allowed daily gas usage                                           | `1500000000000`                                                                                 |
-| `max-gas-budget`                        | no                  | Maximum allowed reservable gas budget                                     | `2000000000`                                                                                    |
-| `checkpoint-inclusion-timeout-ms`       | no                  | Milliseconds the full node should wait for a transaction to reach checkpoint inclusion (local execution) before responding, when a request asks to wait for local execution. Passed through as the gRPC `execute_transaction` call's `checkpoint_inclusion_timeout_ms`. Defaults to `10000` if omitted. | `10000` |
-| `access-controller.access-policy`       | no                  | Access policy mode.                                                       | `disabled`, `allow-all`, `deny-all`. See [this link](./docs/access-controller.md) to learn more |
+| Parameter | Db rebuild required? | Description | Example |
+| --- | --- | --- | --- |
+| `signer-config` | no | Configuration of signer. It can be a local or an external KMS. | See [down below](#signer-configuration) |
+| `rpc-host-ip` | no | IP address for the RPC server | `0.0.0.0` |
+| `rpc-port` | no | Port for the RPC server | `9527` |
+| `metrics-port` | no | Port for collecting and exposing metrics | `9184` |
+| `storage-config.redis.redis-url` | no | Redis connection URL | `redis://127.0.0.1` |
+| `fullnode-url` | yes ⚠ | **gRPC** endpoint of the IOTA full node. See [Upgrading from JSON-RPC to gRPC](./docs/common-issues.md#upgrading-from-json-rpc-to-grpc) if you are updating an existing deployment. | `https://grpc.testnet.iota.cafe` |
+| `coin-init-config.target-init-balance` | yes ⚠ | Target balance for the new coins when we splitting new gas coins in NANOs | `100000000` |
+| `coin-init-config.refresh-interval-sec` | no | Interval in seconds to refresh balance and check for new coins to split | `86400` |
+| `daily-gas-usage-cap` | no | Maximum allowed daily gas usage | `1500000000000` |
+| `max-gas-budget` | no | Maximum allowed reservable gas budget | `2000000000` |
+| `checkpoint-inclusion-timeout-ms` | no | Milliseconds the full node should wait for a transaction to reach checkpoint inclusion (local execution) before responding, when a request asks to wait for local execution. Passed through as the gRPC `execute_transaction` call's `checkpoint_inclusion_timeout_ms`. Defaults to `10000` if omitted. | `10000` |
+| `access-controller.access-policy` | no | Access policy mode. | `disabled`, `allow-all`, `deny-all`. See [this link](./docs/access-controller.md) to learn more |
 
 ### Upgrading from JSON-RPC to gRPC
 
-> **Operator-visible breaking change:** the Gas Station now talks to the IOTA full node over **gRPC** instead of JSON-RPC.
+> **Operator-visible breaking change:** the Gas Station now talks to the IOTA full node over **gRPC** instead of JSON-RPC. See [Upgrading from JSON-RPC to gRPC](./docs/common-issues.md#upgrading-from-json-rpc-to-grpc) for the migration steps when updating an existing deployment.
 
-**What changes:** `fullnode-url` must now point at the full node's **gRPC** endpoint instead of its JSON-RPC endpoint. The field is still a plain URL string; only the host/port/scheme you put there changes. For the public IOTA networks, that means:
-
-| Network  | Old JSON-RPC URL                    | New gRPC URL                        |
-| -------- | ------------------------------------ | ------------------------------------ |
-| Mainnet  | `https://api.mainnet.iota.cafe`     | `https://grpc.mainnet.iota.cafe` |
-| Testnet  | `https://api.testnet.iota.cafe`     | `https://grpc.testnet.iota.cafe` |
-| Devnet   | `https://api.devnet.iota.cafe`      | `https://grpc.devnet.iota.cafe`  |
-
-If you run your own full node, use its gRPC address instead.
-
-If `fullnode-url` still points at one of the three public JSON-RPC endpoints above, the Gas Station **automatically connects to the matching gRPC endpoint instead** and logs a warning at startup, so an existing deployment keeps working unmodified. This redirect only covers the well-known public hosts — a self-hosted JSON-RPC URL cannot be guessed and will simply fail at the first RPC call.
-
-**Why:** JSON-RPC is being retired upstream in favor of gRPC as the full node transport, so the Gas Station has moved to the [iota-rust-sdk](https://github.com/iotaledger/iota-rust-sdk) gRPC client ahead of that deprecation.
-
-**What you need to do when upgrading an existing deployment:**
-
-1. Repoint `fullnode-url` at your full node's gRPC endpoint (see table above, or the equivalent for your own node).
-2. Make sure the full node you're pointing at actually has its gRPC API enabled: `enable-grpc-api: true` in the node's own config (`grpc-api-config` can be left at its defaults unless you need to tune message-size or timeout limits). A node that only serves JSON-RPC will refuse the connection, or requests against it will fail.
-3. `fullnode-basic-auth`, if you use it, is unaffected and passed through the same way.
-
-**Changing `fullnode-url` changes the Redis storage namespace.** The Gas Station namespaces all of its Redis state (coin registry, reservations, daily gas usage counter) by the configured full node host, so repointing the URL makes it start from a fresh, empty namespace: the coin pool is re-initialized from the sponsor's on-chain coins, in-flight reservations are dropped, and the daily gas usage counter resets. The old namespace's keys are left behind in Redis and can be cleaned up manually. Because of this, update the URL on **all instances at once during a full stop** — in a rolling deploy, old and new instances would track the same on-chain coins in two independent namespaces and could hand out the same coin twice (equivocation). The automatic redirect described above deliberately does *not* change the namespace, so you can defer the config edit to a convenient maintenance window.
-
-Note also that the new gRPC client connects lazily, so a bad or unreachable `fullnode-url` will now surface as a connection error at startup or on first use, rather than at config-load time.
-
-#### Gas Station reinitialization
+### Gas Station reinitialization
 
 The configuration parameter `target-init-balance` requires the Redis database to be cleared (flushed) before any changes to those settings can take effect safely. If you modify these parameters, you will typically be notified that a reinitialization is required. To prevent accidental or unintended reinitializations — which may take a significant amount of time — you must explicitly start the gas station with the `--allow-reinit` flag to allow automatic reinitialization. Alternatively, you can revert the changed parameters to their original values and plan the reinitialization for a more convenient time.
 
-#### Signer Configuration
+### Signer Configuration
 
 You can configure the signer in two ways:
 
