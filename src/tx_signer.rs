@@ -96,15 +96,6 @@ impl TestTxSigner {
 #[async_trait::async_trait]
 impl TxSigner for TestTxSigner {
     async fn sign_transaction(&self, tx: &Transaction) -> anyhow::Result<UserSignature> {
-        // `IotaSigner::sign_transaction` is blanket-implemented (in
-        // `iota-sdk-crypto`) for any `T: Signer<UserSignature>`, which
-        // `SimpleKeypair` is. It computes the signing digest internally as
-        // `blake2b(Intent::iota_transaction().to_bytes() || bcs(tx))` --
-        // see `iota_sdk_types::Transaction::signing_digest` in ground truth
-        // (`iota-sdk-types/src/hash.rs`) -- so the old manual two-step
-        // (`IntentMessage::new(Intent::iota_transaction(), tx_data)` +
-        // `Signature::new_secure(&intent_msg, &keypair)`) collapses into this
-        // single call.
         self.keypair
             .sign_transaction(tx)
             .map_err(|err| anyhow!(err.to_string()))
