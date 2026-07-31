@@ -23,14 +23,6 @@ pub struct IotaGasCoin {
     pub balance: u64,
 }
 
-// `IotaGasCoin` is the JSON-RPC-facing (camelCase `{objectId, version, digest}`) wire
-// shape for a gas coin's object reference; see `crate::rpc::effects::ObjectRefDto` for
-// the exact serde contract. `GasCoin.object_ref` is the SDK's own `ObjectReference`
-// (snake_case, not wire-facing). Both `ObjectRefDto` and `ObjectReference` are native
-// `iota_sdk_types`-backed types now, so this is a direct field-for-field conversion --
-// no string round-tripping needed (that was only ever a stopgap bridge to the old,
-// now-removed `iota_json_rpc_types::IotaObjectRef`, from before `rpc/rpc_types.rs` was
-// migrated).
 impl From<GasCoin> for IotaGasCoin {
     fn from(gas_coin: GasCoin) -> Self {
         Self {
