@@ -515,22 +515,8 @@ impl TransactionContext {
         headers: HeaderMap,
     ) -> Self {
         let Transaction::V1(v1) = transaction else {
-            // `Transaction` is `#[non_exhaustive]`, so this arm is required
-            // to compile as a downstream crate, but the pinned iota-sdk-types
-            // rev (b77fcd5) defines exactly one variant, `V1` -- even the
-            // SDK's own internal code (e.g. `SignedTransaction::sender_move_
-            // authenticator`) treats it as the only case. Unlike the
-            // non-exhaustive matches in `rego_input.rs` (which only affect
-            // the *cosmetic* Rego JSON payload and so degrade gracefully),
-            // `sender`/`gas_payment.budget` extracted below feed directly
-            // into the `sender-address`/`transaction-gas-budget` access
-            // control predicates -- security-relevant, not cosmetic. There is
-            // no safe non-panicking fallback here that wouldn't risk
-            // mis-attributing those fields (e.g. defaulting to a zero
-            // address could accidentally satisfy an allow-list rule). If a
-            // future SDK bump ever adds a second `Transaction` variant, this
-            // needs a real design decision (most likely: make this fallible
-            // and have the caller deny the request), not a silent default.
+            // The fields extracted below feed access-control predicates, so
+            // there is no safe fallback for an unknown future variant.
             unreachable!("no non-`V1` `Transaction` variant exists in the pinned SDK rev");
         };
         let ptb_command_count = match &v1.kind {
