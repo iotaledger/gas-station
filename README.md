@@ -97,7 +97,7 @@ metrics-port: 9184
 storage-config:
   redis:
     redis-url: "redis://127.0.0.1"
-fullnode-url: "https://grpc.testnet.iota.cafe:443" # requires redis to be cleared, gRPC endpoint (see "Upgrading from JSON-RPC to gRPC" below)
+fullnode-url: "https://grpc.testnet.iota.cafe" # requires redis to be cleared, gRPC endpoint (see "Upgrading from JSON-RPC to gRPC" below)
 coin-init-config:
   target-init-balance: 100000000 # requires redis to be cleared
   refresh-interval-sec: 86400
@@ -116,7 +116,7 @@ access-controller:
 | `rpc-port`                              | no                  | Port for the RPC server                                                   | `9527`                                                                                          |
 | `metrics-port`                          | no                  | Port for collecting and exposing metrics                                  | `9184`                                                                                          |
 | `storage-config.redis.redis-url`        | no                  | Redis connection URL                                                      | `redis://127.0.0.1`                                                                             |
-| `fullnode-url`                          | yes ⚠               | **gRPC** endpoint of the IOTA full node. See [Upgrading from JSON-RPC to gRPC](#upgrading-from-json-rpc-to-grpc) if you are updating an existing deployment. | `https://grpc.testnet.iota.cafe:443`                                                            |
+| `fullnode-url`                          | yes ⚠               | **gRPC** endpoint of the IOTA full node. See [Upgrading from JSON-RPC to gRPC](#upgrading-from-json-rpc-to-grpc) if you are updating an existing deployment. | `https://grpc.testnet.iota.cafe`                                                            |
 | `coin-init-config.target-init-balance`  | yes ⚠               | Target balance for the new coins when we splitting new gas coins in NANOs | `100000000`                                                                                     |
 | `coin-init-config.refresh-interval-sec` | no                  | Interval in seconds to refresh balance and check for new coins to split   | `86400`                                                                                         |
 | `daily-gas-usage-cap`                   | no                  | Maximum allowed daily gas usage                                           | `1500000000000`                                                                                 |
@@ -132,9 +132,9 @@ access-controller:
 
 | Network  | Old JSON-RPC URL                    | New gRPC URL                        |
 | -------- | ------------------------------------ | ------------------------------------ |
-| Mainnet  | `https://api.mainnet.iota.cafe`     | `https://grpc.mainnet.iota.cafe:443` |
-| Testnet  | `https://api.testnet.iota.cafe`     | `https://grpc.testnet.iota.cafe:443` |
-| Devnet   | `https://api.devnet.iota.cafe`      | `https://grpc.devnet.iota.cafe:443`  |
+| Mainnet  | `https://api.mainnet.iota.cafe`     | `https://grpc.mainnet.iota.cafe` |
+| Testnet  | `https://api.testnet.iota.cafe`     | `https://grpc.testnet.iota.cafe` |
+| Devnet   | `https://api.devnet.iota.cafe`      | `https://grpc.devnet.iota.cafe`  |
 
 If you run your own full node, use its gRPC address instead.
 
