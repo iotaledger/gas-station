@@ -326,7 +326,9 @@ impl IotaClient {
         let checkpoint_inclusion_timeout_ms =
             match request_type.unwrap_or(ExecuteTransactionRequestType::WaitForEffectsCert) {
                 ExecuteTransactionRequestType::WaitForEffectsCert => None,
-                ExecuteTransactionRequestType::WaitForLocalExecution => Some(checkpoint_inclusion_timeout_ms),
+                ExecuteTransactionRequestType::WaitForLocalExecution => {
+                    Some(checkpoint_inclusion_timeout_ms)
+                }
             };
         // Narrow read mask: this service only ever reads the digest (for
         // logging) and the effects.

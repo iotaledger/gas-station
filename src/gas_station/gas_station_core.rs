@@ -258,7 +258,12 @@ impl GasStation {
         let cur_time = std::time::Instant::now();
         let effects = self
             .iota_client
-            .execute_transaction(signed_tx, 3, request_type, self.checkpoint_inclusion_timeout_ms)
+            .execute_transaction(
+                signed_tx,
+                3,
+                request_type,
+                self.checkpoint_inclusion_timeout_ms,
+            )
             .await?;
         debug!(?reservation_id, "Transaction executed");
         let elapsed = cur_time.elapsed().as_millis();
