@@ -87,19 +87,16 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| panic!("{user} owns no IOTA coins on testnet"))
         .object_reference()?;
 
-    let reference_gas_price = client.get_reference_gas_price().await?.into_inner();
-
-    // Build the transaction offline: the gas payment is exactly the coins/sponsor the gas
-    // station already reserved above, so there's no need for client-based gas
-    // auto-selection here.
-    let mut builder = TransactionBuilder::new(user);
+    // With a client attached, the builder resolves the current reference gas price from
+    // the network itself; the gas payment is still exactly the coins/sponsor the gas
+    // station reserved above.
+    let mut builder = TransactionBuilder::new(user).with_client(&client);
     builder
         .transfer_objects(user, [object_ref])
         .sponsor(sponsor_account)
-        .gas(gas_coins)
-        .gas_price(reference_gas_price)
+        .gas(gas_coins.into_iter().map(|coin| coin.object_id))
         .gas_budget(3_000_000);
-    let tx = builder.finish()?;
+    let tx = builder.finish().await?;
 
     // Sign the transaction with the user's own key.
     let signature = keypair.sign_transaction(&tx)?;
