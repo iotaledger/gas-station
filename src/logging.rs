@@ -10,29 +10,22 @@ use tracing_subscriber::EnvFilter;
 
 use crate::{TRANSACTION_LOGGING_ENV_NAME, TRANSACTION_LOGGING_TARGET_NAME};
 
-/// Filter directive used when `RUST_LOG` is not set (or fails to parse).
-///
-/// Mirrors the default that used to be passed to
-/// `telemetry_subscribers::TelemetryConfig::with_log_level`: everything is
-/// silenced except this crate, which logs at `debug`.
+/// Filter directive used when `RUST_LOG` is not set (or fails to parse):
+/// everything is silenced except this crate, which logs at `debug`.
 const DEFAULT_LOG_DIRECTIVE: &str = "off,iota_gas_station=debug";
 
 /// Initialize the global `tracing` subscriber for the running binary.
 ///
-/// `RUST_LOG` takes full precedence over the built-in default when it is set
-/// and parses successfully — this matches the previous
-/// `telemetry_subscribers` behavior, which built its `EnvFilter` via
-/// `EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_directives))`.
-/// When `RUST_LOG` is unset/invalid, [`DEFAULT_LOG_DIRECTIVE`] is used instead
-/// (note: this is a plain fallback, not a merge with `RUST_LOG`).
+/// `RUST_LOG` takes full precedence when it is set and parses successfully;
+/// otherwise [`DEFAULT_LOG_DIRECTIVE`] is used (a plain fallback, not a merge
+/// with `RUST_LOG`).
 ///
-/// Also restores the old `telemetry_subscribers`-era behavior of the
-/// `TRANSACTIONS_LOGGING` env var: when set to `"true"`, it forces the
+/// When the `TRANSACTIONS_LOGGING` env var is set to `"true"`, the
 /// `"transactions"` target (used by `rpc/server.rs` to emit full
-/// transaction-effects audit records) to `trace` level regardless of the
-/// base filter above — this target doesn't match `iota_gas_station=...`
-/// directives since it's a bare custom target, not a crate path, so without
-/// this it is silently swallowed by `DEFAULT_LOG_DIRECTIVE`'s `off` default.
+/// transaction-effects audit records) is forced to `trace` level regardless
+/// of the base filter — it's a bare custom target, not a crate path, so it
+/// doesn't match `iota_gas_station=...` directives and would otherwise be
+/// swallowed by [`DEFAULT_LOG_DIRECTIVE`]'s `off` default.
 pub fn init() {
     let mut env_filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(DEFAULT_LOG_DIRECTIVE));
@@ -50,9 +43,7 @@ static TEST_LOGGER: OnceCell<()> = OnceCell::new();
 /// Idempotent `tracing` subscriber setup for tests.
 ///
 /// Safe to call from many tests/threads: only the first call installs the
-/// global subscriber, later calls are no-ops. This replaces
-/// `telemetry_subscribers::init_for_testing()`, which used the same
-/// once-only pattern (there via `once_cell::sync::Lazy`).
+/// global subscriber, later calls are no-ops.
 pub fn init_for_testing() {
     TEST_LOGGER.get_or_init(|| {
         let _ = tracing_subscriber::fmt()
