@@ -411,11 +411,27 @@ impl GasStationInitializer {
         // cycle. Re-resolve every candidate to its live state with a point read
         // and re-apply the threshold, so calibration and splitting never
         // operate on stale object refs.
-        let coins: Vec<GasCoin> = iota_client
-            .get_latest_gas_objects(coins.iter().map(|coin| coin.object_ref.object_id))
-            .await
-            .into_values()
-            .flatten()
+        //
+        // Retried rather than flattened: this is the path an operator runs to
+        // *recover* lost coins, and in `RunMode::Init` the threshold is 0, so a
+        // coin dropped here is dropped from the initial pool.
+        let listed = coins.len();
+        let (resolved, unresolved) = iota_client
+            .resolve_gas_coins(coins.iter().map(|coin| coin.object_ref.object_id))
+            .await;
+        if !unresolved.is_empty() {
+            // No metrics reachable from `run_once`, so this has to be loud in the
+            // log instead.
+            error!(
+                ?unresolved,
+                "the fullnode listed {listed} owned gas coins but never resolved {} of them, so \
+                 they are excluded from this scan and stay outside the pool. Re-run the scan once \
+                 the node has caught up.",
+                unresolved.len()
+            );
+        }
+        let coins: Vec<GasCoin> = resolved
+            .into_iter()
             .filter(|coin| coin.balance >= balance_threshold)
             .collect();
         if coins.is_empty() {

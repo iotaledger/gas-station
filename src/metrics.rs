@@ -206,6 +206,7 @@ impl GasStationRpcMetrics {
 pub struct GasStationCoreMetrics {
     pub num_expired_gas_coins: IntCounterVec,
     pub num_smashed_gas_coins: IntCounterVec,
+    pub num_unreleased_gas_coins: IntCounterVec,
     pub reserved_gas_coin_count_per_request: Histogram,
     pub reserve_gas_latency_ms: Histogram,
     pub transaction_signing_latency_ms: Histogram,
@@ -238,6 +239,13 @@ impl GasStationCoreMetrics {
             num_smashed_gas_coins: register_int_counter_vec_with_registry!(
                 "num_smashed_gas_coins",
                 "Total number of gas coins that are smashed (i.e. deleted) during transaction execution",
+                &["sponsor"],
+                registry,
+            )
+                .unwrap(),
+            num_unreleased_gas_coins: register_int_counter_vec_with_registry!(
+                "num_unreleased_gas_coins",
+                "Total number of gas coins the fullnode never resolved, so they could not be released back to the pool. Non-zero means the registry has lost coins that are still owned on chain; recovering them needs a full rescan",
                 &["sponsor"],
                 registry,
             )
