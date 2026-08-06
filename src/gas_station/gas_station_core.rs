@@ -27,6 +27,11 @@ use tracing::{debug, error, info, warn};
 
 use super::gas_usage_cap::GasUsageCap;
 
+/// Bounded retry for a gas coin the fullnode cannot resolve yet. Tuning, not
+/// protocol: sized above a 500-650 ms read lag measured on a localnet.
+const GAS_COIN_RESOLVE_ATTEMPTS: u32 = 20;
+const GAS_COIN_RESOLVE_INTERVAL: Duration = Duration::from_millis(100);
+
 pub const NANOS_PER_IOTA: u64 = 1_000_000_000;
 
 const EXPIRATION_JOB_INTERVAL: Duration = Duration::from_secs(1);
@@ -137,7 +142,7 @@ impl GasStation {
         let total_gas_coin_balance = self.get_total_gas_coin_balance(payment.clone()).await;
         debug!(
             ?reservation_id,
-            "Total gas coin balance prior to execution: {}", total_gas_coin_balance,
+            "Total gas coin balance prior to execution: {:?}", total_gas_coin_balance,
         );
         let response = self
             .execute_transaction_impl(reservation_id, tx, user_sig, request_type)
@@ -146,58 +151,58 @@ impl GasStation {
             Ok(effects) => {
                 let new_gas_coin = gas_object_reference(effects);
                 let net_gas_usage = effects.as_v1().gas_cost_summary.net_gas_usage();
-                // Computed in i128 because neither operand's range fits the
-                // result: `total_gas_coin_balance` is a u64 (so values above
-                // i64::MAX are misread as negative by `as i64`), and
-                // `net_gas_usage` is a signed i64 that is *legitimately*
-                // negative whenever gas smashing refunds more storage than the
-                // transaction spent. i128 holds every (u64, i64) pair exactly,
-                // so the single conversion below is the only place either
-                // direction can be rejected.
-                let new_balance: i128 =
-                    total_gas_coin_balance as i128 - net_gas_usage as i128;
+                // i128: neither a u64 total nor a signed i64 gas usage fits the
+                // result. `None` means the pre-execution read never resolved.
+                let new_balance: Option<i128> = total_gas_coin_balance
+                    .map(|total| total as i128 - net_gas_usage as i128);
                 debug!(
                     ?reservation_id,
-                    "New gas coin balance after execution: {}", new_balance,
+                    "New gas coin balance after execution: {:?}", new_balance,
                 );
                 #[cfg(test)]
                 {
                     self.iota_client.wait_for_object(new_gas_coin).await;
                     assert_eq!(
-                        i128::from(self.get_total_gas_coin_balance(payment).await),
+                        self.get_total_gas_coin_balance(payment)
+                            .await
+                            .map(i128::from),
                         new_balance
                     );
                 }
                 self.metrics
                     .gas_usage_per_transaction
                     .observe(net_gas_usage as f64);
-                self.metrics
-                    .reserved_gas_real_gas_usage_delta
-                    // If a refund occurs, ensure that the delta does not exceed the original total balance of the gas coins
-                    .observe(min(new_balance, total_gas_coin_balance as i128) as f64);
+                if let (Some(derived), Some(total)) = (new_balance, total_gas_coin_balance) {
+                    self.metrics
+                        .reserved_gas_real_gas_usage_delta
+                        // If a refund occurs, ensure that the delta does not exceed the original total balance of the gas coins
+                        .observe(min(derived, total as i128) as f64);
+                }
 
-                // A successful transaction cannot leave its own gas coin with a
-                // negative balance: the validators debited this very coin and a
-                // `Coin<IOTA>` cannot go below zero. So a value that does not
-                // fit a u64 is not a gas-accounting outcome, it is proof that
-                // `total_gas_coin_balance` was wrong — in practice because the
-                // pre-execution read could not resolve the coin and reported 0.
-                //
-                // Record it and release the coin at a balance of zero rather
-                // than storing the wrapped value. `ready_for_execution` has
-                // already removed this coin from the pool and `expire_coins`
-                // cannot surface it again, so withholding it here would lose it
-                // permanently; an understated balance is recoverable and
-                // self-heals on the coin's next successful use.
-                let balance = u64::try_from(new_balance).unwrap_or_else(|_| {
-                    self.metrics.invariant_violation(format!(
-                        "derived balance {new_balance} is not a valid u64 for gas coin {} \
-                         (pre-execution total {total_gas_coin_balance}, net gas usage \
-                         {net_gas_usage}); releasing the coin with a recorded balance of 0",
-                        new_gas_coin.object_id
-                    ));
-                    0
-                });
+                // Release with 0 rather than withhold: the coin has already left
+                // the pool and nothing can surface it again, so withholding loses
+                // it for good. An understated balance self-heals on next use.
+                let balance = match new_balance.map(u64::try_from) {
+                    Some(Ok(balance)) => balance,
+                    Some(Err(_)) => {
+                        self.metrics.invariant_violation(format!(
+                            "derived balance {new_balance:?} is not a valid u64 for gas coin {} \
+                             (pre-execution total {total_gas_coin_balance:?}, net gas usage \
+                             {net_gas_usage}); releasing the coin with a recorded balance of 0",
+                            new_gas_coin.object_id
+                        ));
+                        0
+                    }
+                    None => {
+                        self.metrics.invariant_violation(format!(
+                            "could not determine the pre-execution balance of gas coin {} after \
+                             {GAS_COIN_RESOLVE_ATTEMPTS} attempts; releasing it with a recorded \
+                             balance of 0 rather than losing it",
+                            new_gas_coin.object_id
+                        ));
+                        0
+                    }
+                };
                 vec![GasCoin {
                     object_ref: new_gas_coin,
                     balance,
@@ -311,13 +316,41 @@ impl GasStation {
         Ok(effects)
     }
 
-    async fn get_total_gas_coin_balance(&self, gas_coins: Vec<ObjectId>) -> u64 {
-        let latest = self.iota_client.get_latest_gas_objects(gas_coins).await;
-        latest
-            .into_values()
-            .flatten()
-            .map(|coin| coin.balance)
-            .sum()
+    /// Sums the current balances of `gas_coins`, retrying a coin the fullnode
+    /// cannot resolve yet, or returns `None` if any never resolves.
+    ///
+    /// `None` is not a decision to fail the request: the coin has already left
+    /// the pool and must still be released. It only says the balance is unknown.
+    async fn get_total_gas_coin_balance(&self, gas_coins: Vec<ObjectId>) -> Option<u64> {
+        for attempt in 1..=GAS_COIN_RESOLVE_ATTEMPTS {
+            let latest = self
+                .iota_client
+                .get_latest_gas_objects(gas_coins.clone())
+                .await;
+
+            let unresolved: Vec<ObjectId> = latest
+                .iter()
+                .filter(|(_, coin)| coin.is_none())
+                .map(|(id, _)| *id)
+                .collect();
+
+            if unresolved.is_empty() {
+                // `checked_add`: a decoded-garbage balance must not wrap the sum.
+                return latest
+                    .into_values()
+                    .flatten()
+                    .try_fold(0u64, |acc, coin| acc.checked_add(coin.balance));
+            }
+
+            warn!(
+                ?unresolved,
+                attempt,
+                max_attempts = GAS_COIN_RESOLVE_ATTEMPTS,
+                "fullnode could not resolve gas coins; retrying"
+            );
+            tokio::time::sleep(GAS_COIN_RESOLVE_INTERVAL).await;
+        }
+        None
     }
 
     /// Checks gas reservation request validity.
