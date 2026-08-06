@@ -7,7 +7,7 @@ mod script_manager;
 
 use crate::metrics::StorageMetrics;
 use crate::storage::redis::script_manager::ScriptManager;
-use crate::storage::{SetGetStorage, Storage, MAINTENANCE_MODE_ERROR_MESSAGE};
+use crate::storage::{SetGetStorage, Storage, MAINTENANCE_MODE_ERROR_MESSAGE, MAX_GAS_PER_QUERY};
 use crate::types::{GasCoin, ReservationID};
 use anyhow::bail;
 use chrono::Utc;
@@ -149,6 +149,7 @@ impl Storage for RedisStorage {
             .arg(target_budget)
             .arg(expiration_time)
             .arg(current_time)
+            .arg(MAX_GAS_PER_QUERY)
             .invoke_async(&mut conn)
             .await?;
         // The script returns (-1, []) if the gas station is in maintenance mode.

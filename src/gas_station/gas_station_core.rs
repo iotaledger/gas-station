@@ -8,7 +8,7 @@ use crate::gas_station_initializer::NEW_COIN_BALANCE_FACTOR_THRESHOLD;
 use crate::iota_client::IotaClient;
 use crate::metrics::GasStationCoreMetrics;
 use crate::rpc::rpc_types::{ExecuteTransactionRequestType, ReserveGasRequest};
-use crate::storage::Storage;
+use crate::storage::{Storage, MAX_GAS_PER_QUERY};
 use crate::tx_signer::TxSigner;
 use crate::types::{GasCoin, ReservationID};
 use crate::{retry_forever, retry_with_max_attempts};
@@ -343,6 +343,19 @@ impl GasStation {
     ///   the `coin` being split is).
     /// - `Command::Upgrade`'s `ticket` argument is not scanned at all.
     fn check_transaction_validity(tx: &Transaction) -> anyhow::Result<()> {
+        // Bound the payment before anything downstream does work proportional to
+        // it. Nothing else caps it -- the body limit is axum's 2 MB default.
+        let payment_count = tx.as_v1().gas_payment.objects.len();
+        if payment_count == 0 {
+            bail!("Transaction must pay with at least one gas coin");
+        }
+        if payment_count > MAX_GAS_PER_QUERY {
+            bail!(
+                "Transaction pays with {payment_count} gas coins, but a reservation holds at \
+                 most {MAX_GAS_PER_QUERY}"
+            );
+        }
+
         let commands: &[Command] = match &tx.as_v1().kind {
             TransactionKind::Programmable(pt) => &pt.commands,
             // Non-programmable transaction kinds (system transactions) carry
@@ -514,5 +527,101 @@ impl GasStationContainer {
 impl Drop for GasStationContainer {
     fn drop(&mut self) {
         self.cancel_sender.take().unwrap().send(()).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod validity_tests {
+    use super::*;
+    use crate::types::random_object_ref;
+
+    /// A sponsored transaction paying with `payment_len` gas coins, doing
+    /// nothing else.
+    fn tx_paying_with(payment_len: usize) -> Transaction {
+        Transaction::V1(TransactionV1 {
+            kind: TransactionKind::Programmable(ProgrammableTransaction {
+                inputs: vec![],
+                commands: vec![],
+            }),
+            sender: Address::ZERO,
+            gas_payment: GasPayment {
+                objects: (0..payment_len).map(|_| random_object_ref()).collect(),
+                owner: Address::ZERO,
+                price: 1000,
+                budget: 1_000_000,
+            },
+            expiration: TransactionExpiration::None,
+        })
+    }
+
+    #[test]
+    fn a_payment_within_the_reservation_limit_is_accepted() {
+        for len in [1, 2, MAX_GAS_PER_QUERY - 1, MAX_GAS_PER_QUERY] {
+            GasStation::check_transaction_validity(&tx_paying_with(len))
+                .unwrap_or_else(|err| panic!("{len} coins should be accepted: {err}"));
+        }
+    }
+
+    /// Nothing downstream should do work proportional to a number the caller
+    /// picks.
+    #[test]
+    fn a_payment_longer_than_a_reservation_can_be_is_rejected() {
+        let err = GasStation::check_transaction_validity(&tx_paying_with(MAX_GAS_PER_QUERY + 1))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("257"), "should name the payment size: {err}");
+        assert!(
+            err.contains(&MAX_GAS_PER_QUERY.to_string()),
+            "should name the limit: {err}"
+        );
+
+        // Nothing in between is accepted either.
+        assert!(GasStation::check_transaction_validity(&tx_paying_with(10_000)).is_err());
+    }
+
+    /// An empty payment consumes the reservation and releases nothing.
+    #[test]
+    fn an_empty_payment_is_rejected() {
+        let err = GasStation::check_transaction_validity(&tx_paying_with(0))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("at least one gas coin"),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// The bound must be checked before the command scan, so an oversized
+    /// payment is refused without walking a large command list.
+    #[test]
+    fn the_payment_bound_is_checked_before_the_command_scan() {
+        // Oversized payment AND a command the scan rejects: the error that comes
+        // back tells us which ran first.
+        let tx = Transaction::V1(TransactionV1 {
+            kind: TransactionKind::Programmable(ProgrammableTransaction {
+                inputs: vec![],
+                commands: vec![Command::SplitCoins(iota_sdk_types::SplitCoins {
+                    coin: Argument::Gas,
+                    amounts: vec![],
+                })],
+            }),
+            sender: Address::ZERO,
+            gas_payment: GasPayment {
+                objects: (0..=MAX_GAS_PER_QUERY)
+                    .map(|_| random_object_ref())
+                    .collect(),
+                owner: Address::ZERO,
+                price: 1000,
+                budget: 1_000_000,
+            },
+            expiration: TransactionExpiration::None,
+        });
+        let err = GasStation::check_transaction_validity(&tx)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("gas coins"),
+            "the payment bound should win over the gas-argument scan: {err}"
+        );
     }
 }
