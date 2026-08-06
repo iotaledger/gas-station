@@ -221,33 +221,36 @@ impl GasStation {
                     .collect()
             }
         };
-        let smashed_coin_count = payment_count - updated_coins.len();
-        // Before returning the coins to the pool, verify if any coin exceeds
-        // NEW_COIN_BALANCE_FACTOR_THRESHOLD times the target initial balance.
-        let oversized_coins_count = updated_coins
-            .iter()
-            .filter(|coin| {
-                coin.balance
-                    > NEW_COIN_BALANCE_FACTOR_THRESHOLD * self.rescan_config.target_init_balance
-            })
-            .count();
-        if oversized_coins_count > 0 {
+        // Saturating: `updated_coins` exceeding `payment_count` would be a node
+        // bug, and wrapping would corrupt the metric.
+        let smashed_coin_count = payment_count.saturating_sub(updated_coins.len());
+
+        // Withhold only the coins actually above the threshold. Branching on
+        // "any oversized" used to skip release for the whole execution, which is
+        // what lost the coins.
+        let threshold = NEW_COIN_BALANCE_FACTOR_THRESHOLD * self.rescan_config.target_init_balance;
+        let (oversized_coins, coins_to_release): (Vec<GasCoin>, Vec<GasCoin>) = updated_coins
+            .into_iter()
+            .partition(|coin| coin.balance > threshold);
+
+        if !oversized_coins.is_empty() {
             warn!("Oversized coins found during transaction execution. Initiating rescan to split these coins. If this occurs frequently, consider adjusting target_init_balance or the maximum transaction budget.");
             self.rescan_config.trigger_rescan().await;
             self.metrics
                 .oversized_gas_coins_count
                 .with_label_values(&[&sponsor.to_string()])
-                .inc_by(oversized_coins_count as u64);
-        } else {
+                .inc_by(oversized_coins.len() as u64);
+        }
+        if !coins_to_release.is_empty() {
             // Regardless of whether the transaction succeeded, we need to release the coins.
             // Otherwise, we lose track of them. This is because `ready_for_execution` already takes
             // the coins out of the pool and will not be covered by the auto-release mechanism.
             info!(
                 ?reservation_id,
                 "Releasing {} coins back to the pool",
-                updated_coins.len()
+                coins_to_release.len()
             );
-            self.release_gas_coins(updated_coins).await;
+            self.release_gas_coins(coins_to_release).await;
         }
         if smashed_coin_count > 0 {
             info!(
