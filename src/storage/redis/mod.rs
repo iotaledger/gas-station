@@ -176,13 +176,26 @@ impl Storage for RedisStorage {
         Ok((reservation_id, gas_coins))
     }
 
-    async fn ready_for_execution(&self, reservation_id: ReservationID) -> anyhow::Result<()> {
+    async fn ready_for_execution(
+        &self,
+        reservation_id: ReservationID,
+        payment: &[ObjectId],
+    ) -> anyhow::Result<()> {
         self.metrics.num_ready_for_execution_requests.inc();
+
+        // `Display`, never `Debug`: the script compares this text against what
+        // `encode_gas_coin` stored. `Debug` renders `ObjectId("0x..")`.
+        let payment_object_ids = payment
+            .iter()
+            .map(ObjectId::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
 
         let mut conn = self.conn_manager.clone();
         ScriptManager::ready_for_execution_script()
             .arg(self.namespace.clone())
             .arg(reservation_id)
+            .arg(payment_object_ids)
             .invoke_async::<_, ()>(&mut conn)
             .await?;
 
