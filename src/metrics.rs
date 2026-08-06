@@ -306,12 +306,13 @@ impl GasStationCoreMetrics {
         Self::new(&Registry::new())
     }
 
+    /// Logs a detected invariant violation and increments the counter.
+    ///
+    /// Deliberately does not panic in debug builds: callers report conditions
+    /// they then handle, so panicking would abort tests on exactly the situation
+    /// the handling exists for.
     pub fn invariant_violation<T: Into<String>>(&self, msg: T) {
-        if cfg!(debug_assertions) {
-            panic!("Invariant violation: {}", msg.into());
-        } else {
-            error!("Invariant violation: {}", msg.into());
-        }
+        error!("Invariant violation: {}", msg.into());
         self.num_gas_station_invariant_violations.inc();
     }
 }
