@@ -245,7 +245,7 @@ impl GasStationCoreMetrics {
                 .unwrap(),
             num_unreleased_gas_coins: register_int_counter_vec_with_registry!(
                 "num_unreleased_gas_coins",
-                "Total number of gas coins the fullnode never resolved, so they could not be released back to the pool. Non-zero means the registry has lost coins that are still owned on chain; recovering them needs a full rescan",
+                "Total number of expired gas coins the fullnode never resolved, so they could not be released back to the pool. Usually these are coins the registry has lost while the sponsor still owns them on chain, recoverable only by a full rescan -- but a coin can also end up here after being legitimately destroyed elsewhere, so check the logged object ids against the chain before scheduling one",
                 &["sponsor"],
                 registry,
             )

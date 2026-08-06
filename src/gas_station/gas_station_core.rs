@@ -231,25 +231,17 @@ impl GasStation {
                 let (resolved, unresolved) = self.iota_client.resolve_gas_coins(payment).await;
 
                 if !unresolved.is_empty() {
-                    self.metrics
-                        .num_unreleased_gas_coins
-                        .with_label_values(&[&sponsor.to_string()])
-                        .inc_by(unresolved.len() as u64);
-                    // Deliberately NOT `invariant_violation`. These ids come
-                    // from `tx.gas_payment.objects`, which is client-supplied
-                    // until the payment is bound to the reservation, so raising
-                    // an invariant here would hand callers a switch on a counter
-                    // whose whole value is that it means the station's own
-                    // assumptions broke. Upgrade this to `invariant_violation`
-                    // once the reservation/coin binding lands and the payment is
-                    // provably the reserved set.
+                    // Deliberately NOT counted as unreleased and NOT an invariant:
+                    // these ids may have been smashed legitimately, so an alert
+                    // would prescribe a rescan for coins that may not exist.
                     warn!(
                         ?reservation_id,
                         ?unresolved,
                         attempts = GAS_COIN_RESOLVE_ATTEMPTS,
-                        "the fullnode did not resolve {} gas coin(s) after a failed execution, so \
-                         they were not released; if the transaction did not land these are still \
-                         owned on chain and the registry has lost them",
+                        "the fullnode did not resolve {} gas coin(s) after a failed execution. If \
+                         the transaction landed despite the error these were smashed and are gone \
+                         legitimately; if it did not land they are still owned on chain and the \
+                         registry has lost them. This branch cannot tell which.",
                         unresolved.len()
                     );
                 }
@@ -262,9 +254,11 @@ impl GasStation {
         // every coin the node failed to resolve as one the validators
         // legitimately consumed -- so a real loss was reported as a routine
         // smash, and the one signal pointing at the problem argued against it.
+        // On success exactly one coin survives. On failure the retry makes this
+        // derivable too: unresolved ids are the ones smashing deleted.
         let smashed_coin_count = match &response {
             Ok(_) => payment_count.saturating_sub(1),
-            Err(_) => 0,
+            Err(_) => payment_count.saturating_sub(updated_coins.len()),
         };
 
         // Withhold only the coins actually above the threshold. Branching on
@@ -541,17 +535,16 @@ impl GasStation {
                             .num_unreleased_gas_coins
                             .with_label_values(&[&self.signer.get_address().to_string()])
                             .inc_by(unresolved.len() as u64);
-                        // Safe to raise here: these ids come from the station's
-                        // own registry, never from a caller, so no request can
-                        // drive this counter.
-                        self.metrics.invariant_violation(format!(
-                            "the fullnode did not resolve {} of {expired} expired gas coins after \
-                             {GAS_COIN_RESOLVE_ATTEMPTS} attempts, so they were not released and \
-                             the registry has lost them: {unresolved:?}. They were never executed, \
-                             so the sponsor still owns them on chain; recovering them needs a full \
-                             rescan, which wipes the registry and holds a maintenance window.",
+                        // NOT `invariant_violation`: a caller can poison the
+                        // registry with an id that can never resolve until the
+                        // payment binding lands. Upgrade it then, not before.
+                        warn!(
+                            ?unresolved,
+                            attempts = GAS_COIN_RESOLVE_ATTEMPTS,
+                            "the fullnode did not resolve {} of {expired} expired gas coins, so \
+                             they were not released back into the pool",
                             unresolved.len()
-                        ));
+                        );
                     }
 
                     let released = latest_coins.len();
