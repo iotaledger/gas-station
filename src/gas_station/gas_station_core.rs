@@ -349,10 +349,11 @@ impl GasStation {
         if payment_count == 0 {
             bail!("Transaction must pay with at least one gas coin");
         }
-        if payment_count > MAX_GAS_PER_QUERY {
+        // `>=`, matching the protocol's strict `<`: the bound is exclusive.
+        if payment_count >= MAX_GAS_PER_QUERY {
             bail!(
-                "Transaction pays with {payment_count} gas coins, but a reservation holds at \
-                 most {MAX_GAS_PER_QUERY}"
+                "Transaction pays with {payment_count} gas coins, but the protocol accepts fewer \
+                 than {MAX_GAS_PER_QUERY}"
             );
         }
 
@@ -556,7 +557,8 @@ mod validity_tests {
 
     #[test]
     fn a_payment_within_the_reservation_limit_is_accepted() {
-        for len in [1, 2, MAX_GAS_PER_QUERY - 1, MAX_GAS_PER_QUERY] {
+        // MAX_GAS_PER_QUERY - 1 is the largest the protocol accepts.
+        for len in [1, 2, MAX_GAS_PER_QUERY - 2, MAX_GAS_PER_QUERY - 1] {
             GasStation::check_transaction_validity(&tx_paying_with(len))
                 .unwrap_or_else(|err| panic!("{len} coins should be accepted: {err}"));
         }
@@ -566,16 +568,19 @@ mod validity_tests {
     /// picks.
     #[test]
     fn a_payment_longer_than_a_reservation_can_be_is_rejected() {
-        let err = GasStation::check_transaction_validity(&tx_paying_with(MAX_GAS_PER_QUERY + 1))
+        // Exactly MAX_GAS_PER_QUERY is the first rejected size: the bound is
+        // exclusive.
+        let err = GasStation::check_transaction_validity(&tx_paying_with(MAX_GAS_PER_QUERY))
             .unwrap_err()
             .to_string();
-        assert!(err.contains("257"), "should name the payment size: {err}");
+        assert!(err.contains("256"), "should name the payment size: {err}");
         assert!(
             err.contains(&MAX_GAS_PER_QUERY.to_string()),
             "should name the limit: {err}"
         );
 
         // Nothing in between is accepted either.
+        assert!(GasStation::check_transaction_validity(&tx_paying_with(MAX_GAS_PER_QUERY + 1)).is_err());
         assert!(GasStation::check_transaction_validity(&tx_paying_with(10_000)).is_err());
     }
 

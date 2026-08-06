@@ -12,6 +12,10 @@ use url::Url;
 
 mod redis;
 
+/// The protocol's `max_gas_payment_objects`, mirrored here.
+///
+/// **Exclusive bound** — the validators compare with a strict `<`, so the
+/// largest gas payment they accept is 255. Compare with `<` everywhere.
 pub const MAX_GAS_PER_QUERY: usize = 256;
 pub const MAINTENANCE_MODE_ERROR_MESSAGE: &str =
     "Gas station is in maintenance mode. Please try again later.";
@@ -27,7 +31,8 @@ pub trait Storage: SetGetStorage + Sync + Send {
     /// 1. It never returns the same coin to multiple callers.
     /// 2. It keeps a record of the reserved coins with timestamp, so that in the case
     ///    when caller forgets to release them, some cleanup process can clean them up latter.
-    /// 3. It should never return more than 256 coins at a time since that's the upper bound of gas.
+    /// 3. It must never return `MAX_GAS_PER_QUERY` coins or more -- that bound is
+    ///    exclusive, so such a reservation could never be paid with.
     async fn reserve_gas_coins(
         &self,
         target_budget: u64,
@@ -252,7 +257,9 @@ mod tests {
         assert_coin_count(&storage, 100000, 0).await;
         let mut cur_available = 100000;
         let mut expected_res_id = 1;
-        for i in 1..=MAX_GAS_PER_QUERY {
+        // Up to MAX_GAS_PER_QUERY - 1: the bound is exclusive, matching the
+        // protocol's strict `<` on gas payment objects.
+        for i in 1..MAX_GAS_PER_QUERY {
             let (res_id, reserved_gas_coins) =
                 storage.reserve_gas_coins(i as u64, 1000).await.unwrap();
             assert_eq!(expected_res_id, res_id);
@@ -263,12 +270,27 @@ mod tests {
         assert_coin_count(&storage, cur_available, 100000 - cur_available).await;
     }
 
+    /// A reservation stops one coin short of `MAX_GAS_PER_QUERY`, because the
+    /// protocol's check is `objects.len() < max_gas_payment_objects`. Handing
+    /// out exactly `MAX_GAS_PER_QUERY` coins would create a reservation that no
+    /// validator can execute.
     #[tokio::test]
     async fn test_max_gas_coin_per_query() {
         let sponsor = Address::random();
         let storage = setup(sponsor, vec![1; MAX_GAS_PER_QUERY + 1]).await;
+
+        // The largest reservation the protocol can actually pay with.
+        let (_, coins) = storage
+            .reserve_gas_coins((MAX_GAS_PER_QUERY - 1) as u64, 1000)
+            .await
+            .unwrap();
+        assert_eq!(coins.len(), MAX_GAS_PER_QUERY - 1);
+
+        // One more coin than that cannot be satisfied, even though the pool
+        // holds enough balance for it.
+        let storage = setup(Address::random(), vec![1; MAX_GAS_PER_QUERY + 1]).await;
         assert!(storage
-            .reserve_gas_coins((MAX_GAS_PER_QUERY + 1) as u64, 1000)
+            .reserve_gas_coins(MAX_GAS_PER_QUERY as u64, 1000)
             .await
             .is_err());
         assert_coin_count(&storage, MAX_GAS_PER_QUERY + 1, 0).await;
