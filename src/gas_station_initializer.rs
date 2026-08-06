@@ -149,20 +149,38 @@ impl CoinSplitEnv {
             }
         };
         let mut result = vec![];
-        let new_coin_balance = (coin.balance - budget) / split_count;
+        // Saturating: a future change to how `budget` is derived degrades into a
+        // zero-balance coin instead of a ~1.8e19 one.
+        let new_coin_balance = coin.balance.saturating_sub(budget) / split_count;
         for object_ref in created_object_refs(&effects) {
             result.extend(self.enqueue_task(GasCoin {
                 object_ref,
                 balance: new_coin_balance,
             }));
         }
-        let remaining_coin_balance = (coin.balance - new_coin_balance * (split_count - 1)) as i64
-            - effects.as_v1().gas_cost_summary.net_gas_usage();
+        // Same i128 hazard as the execution path, and this site writes straight
+        // into the registry.
+        let remaining_coin_balance: i128 = (coin.balance as i128
+            - new_coin_balance as i128 * (split_count - 1) as i128)
+            - effects.as_v1().gas_cost_summary.net_gas_usage() as i128;
+        let remaining_coin_balance = u64::try_from(remaining_coin_balance).unwrap_or_else(|_| {
+            error!(
+                "Split residual balance {remaining_coin_balance} is not a valid u64 for coin {} \
+                 (parent balance {}, per-child {new_coin_balance}, split count {split_count}); \
+                 registering it with a balance of 0 rather than a wrapped value",
+                gas_object_reference(&effects).object_id,
+                coin.balance,
+            );
+            0
+        });
         result.extend(self.enqueue_task(GasCoin {
             object_ref: gas_object_reference(&effects),
-            balance: remaining_coin_balance as u64,
+            balance: remaining_coin_balance,
         }));
-        self.increment_total_coin_count_by(result.len() - 1);
+        // `result` is empty when every child was re-enqueued for further
+        // splitting, which a large enough parent reaches. Saturating avoids a
+        // usize underflow into the coin counter.
+        self.increment_total_coin_count_by(result.len().saturating_sub(1));
         result
     }
 }

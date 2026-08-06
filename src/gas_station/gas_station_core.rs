@@ -145,8 +145,17 @@ impl GasStation {
         let updated_coins = match &response {
             Ok(effects) => {
                 let new_gas_coin = gas_object_reference(effects);
-                let new_balance = total_gas_coin_balance as i64
-                    - effects.as_v1().gas_cost_summary.net_gas_usage();
+                let net_gas_usage = effects.as_v1().gas_cost_summary.net_gas_usage();
+                // Computed in i128 because neither operand's range fits the
+                // result: `total_gas_coin_balance` is a u64 (so values above
+                // i64::MAX are misread as negative by `as i64`), and
+                // `net_gas_usage` is a signed i64 that is *legitimately*
+                // negative whenever gas smashing refunds more storage than the
+                // transaction spent. i128 holds every (u64, i64) pair exactly,
+                // so the single conversion below is the only place either
+                // direction can be rejected.
+                let new_balance: i128 =
+                    total_gas_coin_balance as i128 - net_gas_usage as i128;
                 debug!(
                     ?reservation_id,
                     "New gas coin balance after execution: {}", new_balance,
@@ -155,20 +164,43 @@ impl GasStation {
                 {
                     self.iota_client.wait_for_object(new_gas_coin).await;
                     assert_eq!(
-                        self.get_total_gas_coin_balance(payment).await,
-                        new_balance as u64
+                        i128::from(self.get_total_gas_coin_balance(payment).await),
+                        new_balance
                     );
                 }
                 self.metrics
                     .gas_usage_per_transaction
-                    .observe(effects.as_v1().gas_cost_summary.net_gas_usage() as f64);
+                    .observe(net_gas_usage as f64);
                 self.metrics
                     .reserved_gas_real_gas_usage_delta
                     // If a refund occurs, ensure that the delta does not exceed the original total balance of the gas coins
-                    .observe(min(new_balance, total_gas_coin_balance as i64) as f64);
+                    .observe(min(new_balance, total_gas_coin_balance as i128) as f64);
+
+                // A successful transaction cannot leave its own gas coin with a
+                // negative balance: the validators debited this very coin and a
+                // `Coin<IOTA>` cannot go below zero. So a value that does not
+                // fit a u64 is not a gas-accounting outcome, it is proof that
+                // `total_gas_coin_balance` was wrong — in practice because the
+                // pre-execution read could not resolve the coin and reported 0.
+                //
+                // Record it and release the coin at a balance of zero rather
+                // than storing the wrapped value. `ready_for_execution` has
+                // already removed this coin from the pool and `expire_coins`
+                // cannot surface it again, so withholding it here would lose it
+                // permanently; an understated balance is recoverable and
+                // self-heals on the coin's next successful use.
+                let balance = u64::try_from(new_balance).unwrap_or_else(|_| {
+                    self.metrics.invariant_violation(format!(
+                        "derived balance {new_balance} is not a valid u64 for gas coin {} \
+                         (pre-execution total {total_gas_coin_balance}, net gas usage \
+                         {net_gas_usage}); releasing the coin with a recorded balance of 0",
+                        new_gas_coin.object_id
+                    ));
+                    0
+                });
                 vec![GasCoin {
                     object_ref: new_gas_coin,
-                    balance: new_balance as u64,
+                    balance,
                 }]
             }
             Err(_) => {
