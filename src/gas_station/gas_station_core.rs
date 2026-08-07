@@ -5,7 +5,7 @@
 use crate::gas_station::effects_util::gas_object_reference;
 use crate::gas_station::rescan_trigger::RescanGasObjectsTrigger;
 use crate::gas_station_initializer::NEW_COIN_BALANCE_FACTOR_THRESHOLD;
-use crate::iota_client::IotaClient;
+use crate::iota_client::{IotaClient, GAS_COIN_RESOLVE_ATTEMPTS};
 use crate::metrics::GasStationCoreMetrics;
 use crate::rpc::rpc_types::{ExecuteTransactionRequestType, ReserveGasRequest};
 use crate::storage::{Storage, MAX_GAS_PER_QUERY};
@@ -63,6 +63,13 @@ impl GasStation {
         checkpoint_inclusion_timeout_ms: u64,
         rescan_config: RescanGasObjectsTrigger,
     ) -> Arc<Self> {
+        // Export the series at zero so it exists from startup: an absent metric
+        // reads as "no data" rather than "nothing was lost".
+        metrics
+            .num_unreleased_gas_coins
+            .with_label_values(&[&signer.get_address().to_string()])
+            .inc_by(0);
+
         let pool = Self {
             signer,
             gas_station_store,
@@ -139,7 +146,7 @@ impl GasStation {
         let total_gas_coin_balance = self.get_total_gas_coin_balance(payment.clone()).await;
         debug!(
             ?reservation_id,
-            "Total gas coin balance prior to execution: {}", total_gas_coin_balance,
+            "Total gas coin balance prior to execution: {:?}", total_gas_coin_balance,
         );
         let response = self
             .execute_transaction_impl(reservation_id, tx, user_sig, request_type)
@@ -147,30 +154,72 @@ impl GasStation {
         let updated_coins = match &response {
             Ok(effects) => {
                 let new_gas_coin = gas_object_reference(effects);
-                let new_balance = total_gas_coin_balance as i64
-                    - effects.as_v1().gas_cost_summary.net_gas_usage();
+                let net_gas_usage = effects.as_v1().gas_cost_summary.net_gas_usage();
+                // Computed in i128 because neither operand's range fits the
+                // result: `total_gas_coin_balance` is a u64 (so values above
+                // i64::MAX are misread as negative by `as i64`), and
+                // `net_gas_usage` is a signed i64 that is *legitimately*
+                // negative whenever gas smashing refunds more storage than the
+                // transaction spent. i128 holds every (u64, i64) pair exactly,
+                // so the single conversion below is the only place either
+                // direction can be rejected.
+                // Only derivable when the pre-execution balance is actually
+                // known. `None` here means the fullnode could not resolve the
+                // coin even after retrying, so any number we computed would be
+                // fabricated.
+                let new_balance: Option<i128> =
+                    total_gas_coin_balance.map(|total| total as i128 - net_gas_usage as i128);
                 debug!(
                     ?reservation_id,
-                    "New gas coin balance after execution: {}", new_balance,
+                    "New gas coin balance after execution: {:?}", new_balance,
                 );
                 #[cfg(test)]
                 {
                     self.iota_client.wait_for_object(new_gas_coin).await;
                     assert_eq!(
-                        self.get_total_gas_coin_balance(payment).await,
-                        new_balance as u64
+                        self.get_total_gas_coin_balance(payment)
+                            .await
+                            .map(i128::from),
+                        new_balance
                     );
                 }
                 self.metrics
                     .gas_usage_per_transaction
-                    .observe(effects.as_v1().gas_cost_summary.net_gas_usage() as f64);
-                self.metrics
-                    .reserved_gas_real_gas_usage_delta
-                    // If a refund occurs, ensure that the delta does not exceed the original total balance of the gas coins
-                    .observe(min(new_balance, total_gas_coin_balance as i64) as f64);
+                    .observe(net_gas_usage as f64);
+                if let (Some(derived), Some(total)) = (new_balance, total_gas_coin_balance) {
+                    self.metrics
+                        .reserved_gas_real_gas_usage_delta
+                        // If a refund occurs, ensure that the delta does not exceed the original total balance of the gas coins
+                        .observe(min(derived, total as i128) as f64);
+                }
+
+                // Release with 0 rather than withhold: the coin has already left
+                // the pool and nothing can surface it again, so withholding loses
+                // it for good. An understated balance self-heals on next use.
+                let balance = match new_balance.map(u64::try_from) {
+                    Some(Ok(balance)) => balance,
+                    Some(Err(_)) => {
+                        self.metrics.invariant_violation(format!(
+                            "derived balance {new_balance:?} is not a valid u64 for gas coin {} \
+                             (pre-execution total {total_gas_coin_balance:?}, net gas usage \
+                             {net_gas_usage}); releasing the coin with a recorded balance of 0",
+                            new_gas_coin.object_id
+                        ));
+                        0
+                    }
+                    None => {
+                        self.metrics.invariant_violation(format!(
+                            "could not determine the pre-execution balance of gas coin {} after \
+                             {GAS_COIN_RESOLVE_ATTEMPTS} attempts; releasing it with a recorded \
+                             balance of 0 rather than losing it",
+                            new_gas_coin.object_id
+                        ));
+                        0
+                    }
+                };
                 vec![GasCoin {
                     object_ref: new_gas_coin,
-                    balance: new_balance as u64,
+                    balance,
                 }]
             }
             Err(_) => {
@@ -178,41 +227,68 @@ impl GasStation {
                     ?reservation_id,
                     "Querying latest gas state since transaction failed"
                 );
-                self.iota_client
-                    .get_latest_gas_objects(payment)
-                    .await
-                    .into_values()
-                    .flatten()
-                    .collect()
+                // The dangerous read: whether the coins are live or were smashed
+                // depends on whether the transaction landed, which is not known
+                // here.
+                let (resolved, unresolved) = self.iota_client.resolve_gas_coins(payment).await;
+
+                if !unresolved.is_empty() {
+                    // Deliberately NOT counted as unreleased and NOT an invariant:
+                    // these ids may have been smashed legitimately, so an alert
+                    // would prescribe a rescan for coins that may not exist.
+                    warn!(
+                        ?reservation_id,
+                        ?unresolved,
+                        attempts = GAS_COIN_RESOLVE_ATTEMPTS,
+                        "the fullnode did not resolve {} gas coin(s) after a failed execution. If \
+                         the transaction landed despite the error these were smashed and are gone \
+                         legitimately; if it did not land they are still owned on chain and the \
+                         registry has lost them. This branch cannot tell which.",
+                        unresolved.len()
+                    );
+                }
+                resolved
             }
         };
-        let smashed_coin_count = payment_count - updated_coins.len();
-        // Before returning the coins to the pool, verify if any coin exceeds
-        // NEW_COIN_BALANCE_FACTOR_THRESHOLD times the target initial balance.
-        let oversized_coins_count = updated_coins
-            .iter()
-            .filter(|coin| {
-                coin.balance
-                    > NEW_COIN_BALANCE_FACTOR_THRESHOLD * self.rescan_config.target_init_balance
-            })
-            .count();
-        if oversized_coins_count > 0 {
+        // Only a transaction that actually executed smashes anything, and when
+        // one does the success arm above yields exactly the single surviving
+        // coin. Deriving this from `updated_coins.len()` instead used to count
+        // every coin the node failed to resolve as one the validators
+        // legitimately consumed -- so a real loss was reported as a routine
+        // smash, and the one signal pointing at the problem argued against it.
+        // On success exactly one coin survives. On failure the retry makes this
+        // derivable too: unresolved ids are the ones smashing deleted.
+        let smashed_coin_count = match &response {
+            Ok(_) => payment_count.saturating_sub(1),
+            Err(_) => payment_count.saturating_sub(updated_coins.len()),
+        };
+
+        // Withhold only the coins actually above the threshold. Branching on
+        // "any oversized" used to skip release for the whole execution, which is
+        // what lost the coins.
+        let threshold = NEW_COIN_BALANCE_FACTOR_THRESHOLD * self.rescan_config.target_init_balance;
+        let (oversized_coins, coins_to_release): (Vec<GasCoin>, Vec<GasCoin>) = updated_coins
+            .into_iter()
+            .partition(|coin| coin.balance > threshold);
+
+        if !oversized_coins.is_empty() {
             warn!("Oversized coins found during transaction execution. Initiating rescan to split these coins. If this occurs frequently, consider adjusting target_init_balance or the maximum transaction budget.");
             self.rescan_config.trigger_rescan().await;
             self.metrics
                 .oversized_gas_coins_count
                 .with_label_values(&[&sponsor.to_string()])
-                .inc_by(oversized_coins_count as u64);
-        } else {
+                .inc_by(oversized_coins.len() as u64);
+        }
+        if !coins_to_release.is_empty() {
             // Regardless of whether the transaction succeeded, we need to release the coins.
             // Otherwise, we lose track of them. This is because `ready_for_execution` already takes
             // the coins out of the pool and will not be covered by the auto-release mechanism.
             info!(
                 ?reservation_id,
                 "Releasing {} coins back to the pool",
-                updated_coins.len()
+                coins_to_release.len()
             );
-            self.release_gas_coins(updated_coins).await;
+            self.release_gas_coins(coins_to_release).await;
         }
         if smashed_coin_count > 0 {
             info!(
@@ -281,13 +357,21 @@ impl GasStation {
         Ok(effects)
     }
 
-    async fn get_total_gas_coin_balance(&self, gas_coins: Vec<ObjectId>) -> u64 {
-        let latest = self.iota_client.get_latest_gas_objects(gas_coins).await;
-        latest
-            .into_values()
-            .flatten()
-            .map(|coin| coin.balance)
-            .sum()
+    /// Sums the current balances of `gas_coins`, retrying a coin the fullnode
+    /// cannot resolve yet, or returns `None` if any never resolves.
+    ///
+    /// `None` is not a decision to fail the request: the coin has already left
+    /// the pool and must still be released. It only says the balance is unknown.
+    async fn get_total_gas_coin_balance(&self, gas_coins: Vec<ObjectId>) -> Option<u64> {
+        let (resolved, unresolved) = self.iota_client.resolve_gas_coins(gas_coins).await;
+        if !unresolved.is_empty() {
+            // A partial sum looks like a balance and is silently too low.
+            return None;
+        }
+        // `checked_add`: a decoded-garbage balance must not wrap the sum.
+        resolved
+            .into_iter()
+            .try_fold(0u64, |acc, coin| acc.checked_add(coin.balance))
     }
 
     /// Checks gas reservation request validity.
@@ -453,16 +537,41 @@ impl GasStation {
                 });
                 if !unlocked_coins.is_empty() {
                     debug!("Coins that are expired: {:?}", unlocked_coins);
-                    let latest_coins: Vec<_> = self
-                        .iota_client
-                        .get_latest_gas_objects(unlocked_coins.clone())
-                        .await
-                        .into_values()
-                        .flatten()
-                        .collect();
-                    let count = latest_coins.len();
+                    let expired = unlocked_coins.len();
+
+                    // These coins were never executed, so a `None` here is a read
+                    // failure and nothing else. Dropping one loses it for good:
+                    // `expire_coins` has already taken the reservation off the
+                    // queue.
+                    let (latest_coins, unresolved) =
+                        self.iota_client.resolve_gas_coins(unlocked_coins).await;
+
+                    if !unresolved.is_empty() {
+                        self.metrics
+                            .num_unreleased_gas_coins
+                            .with_label_values(&[&self.signer.get_address().to_string()])
+                            .inc_by(unresolved.len() as u64);
+                        // NOT `invariant_violation`: a caller can poison the
+                        // registry with an id that can never resolve until the
+                        // payment binding lands. Upgrade it then, not before.
+                        warn!(
+                            ?unresolved,
+                            attempts = GAS_COIN_RESOLVE_ATTEMPTS,
+                            "the fullnode did not resolve {} of {expired} expired gas coins, so \
+                             they were not released back into the pool",
+                            unresolved.len()
+                        );
+                    }
+
+                    let released = latest_coins.len();
                     self.release_gas_coins(latest_coins).await;
-                    info!("Released {:?} coins after expiration", count);
+                    self.metrics
+                        .num_expired_gas_coins
+                        .with_label_values(&[&self.signer.get_address().to_string()])
+                        .inc_by(released as u64);
+                    // Both numbers: `released` alone used to be computed after the
+                    // drop, so it always agreed with itself.
+                    info!("Released {released} of {expired} coins after expiration");
                 }
                 tokio::select! {
                     _ = tokio::time::sleep(EXPIRATION_JOB_INTERVAL) => {}
