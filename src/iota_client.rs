@@ -44,6 +44,11 @@ const COIN_LIST_PAGE_SIZE: u32 = 1000;
 /// objects (and how much BCS) go into one request/response pair.
 const OBJECT_FETCH_CHUNK_SIZE: usize = 1000;
 
+/// Bounded retry for a gas coin the fullnode cannot resolve yet. Tuning, not
+/// protocol: sized above a 500-650 ms read lag measured on a localnet.
+pub const GAS_COIN_RESOLVE_ATTEMPTS: u32 = 20;
+const GAS_COIN_RESOLVE_INTERVAL: Duration = Duration::from_millis(100);
+
 #[derive(Clone)]
 pub struct IotaClient {
     client: Client,
@@ -219,6 +224,46 @@ impl IotaClient {
             .into_inner()
     }
 
+    /// Resolves `object_ids`, retrying the ones the fullnode cannot see yet, and
+    /// returns the coins that resolved plus the ids that never did.
+    ///
+    /// Returning the failures rather than dropping them is the point: a coin
+    /// missing from the result is a coin the station permanently loses.
+    pub async fn resolve_gas_coins(
+        &self,
+        object_ids: impl IntoIterator<Item = ObjectId>,
+    ) -> (Vec<GasCoin>, Vec<ObjectId>) {
+        let ids: Vec<ObjectId> = object_ids.into_iter().collect();
+        if ids.is_empty() {
+            return (vec![], vec![]);
+        }
+
+        for attempt in 1..=GAS_COIN_RESOLVE_ATTEMPTS {
+            let latest = self.get_latest_gas_objects(ids.clone()).await;
+            let (resolved, unresolved): (Vec<GasCoin>, Vec<ObjectId>) = partition_resolved(latest);
+
+            if unresolved.is_empty() || attempt == GAS_COIN_RESOLVE_ATTEMPTS {
+                if !unresolved.is_empty() {
+                    warn!(
+                        ?unresolved,
+                        attempts = GAS_COIN_RESOLVE_ATTEMPTS,
+                        "fullnode never resolved these gas coins; the caller decides what that means"
+                    );
+                }
+                return (resolved, unresolved);
+            }
+
+            debug!(
+                unresolved = unresolved.len(),
+                attempt,
+                max_attempts = GAS_COIN_RESOLVE_ATTEMPTS,
+                "fullnode could not resolve gas coins; retrying"
+            );
+            tokio::time::sleep(GAS_COIN_RESOLVE_INTERVAL).await;
+        }
+        unreachable!("the loop returns on its final attempt")
+    }
+
     pub async fn get_latest_gas_objects(
         &self,
         object_ids: impl IntoIterator<Item = ObjectId>,
@@ -294,7 +339,11 @@ impl IotaClient {
         let coin_arg = builder.input(Input::ImmutableOrOwned(gas_coin.object_ref));
         let count_arg = builder.pure(SPLIT_COUNT);
         builder
-            .move_call(ObjectId::FRAMEWORK, Identifier::PAY_MODULE.as_str(), "divide_and_keep")
+            .move_call(
+                ObjectId::FRAMEWORK,
+                Identifier::PAY_MODULE.as_str(),
+                "divide_and_keep",
+            )
             .type_tags([TypeTag::from(StructTag::new_gas())])
             .arguments((coin_arg, count_arg));
         // Built entirely offline (no client, no gas objects) -- the only way
@@ -386,7 +435,9 @@ impl IotaClient {
                         )
                     })
             }
-            Err(err) => Err(anyhow::anyhow!("execute_transaction error for {digest}: {err}")),
+            Err(err) => Err(anyhow::anyhow!(
+                "execute_transaction error for {digest}: {err}"
+            )),
         };
         debug!(?digest, "Transaction execution response: {:?}", effects);
         effects
@@ -498,7 +549,9 @@ fn into_anyhow<T>(outcome: Result<Result<T, GrpcError>, GrpcError>) -> anyhow::R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use iota_sdk_types::{ExecutionStatus, GasCostSummary, TransactionDigest, TransactionEffectsV1};
+    use iota_sdk_types::{
+        ExecutionStatus, GasCostSummary, TransactionDigest, TransactionEffectsV1,
+    };
 
     #[test]
     fn gas_used_from_effects_reads_gas_cost_summary() {
@@ -559,5 +612,73 @@ mod tests {
         ] {
             assert_eq!(rewrite_legacy_fullnode_url(url), None);
         }
+    }
+}
+
+/// Splits a `get_latest_gas_objects` answer into resolved coins and unresolved
+/// ids. Free function so it is testable without a fullnode.
+fn partition_resolved(latest: HashMap<ObjectId, Option<GasCoin>>) -> (Vec<GasCoin>, Vec<ObjectId>) {
+    let mut resolved = Vec::with_capacity(latest.len());
+    let mut unresolved = Vec::new();
+    for (id, coin) in latest {
+        match coin {
+            Some(coin) => resolved.push(coin),
+            None => unresolved.push(id),
+        }
+    }
+    // Deterministic order: the HashMap iteration order is not.
+    unresolved.sort();
+    (resolved, unresolved)
+}
+
+#[cfg(test)]
+mod resolve_tests {
+    use super::*;
+    use crate::types::random_object_ref;
+
+    fn coin(balance: u64) -> GasCoin {
+        GasCoin {
+            object_ref: random_object_ref(),
+            balance,
+        }
+    }
+
+    #[test]
+    fn every_coin_resolving_yields_no_failures() {
+        let a = coin(1);
+        let b = coin(2);
+        let latest = HashMap::from([
+            (a.object_ref.object_id, Some(a.clone())),
+            (b.object_ref.object_id, Some(b.clone())),
+        ]);
+        let (resolved, unresolved) = partition_resolved(latest);
+        assert_eq!(resolved.len(), 2);
+        assert!(unresolved.is_empty());
+    }
+
+    /// The case the release paths got wrong: a `None` must surface as a reported
+    /// id, never be dropped.
+    #[test]
+    fn an_unresolvable_coin_is_reported_not_dropped() {
+        let good = coin(1);
+        let missing = random_object_ref().object_id;
+        let latest = HashMap::from([
+            (good.object_ref.object_id, Some(good.clone())),
+            (missing, None),
+        ]);
+        let (resolved, unresolved) = partition_resolved(latest);
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(unresolved, vec![missing]);
+    }
+
+    #[test]
+    fn unresolved_ids_are_reported_in_a_stable_order() {
+        let ids: Vec<ObjectId> = (0..8).map(|_| random_object_ref().object_id).collect();
+        let latest: HashMap<_, _> = ids.iter().map(|id| (*id, None)).collect();
+        let (resolved, unresolved) = partition_resolved(latest);
+        assert!(resolved.is_empty());
+        let mut expected = ids;
+        expected.sort();
+        assert_eq!(unresolved, expected);
     }
 }
