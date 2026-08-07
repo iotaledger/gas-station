@@ -7,7 +7,7 @@ mod script_manager;
 
 use crate::metrics::StorageMetrics;
 use crate::storage::redis::script_manager::ScriptManager;
-use crate::storage::{SetGetStorage, Storage, MAINTENANCE_MODE_ERROR_MESSAGE};
+use crate::storage::{SetGetStorage, Storage, MAINTENANCE_MODE_ERROR_MESSAGE, MAX_GAS_PER_QUERY};
 use crate::types::{GasCoin, ReservationID};
 use anyhow::bail;
 use chrono::Utc;
@@ -149,6 +149,7 @@ impl Storage for RedisStorage {
             .arg(target_budget)
             .arg(expiration_time)
             .arg(current_time)
+            .arg(MAX_GAS_PER_QUERY)
             .invoke_async(&mut conn)
             .await?;
         // The script returns (-1, []) if the gas station is in maintenance mode.
@@ -176,13 +177,26 @@ impl Storage for RedisStorage {
         Ok((reservation_id, gas_coins))
     }
 
-    async fn ready_for_execution(&self, reservation_id: ReservationID) -> anyhow::Result<()> {
+    async fn ready_for_execution(
+        &self,
+        reservation_id: ReservationID,
+        payment: &[ObjectId],
+    ) -> anyhow::Result<()> {
         self.metrics.num_ready_for_execution_requests.inc();
+
+        // `Display`, never `Debug`: the script compares this text against what
+        // `encode_gas_coin` stored. `Debug` renders `ObjectId("0x..")`.
+        let payment_object_ids = payment
+            .iter()
+            .map(ObjectId::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
 
         let mut conn = self.conn_manager.clone();
         ScriptManager::ready_for_execution_script()
             .arg(self.namespace.clone())
             .arg(reservation_id)
+            .arg(payment_object_ids)
             .invoke_async::<_, ()>(&mut conn)
             .await?;
 

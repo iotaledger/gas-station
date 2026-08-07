@@ -12,6 +12,10 @@ use url::Url;
 
 mod redis;
 
+/// The protocol's `max_gas_payment_objects`, mirrored here.
+///
+/// **Exclusive bound** — the validators compare with a strict `<`, so the
+/// largest gas payment they accept is 255. Compare with `<` everywhere.
 pub const MAX_GAS_PER_QUERY: usize = 256;
 pub const MAINTENANCE_MODE_ERROR_MESSAGE: &str =
     "Gas station is in maintenance mode. Please try again later.";
@@ -27,14 +31,25 @@ pub trait Storage: SetGetStorage + Sync + Send {
     /// 1. It never returns the same coin to multiple callers.
     /// 2. It keeps a record of the reserved coins with timestamp, so that in the case
     ///    when caller forgets to release them, some cleanup process can clean them up latter.
-    /// 3. It should never return more than 256 coins at a time since that's the upper bound of gas.
+    /// 3. It must never return `MAX_GAS_PER_QUERY` coins or more -- that bound is
+    ///    exclusive, so such a reservation could never be paid with.
     async fn reserve_gas_coins(
         &self,
         target_budget: u64,
         reserved_duration_ms: u64,
     ) -> anyhow::Result<(ReservationID, Vec<GasCoin>)>;
 
-    async fn ready_for_execution(&self, reservation_id: ReservationID) -> anyhow::Result<()>;
+    /// Consume a reservation, but only if `payment` is exactly the set of gas
+    /// coins it owns.
+    ///
+    /// The check is part of the contract because it must be atomic with the
+    /// consumption. On mismatch, implementations must leave the reservation
+    /// intact and must not disclose the reserved object ids in the error.
+    async fn ready_for_execution(
+        &self,
+        reservation_id: ReservationID,
+        payment: &[ObjectId],
+    ) -> anyhow::Result<()>;
 
     async fn add_new_coins(&self, new_coins: Vec<GasCoin>) -> anyhow::Result<()>;
 
@@ -191,6 +206,12 @@ mod tests {
         assert_eq!(storage.get_reserved_coin_count().await, reserved);
     }
 
+    /// Every coin the reservation handed out, which is what a well-behaved
+    /// caller pays with.
+    fn payment_of(coins: &[GasCoin]) -> Vec<ObjectId> {
+        coins.iter().map(|c| c.object_ref.object_id).collect()
+    }
+
     async fn setup(sponsor: Address, init_balances: Vec<u64>) -> Arc<dyn Storage> {
         let storage = connect_storage_for_testing(sponsor).await;
         let gas_coins = init_balances
@@ -236,7 +257,9 @@ mod tests {
         assert_coin_count(&storage, 100000, 0).await;
         let mut cur_available = 100000;
         let mut expected_res_id = 1;
-        for i in 1..=MAX_GAS_PER_QUERY {
+        // Up to MAX_GAS_PER_QUERY - 1: the bound is exclusive, matching the
+        // protocol's strict `<` on gas payment objects.
+        for i in 1..MAX_GAS_PER_QUERY {
             let (res_id, reserved_gas_coins) =
                 storage.reserve_gas_coins(i as u64, 1000).await.unwrap();
             assert_eq!(expected_res_id, res_id);
@@ -247,12 +270,27 @@ mod tests {
         assert_coin_count(&storage, cur_available, 100000 - cur_available).await;
     }
 
+    /// A reservation stops one coin short of `MAX_GAS_PER_QUERY`, because the
+    /// protocol's check is `objects.len() < max_gas_payment_objects`. Handing
+    /// out exactly `MAX_GAS_PER_QUERY` coins would create a reservation that no
+    /// validator can execute.
     #[tokio::test]
     async fn test_max_gas_coin_per_query() {
         let sponsor = Address::random();
         let storage = setup(sponsor, vec![1; MAX_GAS_PER_QUERY + 1]).await;
+
+        // The largest reservation the protocol can actually pay with.
+        let (_, coins) = storage
+            .reserve_gas_coins((MAX_GAS_PER_QUERY - 1) as u64, 1000)
+            .await
+            .unwrap();
+        assert_eq!(coins.len(), MAX_GAS_PER_QUERY - 1);
+
+        // One more coin than that cannot be satisfied, even though the pool
+        // holds enough balance for it.
+        let storage = setup(Address::random(), vec![1; MAX_GAS_PER_QUERY + 1]).await;
         assert!(storage
-            .reserve_gas_coins((MAX_GAS_PER_QUERY + 1) as u64, 1000)
+            .reserve_gas_coins(MAX_GAS_PER_QUERY as u64, 1000)
             .await
             .is_err());
         assert_coin_count(&storage, MAX_GAS_PER_QUERY + 1, 0).await;
@@ -276,7 +314,10 @@ mod tests {
             let (res_id, reserved_gas_coins) = storage.reserve_gas_coins(99, 1000).await.unwrap();
             assert_eq!(reserved_gas_coins.len(), 99);
             assert_coin_count(&storage, 1, 99).await;
-            storage.ready_for_execution(res_id).await.unwrap();
+            storage
+                .ready_for_execution(res_id, &payment_of(&reserved_gas_coins))
+                .await
+                .unwrap();
             storage.add_new_coins(reserved_gas_coins).await.unwrap();
             assert_coin_count(&storage, 100, 0).await;
         }
@@ -298,7 +339,10 @@ mod tests {
                     reserved_gas_coin.balance -= 1;
                 }
             }
-            storage.ready_for_execution(res_id).await.unwrap();
+            storage
+                .ready_for_execution(res_id, &payment_of(&reserved_gas_coins))
+                .await
+                .unwrap();
             storage.add_new_coins(reserved_gas_coins).await.unwrap();
         }
         assert_coin_count(&storage, 100, 0).await;
@@ -313,11 +357,150 @@ mod tests {
         let (res_id, mut reserved_gas_coins) = storage.reserve_gas_coins(100, 1000).await.unwrap();
         assert_eq!(reserved_gas_coins.len(), 100);
 
-        storage.ready_for_execution(res_id).await.unwrap();
+        storage
+            .ready_for_execution(res_id, &payment_of(&reserved_gas_coins))
+            .await
+            .unwrap();
 
         reserved_gas_coins.drain(0..50);
         storage.add_new_coins(reserved_gas_coins).await.unwrap();
         assert_coin_count(&storage, 50, 0).await;
+    }
+
+    /// The reservation-hijack case: naming a reservation id must not be enough
+    /// to consume it. Before the binding this destroyed the victim's reservation
+    /// and permanently leaked its coins.
+    #[tokio::test]
+    async fn test_ready_for_execution_rejects_another_reservations_coins() {
+        let sponsor = Address::random();
+        let storage = setup(sponsor, vec![1; 100]).await;
+        let (victim_id, victim_coins) = storage.reserve_gas_coins(10, 10000).await.unwrap();
+        let (attacker_id, attacker_coins) = storage.reserve_gas_coins(10, 10000).await.unwrap();
+
+        let err = storage
+            .ready_for_execution(victim_id, &payment_of(&attacker_coins))
+            .await
+            .unwrap_err()
+            .to_string();
+        // The reserved ids must not be disclosed to a caller who guessed an id.
+        for coin in &victim_coins {
+            assert!(
+                !err.contains(&coin.object_ref.object_id.to_string()),
+                "error leaked a reserved object id: {err}"
+            );
+        }
+
+        // Both reservations survive the rejection intact, and each still works
+        // with its own coins.
+        assert_coin_count(&storage, 80, 20).await;
+        storage
+            .ready_for_execution(victim_id, &payment_of(&victim_coins))
+            .await
+            .unwrap();
+        storage
+            .ready_for_execution(attacker_id, &payment_of(&attacker_coins))
+            .await
+            .unwrap();
+    }
+
+    /// A rejected attempt must leave the reservation on the expiration queue,
+    /// or its coins are stranded just as the hijack stranded them.
+    #[tokio::test]
+    async fn test_rejected_payment_leaves_the_reservation_expirable() {
+        let sponsor = Address::random();
+        let storage = setup(sponsor, vec![1; 100]).await;
+        let (res_id, coins) = storage.reserve_gas_coins(10, 900).await.unwrap();
+        let foreign = vec![ObjectId::random()];
+
+        assert!(storage
+            .ready_for_execution(res_id, &foreign)
+            .await
+            .is_err());
+        assert_coin_count(&storage, 90, 10).await;
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        // `expire_coins` hands the ids back rather than re-adding them, so this
+        // proves the reservation was still on the queue to be found.
+        let expired = storage.expire_coins().await.unwrap();
+        assert_eq!(
+            expired.into_iter().collect::<BTreeSet<_>>(),
+            payment_of(&coins).into_iter().collect::<BTreeSet<_>>()
+        );
+        assert_coin_count(&storage, 90, 0).await;
+    }
+
+    /// A subset is rejected: the `DEL` is wholesale, so omitted coins would be
+    /// dropped from the registry without ever being released.
+    #[tokio::test]
+    async fn test_ready_for_execution_rejects_partial_payment() {
+        let sponsor = Address::random();
+        let storage = setup(sponsor, vec![1; 100]).await;
+        let (res_id, coins) = storage.reserve_gas_coins(10, 10000).await.unwrap();
+
+        let mut short = payment_of(&coins);
+        short.pop();
+        assert!(storage.ready_for_execution(res_id, &short).await.is_err());
+        assert!(storage.ready_for_execution(res_id, &[]).await.is_err());
+
+        // Untouched, so the honest payment still works.
+        storage
+            .ready_for_execution(res_id, &payment_of(&coins))
+            .await
+            .unwrap();
+    }
+
+    /// A repeated coin must not stand in for the one it replaces, which would
+    /// satisfy a naive length check.
+    #[tokio::test]
+    async fn test_ready_for_execution_rejects_repeated_and_extra_coins() {
+        let sponsor = Address::random();
+        let storage = setup(sponsor, vec![1; 100]).await;
+        let (res_id, coins) = storage.reserve_gas_coins(10, 10000).await.unwrap();
+
+        let first = coins[0].object_ref.object_id;
+        let repeated = vec![first; coins.len()];
+        assert!(storage.ready_for_execution(res_id, &repeated).await.is_err());
+
+        let mut padded = payment_of(&coins);
+        padded.push(ObjectId::random());
+        assert!(storage.ready_for_execution(res_id, &padded).await.is_err());
+
+        storage
+            .ready_for_execution(res_id, &payment_of(&coins))
+            .await
+            .unwrap();
+    }
+
+    /// Set comparison, not sequence: a client orders its payment as it likes.
+    #[tokio::test]
+    async fn test_ready_for_execution_ignores_payment_order() {
+        let sponsor = Address::random();
+        let storage = setup(sponsor, vec![1; 100]).await;
+        let (res_id, coins) = storage.reserve_gas_coins(10, 10000).await.unwrap();
+
+        let mut shuffled = payment_of(&coins);
+        shuffled.reverse();
+        storage
+            .ready_for_execution(res_id, &shuffled)
+            .await
+            .unwrap();
+        assert_coin_count(&storage, 90, 0).await;
+    }
+
+    /// An unknown id must still report the original message, which callers match on.
+    #[tokio::test]
+    async fn test_ready_for_execution_unknown_reservation() {
+        let sponsor = Address::random();
+        let storage = setup(sponsor, vec![1; 100]).await;
+        let err = storage
+            .ready_for_execution(999_999, &[ObjectId::random()])
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("Reservation no longer exist: 999999"),
+            "unexpected error: {err}"
+        );
     }
 
     #[tokio::test]

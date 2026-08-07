@@ -11,6 +11,8 @@
 -- The second argument is the target budget.
 -- The third argument is the expiration time.
 -- The fourth argument is the current timestamp (for maintenance mode check).
+-- The fifth argument is the protocol's max_gas_payment_objects, an exclusive bound:
+-- a reservation may hold at most one fewer coin than this.
 -- Returns a table with the reservation id, reserved coins, new total balance, and new coin count.
 -- Returns {-1, {}, 0, 0} if the gas station is in maintenance mode.
 
@@ -26,7 +28,9 @@ if locked_timestamp ~= false and tonumber(locked_timestamp) >= current_time then
     return {-1, {}, 0, 0}
 end
 
-local MAX_GAS_PER_QUERY = 256
+-- EXCLUSIVE bound, mirroring the protocol's strict `<`, so a reservation stops
+-- one coin short of it. Passed in rather than duplicated as a literal here.
+local max_gas_payment_objects = tonumber(ARGV[5])
 
 local t_available_gas_coins = namespace .. ':available_gas_coins'
 local t_expiration_queue = namespace .. ':expiration_queue'
@@ -36,7 +40,7 @@ local total_balance = 0
 local coins = {}
 local object_ids = {}
 
-while total_balance < target_budget and #coins < MAX_GAS_PER_QUERY do
+while total_balance < target_budget and #coins + 1 < max_gas_payment_objects do
     local coin = redis.call('LPOP', t_available_gas_coins)
     if not coin then break end
 
