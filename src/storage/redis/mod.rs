@@ -740,4 +740,112 @@ mod tests {
         let decoded = super::decode_gas_coin(&encoded);
         assert_eq!(decoded, coin);
     }
+
+    /// Regression test for issue #172, asserting the root cause directly: the
+    /// `redis` crate must be built with `tokio-comp`, not `async-std-comp`.
+    ///
+    /// `redis::aio::Runtime::locate()` resolves the runtime from the crate's
+    /// feature set at compile time, so with `async-std-comp` enabled and
+    /// `tokio-comp` absent it picks async-std unconditionally.
+    /// `ConnectionManager` then spawns its reconnect task there, where the
+    /// `tokio-retry` timer it uses to space out retries finds no Tokio reactor
+    /// and panics -- and with `panic = "abort"` that is the SIGABRT operators
+    /// saw on every Redis failover.
+    ///
+    /// Checked by thread name because `redis`'s `Runtime` is `pub(crate)` and
+    /// cannot be inspected: async-std starts its runtime threads only once
+    /// something is actually spawned onto it, so their absence after the
+    /// manager has driven real I/O means the reconnect path cannot be driven
+    /// from async-std either.
+    ///
+    /// Deliberately preferred over simulating a failover. The panic fires only
+    /// when a reconnect *attempt fails*, because `tokio-retry` sleeps between
+    /// attempts and not before the first one -- against a healthy Redis the
+    /// first attempt succeeds, so merely dropping a connection reproduces
+    /// nothing and a test built that way passes on the broken feature set too
+    /// (verified, not assumed). End-to-end failover behaviour belongs to the
+    /// `gsst` harness, which can take Redis away for real.
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn test_redis_client_does_not_run_on_async_std() {
+        let storage = setup_storage().await;
+        // Drive real I/O first: a runtime only starts on its first spawn.
+        storage.check_health().await.unwrap();
+
+        let mut threads = Vec::new();
+        for entry in std::fs::read_dir("/proc/self/task").unwrap() {
+            let comm = entry.unwrap().path().join("comm");
+            if let Ok(name) = std::fs::read_to_string(&comm) {
+                threads.push(name.trim().to_string());
+            }
+        }
+        assert!(
+            !threads.is_empty(),
+            "could not read any thread names from /proc/self/task"
+        );
+        // The kernel caps `comm` at 15 characters, so "async-std/runtime"
+        // shows up as "async-std/runti" -- match on the prefix.
+        assert!(
+            !threads.iter().any(|t| t.starts_with("async-std")),
+            "the redis crate pulled in an async-std runtime; check that its \
+             feature list uses tokio-comp and not async-std-comp. Threads: {:?}",
+            threads
+        );
+    }
+
+    /// Companion to [`test_redis_client_does_not_run_on_async_std`]: a dropped
+    /// connection must be reconnected transparently instead of surfacing as a
+    /// permanent failure.
+    ///
+    /// This one passes on either feature set -- see that test for why -- so it
+    /// guards the reconnect path in general rather than issue #172 specifically.
+    #[tokio::test]
+    async fn test_reconnects_after_the_connection_is_dropped() {
+        let storage = setup_storage().await;
+        storage.check_health().await.unwrap();
+
+        // Kill *only* this storage's own connection. `CLIENT KILL TYPE normal`
+        // would sever every other client on the shared test Redis, so ask the
+        // server which connection is ours and name it explicitly.
+        let mut conn = storage.conn_manager.clone();
+        let client_id = redis::cmd("CLIENT")
+            .arg("ID")
+            .query_async::<_, i64>(&mut conn)
+            .await
+            .unwrap();
+
+        let killer = redis::Client::open("redis://127.0.0.1:6379").unwrap();
+        let mut killer_conn = redis::aio::ConnectionManager::new(killer).await.unwrap();
+        let killed = redis::cmd("CLIENT")
+            .arg("KILL")
+            .arg("ID")
+            .arg(client_id)
+            .query_async::<_, i64>(&mut killer_conn)
+            .await
+            .unwrap();
+        assert_eq!(
+            killed, 1,
+            "CLIENT KILL did not find the storage's connection (id {})",
+            client_id
+        );
+
+        // The first command after the kill legitimately fails with a broken
+        // pipe while the manager reconnects in the background, so retry rather
+        // than asserting on the first attempt. `check_health` is a bare PING,
+        // so this turns on connectivity alone and never on registry contents.
+        let mut last_err = None;
+        for _ in 0..20 {
+            match storage.check_health().await {
+                Ok(()) => return,
+                Err(e) => {
+                    last_err = Some(e);
+                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                }
+            }
+        }
+        panic!(
+            "storage never recovered from the dropped connection: {:?}",
+            last_err
+        );
+    }
 }

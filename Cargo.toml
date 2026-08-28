@@ -43,9 +43,14 @@ once_cell = "1.19.0"
 parking_lot = "0.12.1"
 prometheus = "0.14.0"
 rand = { version = "0.8.5", features = ["small_rng"] }
+# `tokio-comp`, not `async-std-comp`: `redis::aio::Runtime::locate()` resolves the
+# runtime at compile time, so with only `async-std-comp` enabled it unconditionally
+# picks async-std. `ConnectionManager` would then spawn its reconnect task there,
+# where the `tokio-retry` timer it uses finds no Tokio reactor and panics -- turning
+# every Redis connection drop into a SIGABRT. See issue #172.
 redis = { version = "0.24.0", features = [
   "default",
-  "async-std-comp",
+  "tokio-comp",
   "connection-manager",
 ] }
 reqwest = { version = "0.11.22", features = ["json"] }
