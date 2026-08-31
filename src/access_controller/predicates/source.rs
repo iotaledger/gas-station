@@ -186,7 +186,7 @@ impl Location {
                 let client = redis::Client::open(location.url.clone()).with_context(|| {
                     format!("unable to connect to redis server: {}", location.url)
                 })?;
-                let mut con = client.get_async_connection().await?;
+                let mut con = client.get_multiplexed_async_connection().await?;
                 let data: String =
                     con.get(location.redis_key.clone()).await.with_context(|| {
                         format!("unable to get data from redis key: {}", location.redis_key)
@@ -229,7 +229,7 @@ impl Location {
             Location::LocationPathRedis(url) => {
                 let client = redis::Client::open(url.url.clone())
                     .with_context(|| format!("unable to connect to redis server: {}", url.url))?;
-                let mut con = client.get_async_connection().await?;
+                let mut con = client.get_multiplexed_async_connection().await?;
                 let data: Vec<u8> = con.get(url.redis_key.clone()).await.with_context(|| {
                     format!("unable to get data from redis key: {}", url.redis_key)
                 })?;

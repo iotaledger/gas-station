@@ -35,6 +35,20 @@ const MAX_INIT_DURATION_SEC: u64 = 60 * 60 * 12;
 /// This includes cleaning up the coin registry and rescanning all coins.
 const MAX_MAINTENANCE_DURATION_SEC: u64 = 60 * 60 * 12;
 
+/// How long a starting instance waits for the peer holding the init or maintenance
+/// lock to finish before giving up.
+///
+/// Deliberately far shorter than `MAX_INIT_DURATION_SEC`: a replica blocked for
+/// twelve hours is no better than one that crashed. It still has to outlast a real
+/// first initialization, which splits coins in chunks and is not quick.
+#[cfg(not(test))]
+const PEER_LOCK_WAIT_TIMEOUT_SEC: u64 = 600;
+#[cfg(test)]
+const PEER_LOCK_WAIT_TIMEOUT_SEC: u64 = 10;
+
+/// How often a waiter re-tests the lock.
+const PEER_LOCK_POLL_INTERVAL_SEC: u64 = 1;
+
 #[derive(Clone)]
 struct CoinSplitEnv {
     target_init_coin_balance: u64,
@@ -190,6 +204,59 @@ enum RunMode {
     Refresh,
 }
 
+/// One of the two locks an instance may find held while it is starting up.
+#[derive(Clone, Copy)]
+enum StartupLock {
+    Init,
+    Maintenance,
+}
+
+impl StartupLock {
+    fn name(&self) -> &'static str {
+        match self {
+            StartupLock::Init => "init",
+            StartupLock::Maintenance => "maintenance",
+        }
+    }
+
+    fn duration_sec(&self) -> u64 {
+        match self {
+            StartupLock::Init => MAX_INIT_DURATION_SEC,
+            StartupLock::Maintenance => MAX_MAINTENANCE_DURATION_SEC,
+        }
+    }
+
+    async fn acquire(&self, storage: &Arc<dyn Storage>) -> anyhow::Result<bool> {
+        let duration_sec = self.duration_sec();
+        match self {
+            StartupLock::Init => storage.acquire_init_lock(duration_sec).await,
+            StartupLock::Maintenance => storage.acquire_maintenance_lock(duration_sec).await,
+        }
+    }
+
+    async fn release(&self, storage: &Arc<dyn Storage>) -> anyhow::Result<()> {
+        match self {
+            StartupLock::Init => storage.release_init_lock().await,
+            StartupLock::Maintenance => storage.release_maintenance_lock().await,
+        }
+    }
+}
+
+/// How a wait for the lock holder ended.
+enum PeerWait {
+    /// The peer finished the job. The caller must **not** run it again.
+    ///
+    /// Re-running an initialization that already completed is not merely
+    /// wasteful: `RunMode::Init` scans with a balance threshold of 0, so it
+    /// picks up every small coin the peer just created, declines to split them,
+    /// and hands them to `add_new_coins` a second time -- doubling the
+    /// registry's coin count and total balance.
+    PeerCompleted,
+    /// The lock is now held by us and the pool is still uninitialized, so the
+    /// caller should go ahead and do the work itself.
+    LockAcquired,
+}
+
 enum WakeReason {
     ForcedTrigger,
     Scheduled,
@@ -234,36 +301,51 @@ impl GasStationInitializer {
         Self::perform_consistency_check(&iota_client, &storage, sponsor_address).await;
 
         if force_full_rescan {
+            // A rollout that changes a cold param sets `force_full_rescan` on every
+            // replica at once, because the new params are only written to storage
+            // after this returns. So losing this race is the expected outcome for
+            // all but one of them, and waiting is the only response that neither
+            // aborts a pod nor rebuilds a registry twice.
+            let mut rescan_needed = true;
             if storage
                 .acquire_maintenance_lock(MAX_MAINTENANCE_DURATION_SEC)
                 .await
                 .expect("Failed to acquire maintenance lock for full rescan")
             {
                 info!("Acquired maintenance lock for full rescan");
+            } else if ignore_locks {
+                info!("Another instance is already performing maintenance. Ignoring the lock and continuing with full rescan.");
             } else {
-                if ignore_locks {
-                    info!("Another instance is already performing maintenance. Ignoring the lock and continuing with full rescan.");
-                } else {
-                    panic!("Another instance is already performing maintenance. Please wait for it to complete or use the --ignore-locks flag to force a full rescan.");
+                match Self::wait_for_peer_or_take_over(&storage, StartupLock::Maintenance).await {
+                    // The peer rebuilt the registry with the same cold params, so
+                    // repeating the rescan would only wipe and re-split what it
+                    // just produced.
+                    Ok(PeerWait::PeerCompleted) => rescan_needed = false,
+                    Ok(PeerWait::LockAcquired) => {
+                        info!("Took over the maintenance lock for full rescan")
+                    }
+                    Err(e) => panic!("Full rescan could not start: {:?}", e),
                 }
             }
-            let result = Self::clean_and_rescan_registry(
-                iota_client.clone(),
-                &storage,
-                coin_init_config.target_init_balance,
-                &signer,
-                ignore_locks,
-            )
-            .await;
+            if rescan_needed {
+                let result = Self::clean_and_rescan_registry(
+                    iota_client.clone(),
+                    &storage,
+                    coin_init_config.target_init_balance,
+                    &signer,
+                    ignore_locks,
+                )
+                .await;
 
-            // always release maintenance lock, regardless of success or failure
-            if let Err(e) = storage.release_maintenance_lock().await {
-                error!("Failed to release maintenance lock: {:?}", e);
-            } else {
-                info!("Released maintenance lock after full rescan");
-            }
-            if let Err(e) = result {
-                panic!("Full rescan failed: {:?}", e);
+                // always release maintenance lock, regardless of success or failure
+                if let Err(e) = storage.release_maintenance_lock().await {
+                    error!("Failed to release maintenance lock: {:?}", e);
+                } else {
+                    info!("Released maintenance lock after full rescan");
+                }
+                if let Err(e) = result {
+                    panic!("Full rescan failed: {:?}", e);
+                }
             }
         } else if !storage.is_initialized().await.unwrap() {
             // If the pool has never been initialized, always run once at the beginning to make sure we have enough coins.
@@ -372,6 +454,69 @@ impl GasStationInitializer {
         }
     }
 
+    /// Waits for the instance holding `lock` to release it, then reports whether
+    /// it actually finished the job.
+    ///
+    /// Losing the lock race is the normal outcome for every replica but one on
+    /// every rollout, and a lock left behind by an initializer that was killed
+    /// mid-run stays held for `MAX_INIT_DURATION_SEC`. Neither is a reason to
+    /// take the process down, and neither is a reason to start serving against a
+    /// pool that may still be empty -- so wait, which is what the old error
+    /// message told operators to do by hand.
+    ///
+    /// Built only from `Storage` methods that already exist, so it holds for any
+    /// backend. Polling with `acquire` is side-effect free: the Lua scripts write
+    /// only when they win, so a losing attempt changes nothing.
+    async fn wait_for_peer_or_take_over(
+        storage: &Arc<dyn Storage>,
+        lock: StartupLock,
+    ) -> anyhow::Result<PeerWait> {
+        info!(
+            "Another instance holds the {} lock. Waiting up to {}s for it to finish",
+            lock.name(),
+            PEER_LOCK_WAIT_TIMEOUT_SEC
+        );
+        let deadline = Instant::now() + Duration::from_secs(PEER_LOCK_WAIT_TIMEOUT_SEC);
+        while Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_secs(PEER_LOCK_POLL_INTERVAL_SEC)).await;
+            if !lock.acquire(storage).await? {
+                continue;
+            }
+            // The lock is ours, so the holder released it or its stored expiry
+            // lapsed. Whether the pool is initialized is what separates "the peer
+            // finished" from "the peer died part-way through".
+            //
+            // Waiting on `is_initialized()` alone would not do: `add_new_coins.lua`
+            // sets that flag as soon as the first chunk of coins lands, and coins go
+            // in in chunks of 5000, so it can flip while the holder is still filling
+            // the pool. The lock being released is what means "finished".
+            if storage.is_initialized().await? {
+                lock.release(storage).await?;
+                info!(
+                    "Another instance completed the initialization. Continuing without re-running it"
+                );
+                return Ok(PeerWait::PeerCompleted);
+            }
+            info!(
+                "The previous holder of the {} lock left the pool uninitialized. Taking over",
+                lock.name()
+            );
+            return Ok(PeerWait::LockAcquired);
+        }
+        bail!(
+            "waited {}s for another instance to release the {} lock and it is still held. Either \
+             the holder is gone and left a stale lock behind -- one stays valid for up to {}s -- \
+             or an initialization is genuinely still running, which a large sponsor balance can \
+             make take longer than this window. Establish which before reaching for \
+             --ignore-locks: it is the right remedy for a stale lock, but against a holder that \
+             is still alive it makes two instances initialize the same pool concurrently, which \
+             duplicates entries in the registry.",
+            PEER_LOCK_WAIT_TIMEOUT_SEC,
+            lock.name(),
+            lock.duration_sec()
+        )
+    }
+
     async fn run_once(
         iota_client: IotaClient,
         storage: &Arc<dyn Storage>,
@@ -386,13 +531,30 @@ impl GasStationInitializer {
             true => {
                 info!("Acquired init lock. Starting new coin initialization");
             }
-            false => {
-                if ignore_init_lock {
-                    info!("Ignoring the init lock and starting a new initialization");
-                } else {
-                    bail!("Another task is already initializing the pool. Please wait for it to complete or use the --ignore-locks flag to force a new initialization.");
-                }
+            false if ignore_init_lock => {
+                info!("Ignoring the init lock and starting a new initialization");
             }
+            // A held lock is a transient condition, not a failure, and what to do
+            // about it depends on why we are here.
+            false => match mode {
+                // Periodic refresh: another instance is on it and there is already
+                // a pool to serve from, so the next tick can pick this up.
+                RunMode::Refresh => {
+                    info!("Another instance is initializing the pool. Skipping this round");
+                    return Ok(());
+                }
+                // First initialization: there is nothing to serve until it
+                // completes, so wait for the holder rather than starting up
+                // degraded -- or aborting.
+                RunMode::Init => {
+                    match Self::wait_for_peer_or_take_over(storage, StartupLock::Init).await? {
+                        // Returning here is what keeps the pool from being
+                        // double-registered; see `PeerWait::PeerCompleted`.
+                        PeerWait::PeerCompleted => return Ok(()),
+                        PeerWait::LockAcquired => {}
+                    }
+                }
+            },
         }
 
         let start = Instant::now();
@@ -586,6 +748,8 @@ mod tests {
     use crate::iota_client::IotaClient;
     use crate::storage::connect_storage_for_testing;
     use crate::test_env::start_iota_cluster;
+    use crate::types::GasCoin;
+    use std::time::Duration;
     use tokio::sync::mpsc::channel;
 
     // TODO: Add more accurate tests.
@@ -783,9 +947,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[should_panic(
-        expected = "Another instance is already performing maintenance. Please wait for it to complete or use the --ignore-locks flag to force a full rescan."
-    )]
+    #[should_panic(expected = "Full rescan could not start: waited")]
     async fn test_maintenance_lock_blocks_without_ignore_locks() {
         crate::logging::init_for_testing();
         let (cluster, signer) = start_iota_cluster(vec![1000 * NANOS_PER_IOTA]).await;
@@ -853,8 +1015,12 @@ mod tests {
         assert!(storage.get_available_coin_count().await.unwrap() > 0);
     }
 
+    /// A lock held for longer than the wait window is a stale lock, and failing
+    /// fast is the deliberate response: the alternative is serving against a pool
+    /// that may be empty. What must not happen is aborting *immediately*, which is
+    /// what this used to do -- so the panic is expected, but only after the wait.
     #[tokio::test]
-    #[should_panic(expected = "Initial coin initialization failed")]
+    #[should_panic(expected = "Initial coin initialization failed: waited")]
     async fn test_init_lock_blocks_without_ignore_locks() {
         crate::logging::init_for_testing();
         let (cluster, signer) = start_iota_cluster(vec![1000 * NANOS_PER_IOTA]).await;
@@ -881,5 +1047,198 @@ mod tests {
             false, // ignore_locks=false - should panic
         )
         .await;
+    }
+
+    /// A lock whose stored expiry lapses while we wait means the holder is gone.
+    /// Take it over and initialize, rather than aborting -- this is the stale-lock
+    /// case that used to crash-loop a single instance for up to twelve hours.
+    #[tokio::test]
+    async fn test_init_lock_taken_over_when_the_holder_is_gone() {
+        crate::logging::init_for_testing();
+        let (cluster, signer) = start_iota_cluster(vec![1000 * NANOS_PER_IOTA]).await;
+        let fullnode_url = cluster.grpc_url();
+        let storage = connect_storage_for_testing(signer.get_address()).await;
+        let iota_client = IotaClient::new(&fullnode_url, None)
+            .await
+            .expect("Failed to connect to fullnode gRPC endpoint");
+
+        // Held, but only briefly: a holder that died leaves a lock that expires on
+        // its own, and the waiter has to notice and step in.
+        assert!(storage.acquire_init_lock(2).await.unwrap());
+        assert!(!storage.is_initialized().await.unwrap());
+
+        let (_rescan_trigger_sender, rescan_trigger_receiver) = channel::<()>(1024);
+        let _init_task = GasStationInitializer::start(
+            iota_client,
+            storage.clone(),
+            CoinInitConfig {
+                target_init_balance: NANOS_PER_IOTA,
+                refresh_interval_sec: 200,
+            },
+            signer,
+            rescan_trigger_receiver,
+            false,
+            false, // ignore_locks=false -- the wait has to do the work
+        )
+        .await;
+
+        assert!(storage.is_initialized().await.unwrap());
+        assert!(storage.get_available_coin_count().await.unwrap() > 0);
+    }
+
+    /// The replica case, and the one that matters most: when a peer completes the
+    /// initialization while we are waiting, we must serve *its* pool rather than
+    /// running an initialization of our own on top of it.
+    ///
+    /// `RunMode::Init` scans with a balance threshold of 0, so a second init pass
+    /// would re-register every coin the peer just created and double the registry's
+    /// coin count and total balance. Asserting the count is still exactly the one
+    /// coin the "peer" added -- rather than the ~1000 a real init of this cluster
+    /// produces -- is what pins that down.
+    #[tokio::test]
+    async fn test_init_skipped_when_a_peer_completes_it_during_the_wait() {
+        crate::logging::init_for_testing();
+        let (cluster, signer) = start_iota_cluster(vec![1000 * NANOS_PER_IOTA]).await;
+        let fullnode_url = cluster.grpc_url();
+        let storage = connect_storage_for_testing(signer.get_address()).await;
+        let iota_client = IotaClient::new(&fullnode_url, None)
+            .await
+            .expect("Failed to connect to fullnode gRPC endpoint");
+
+        // Stand in for a peer that is mid-initialization: lock held well past the
+        // wait window, pool not yet initialized.
+        assert!(storage.acquire_init_lock(300).await.unwrap());
+        assert!(!storage.is_initialized().await.unwrap());
+
+        // ... and now let it "finish" partway through our wait. Registering a coin
+        // is what sets the initialized flag, exactly as a real holder would.
+        let peer_storage = storage.clone();
+        let peer = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            peer_storage
+                .add_new_coins(vec![GasCoin {
+                    object_ref: crate::types::random_object_ref(),
+                    balance: NANOS_PER_IOTA,
+                }])
+                .await
+                .unwrap();
+            peer_storage.release_init_lock().await.unwrap();
+        });
+
+        let (_rescan_trigger_sender, rescan_trigger_receiver) = channel::<()>(1024);
+        let _init_task = GasStationInitializer::start(
+            iota_client,
+            storage.clone(),
+            CoinInitConfig {
+                target_init_balance: NANOS_PER_IOTA,
+                refresh_interval_sec: 200,
+            },
+            signer,
+            rescan_trigger_receiver,
+            false,
+            false,
+        )
+        .await;
+        peer.await.unwrap();
+
+        assert!(storage.is_initialized().await.unwrap());
+        assert_eq!(
+            storage.get_available_coin_count().await.unwrap(),
+            1,
+            "the waiter re-ran the initialization on top of the peer's pool instead \
+             of serving it, which duplicates registry entries"
+        );
+        assert_eq!(
+            storage.get_available_coin_total_balance().await,
+            NANOS_PER_IOTA,
+            "registry total balance moved, so coins were registered twice"
+        );
+    }
+
+    /// Same stale-lock treatment for the maintenance lock. A rollout that changes a
+    /// cold param sets `force_full_rescan` on every replica at once, so this path is
+    /// contended in ordinary operation and not only after a crash.
+    #[tokio::test]
+    async fn test_maintenance_lock_taken_over_when_the_holder_is_gone() {
+        crate::logging::init_for_testing();
+        let (cluster, signer) = start_iota_cluster(vec![1000 * NANOS_PER_IOTA]).await;
+        let fullnode_url = cluster.grpc_url();
+        let storage = connect_storage_for_testing(signer.get_address()).await;
+        let iota_client = IotaClient::new(&fullnode_url, None)
+            .await
+            .expect("Failed to connect to fullnode gRPC endpoint");
+
+        assert!(storage.acquire_maintenance_lock(2).await.unwrap());
+
+        let (_rescan_trigger_sender, rescan_trigger_receiver) = channel::<()>(1024);
+        let _init_task = GasStationInitializer::start(
+            iota_client,
+            storage.clone(),
+            CoinInitConfig {
+                target_init_balance: NANOS_PER_IOTA,
+                refresh_interval_sec: 200,
+            },
+            signer,
+            rescan_trigger_receiver,
+            true,  // force_full_rescan
+            false, // ignore_locks=false
+        )
+        .await;
+
+        assert!(storage.is_initialized().await.unwrap());
+        assert!(storage.get_available_coin_count().await.unwrap() > 0);
+    }
+
+    /// The maintenance counterpart of
+    /// [`test_init_skipped_when_a_peer_completes_it_during_the_wait`]: once a peer
+    /// has rebuilt the registry with the same cold params, repeating the rescan
+    /// would wipe and re-split exactly what it just produced.
+    #[tokio::test]
+    async fn test_rescan_skipped_when_a_peer_completes_it_during_the_wait() {
+        crate::logging::init_for_testing();
+        let (cluster, signer) = start_iota_cluster(vec![1000 * NANOS_PER_IOTA]).await;
+        let fullnode_url = cluster.grpc_url();
+        let storage = connect_storage_for_testing(signer.get_address()).await;
+        let iota_client = IotaClient::new(&fullnode_url, None)
+            .await
+            .expect("Failed to connect to fullnode gRPC endpoint");
+
+        assert!(storage.acquire_maintenance_lock(300).await.unwrap());
+        assert!(!storage.is_initialized().await.unwrap());
+
+        let peer_storage = storage.clone();
+        let peer = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            peer_storage
+                .add_new_coins(vec![GasCoin {
+                    object_ref: crate::types::random_object_ref(),
+                    balance: NANOS_PER_IOTA,
+                }])
+                .await
+                .unwrap();
+            peer_storage.release_maintenance_lock().await.unwrap();
+        });
+
+        let (_rescan_trigger_sender, rescan_trigger_receiver) = channel::<()>(1024);
+        let _init_task = GasStationInitializer::start(
+            iota_client,
+            storage.clone(),
+            CoinInitConfig {
+                target_init_balance: NANOS_PER_IOTA,
+                refresh_interval_sec: 200,
+            },
+            signer,
+            rescan_trigger_receiver,
+            true,
+            false,
+        )
+        .await;
+        peer.await.unwrap();
+
+        assert_eq!(
+            storage.get_available_coin_count().await.unwrap(),
+            1,
+            "the waiter re-ran the full rescan on top of the peer's registry"
+        );
     }
 }
