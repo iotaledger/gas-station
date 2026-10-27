@@ -13,7 +13,7 @@ pub enum Action {
     Allow,
     Deny,
     #[serde(untagged)]
-    HookAction(HookAction),
+    HookAction(Box<HookAction>),
 }
 
 impl Action {
@@ -28,7 +28,7 @@ impl Action {
 impl std::fmt::Display for Action {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Action::HookAction(hook_action) = self {
-            write!(f, "{}", hook_action.url().to_string())
+            write!(f, "{}", hook_action.url())
         } else {
             write!(f, "{:?}", self)
         }
@@ -50,9 +50,9 @@ mod test {
             (r#""deny""#, Action::Deny),
             (
                 r#""http://example.org/""#,
-                Action::HookAction(
+                Action::HookAction(Box::new(
                     HookAction::new_url(Url::parse("http://example.org/").unwrap()).unwrap(),
-                ),
+                )),
             ),
         ];
 
@@ -79,9 +79,9 @@ mod test {
             (Action::Allow, r#""allow""#),
             (Action::Deny, r#""deny""#),
             (
-                Action::HookAction(
+                Action::HookAction(Box::new(
                     HookAction::new_url(Url::parse("http://example.org/").unwrap()).unwrap(),
-                ),
+                )),
                 r#""http://example.org/""#,
             ),
         ];

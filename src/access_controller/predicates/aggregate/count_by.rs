@@ -102,22 +102,22 @@ impl TryFrom<&String> for CountByHttpHeader {
     type Error = anyhow::Error;
 
     fn try_from(s: &String) -> Result<Self, Self::Error> {
-        CountByHttpHeader::from_str(&s).map_err(|e| anyhow::anyhow!("Invalid HttpHeader: {}", e))
+        CountByHttpHeader::from_str(s).map_err(|e| anyhow::anyhow!("Invalid HttpHeader: {}", e))
     }
 }
 
-impl ToString for CountBy {
-    fn to_string(&self) -> String {
+impl std::fmt::Display for CountBy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CountBy::SenderAddress => "sender-address".to_string(),
-            CountBy::HttpHeader(header) => header.to_string(),
+            CountBy::SenderAddress => write!(f, "sender-address"),
+            CountBy::HttpHeader(header) => write!(f, "{header}"),
         }
     }
 }
 
-impl ToString for CountByHttpHeader {
-    fn to_string(&self) -> String {
-        self.into()
+impl std::fmt::Display for CountByHttpHeader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", String::from(self))
     }
 }
 

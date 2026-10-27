@@ -53,6 +53,7 @@ pub struct GasStation {
 }
 
 impl GasStation {
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         signer: Arc<dyn TxSigner>,
         gas_station_store: Arc<dyn Storage>,
@@ -593,6 +594,7 @@ impl GasStation {
 }
 
 impl GasStationContainer {
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         signer: Arc<dyn TxSigner>,
         gas_station_store: Arc<dyn Storage>,
@@ -689,7 +691,9 @@ mod validity_tests {
         );
 
         // Nothing in between is accepted either.
-        assert!(GasStation::check_transaction_validity(&tx_paying_with(MAX_GAS_PER_QUERY + 1)).is_err());
+        assert!(
+            GasStation::check_transaction_validity(&tx_paying_with(MAX_GAS_PER_QUERY + 1)).is_err()
+        );
         assert!(GasStation::check_transaction_validity(&tx_paying_with(10_000)).is_err());
     }
 

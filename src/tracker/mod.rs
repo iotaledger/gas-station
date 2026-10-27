@@ -19,7 +19,7 @@ impl StatsTracker {
         Self { store: storage }
     }
 
-    pub async fn update_aggr<'a>(
+    pub async fn update_aggr(
         &self,
         key_meta: impl IntoIterator<Item = (String, Value)> + Send,
         aggregate: &stats_tracker_storage::Aggregate,

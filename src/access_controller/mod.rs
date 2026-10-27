@@ -78,7 +78,7 @@ impl AccessController {
         let mut access_report = AccessReport::new();
         access_report.set_transaction_data(ctx.transaction_data.clone());
 
-        for (_, rule) in self.rules.iter().enumerate() {
+        for rule in self.rules.iter() {
             let mut maybe_decision: Option<Decision> = None;
             let mut rule_report = rule.matches(ctx).await?;
             let is_partially_matched = rule_report.is_matched;
@@ -160,7 +160,7 @@ impl AccessController {
                     req.gas_usage
                 } as i64;
                 stats_tracker
-                    .update_aggr(req.rule_meta, &req.aggregate, diff * -1)
+                    .update_aggr(req.rule_meta, &req.aggregate, -diff)
                     .await
                     .context("Failed to update aggregate while when confirming transactions")?;
             }
@@ -237,11 +237,11 @@ mod test {
             .allow()
             .build();
         let to_allow_tx = TransactionContext {
-            sender_address: sender_address.clone(),
+            sender_address,
             ..Default::default()
         };
         let denied_tx = TransactionContext {
-            sender_address: blocked_address.clone(),
+            sender_address: blocked_address,
             ..Default::default()
         };
 
@@ -279,11 +279,11 @@ mod test {
             .build();
 
         let to_deny_tx = TransactionContext {
-            sender_address: blocked_address.clone(),
+            sender_address: blocked_address,
             ..Default::default()
         };
         let allowed_tx = TransactionContext {
-            sender_address: sender_address.clone(),
+            sender_address,
             ..Default::default()
         };
         let mut ac = AccessController::new(AccessPolicy::AllowAll, []);
@@ -570,10 +570,9 @@ mod test {
         );
         assert_eq!(
             ac.rules[0].move_call_package_address,
-            Some(ValueIotaAddress::List(vec![Address::from_bytes(
-                [2; 32]
-            )
-            .unwrap()]))
+            Some(ValueIotaAddress::List(vec![
+                Address::from_bytes([2; 32]).unwrap()
+            ]))
         );
         assert_eq!(ac.rules[0].action, Action::Allow);
     }
@@ -634,13 +633,13 @@ mod test {
         headers.insert("foo".to_string(), vec!["bar".to_string()]);
         assert_eq!(
             ac.rules[0].action,
-            Action::HookAction(
+            Action::HookAction(Box::new(
                 HookAction::new_detailed(
                     Url::parse("http://127.0.0.1:8080/").unwrap(),
                     Some(headers)
                 )
                 .unwrap()
-            )
+            ))
         );
     }
 
@@ -849,7 +848,7 @@ mod test {
             let ac_error = AccessController::new(AccessPolicy::DenyAll, [hook_rule.clone()]);
             let result = ac_error.check_access(&ctx).await;
 
-            assert!(matches!(result, Err(_)));
+            assert!(result.is_err());
             assert_eq!(
                 result.unwrap_err().to_string(),
                 format!("hook call failed with status 400 Bad Request; {error}")
@@ -897,7 +896,7 @@ mod test {
                 AccessController::new(AccessPolicy::DenyAll, [hook_rule.clone()]);
             let result = ac_blocked_for_sender.check_access(&ctx).await;
 
-            assert!(matches!(result, Err(_)));
+            assert!(result.is_err());
             assert_eq!(
                 result.unwrap_err().to_string(),
                 format!("hook call failed with status 400 Bad Request; {error}")

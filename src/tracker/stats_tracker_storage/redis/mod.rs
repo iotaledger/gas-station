@@ -83,10 +83,10 @@ pub(crate) fn get_redis_aggr_key(
 }
 
 // we should generate the canonical hash key from the given key
-fn generate_hash_from_key<'a>(key: &[(String, Value)]) -> String {
+fn generate_hash_from_key(key: &[(String, Value)]) -> String {
     let mut hash_key = String::new();
-    for (k, v) in key.into_iter().sorted_by(|a, b| a.0.cmp(&b.0)) {
-        hash_key.push_str(&k);
+    for (k, v) in key.iter().sorted_by(|a, b| a.0.cmp(&b.0)) {
+        hash_key.push_str(k);
         hash_key.push_str(&to_string(&v).unwrap());
     }
 

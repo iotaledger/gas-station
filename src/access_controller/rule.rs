@@ -45,6 +45,12 @@ pub struct AccessRuleBuilder {
     rule: AccessRule,
 }
 
+impl Default for AccessRuleBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AccessRuleBuilder {
     pub fn new() -> Self {
         Self {
@@ -95,7 +101,7 @@ impl AccessRuleBuilder {
         } else {
             HookAction::new_url(url)?
         };
-        self.rule.action = Action::HookAction(hook_action);
+        self.rule.action = Action::HookAction(Box::new(hook_action));
 
         Ok(self)
     }
@@ -233,7 +239,7 @@ impl AccessRule {
             _ => PredicateReport::new(
                 predicate_names::PTB_COMMAND_COUNT,
                 true,
-                "ptb command count is not defined".to_string(),
+                "ptb command count is not defined",
             ),
         }
     }
@@ -244,18 +250,16 @@ impl AccessRule {
             .as_ref()
             .map(|address| address.includes_any(&data.move_call_package_addresses))
             .unwrap_or(true);
-        let result_reason = if self.move_call_package_address.is_some() {
+        let result_reason = if let Some(address) = &self.move_call_package_address {
             if is_matched {
                 format!(
                     "move call package address {:?} is in the list: '{:?}'",
-                    data.move_call_package_addresses,
-                    self.move_call_package_address.as_ref().unwrap()
+                    data.move_call_package_addresses, address
                 )
             } else {
                 format!(
                     "move call package address {:?} is not in the list: '{:?}'",
-                    data.move_call_package_addresses,
-                    self.move_call_package_address.as_ref().unwrap()
+                    data.move_call_package_addresses, address
                 )
             }
         } else {
@@ -273,18 +277,16 @@ impl AccessRule {
             .transaction_gas_budget
             .map(|size| size.matches(data.transaction_budget))
             .unwrap_or(true);
-        let result_reason = if self.transaction_gas_budget.is_some() {
+        let result_reason = if let Some(gas_budget) = &self.transaction_gas_budget {
             if is_matched {
                 format!(
                     "gas budget {} matches: {}",
-                    data.transaction_budget,
-                    self.transaction_gas_budget.as_ref().unwrap()
+                    data.transaction_budget, gas_budget
                 )
             } else {
                 format!(
                     "gas budget {} does not match: {}",
-                    data.transaction_budget,
-                    self.transaction_gas_budget.as_ref().unwrap()
+                    data.transaction_budget, gas_budget
                 )
             }
         } else {
@@ -355,7 +357,7 @@ impl AccessRule {
                             .join(",")
                     }
                 };
-                (&mut rule_to_hash).insert(count_by.to_string(), Value::String(count_by_value));
+                rule_to_hash.insert(count_by.to_string(), Value::String(count_by_value));
             }
         }
         Ok(rule_to_hash)
@@ -395,16 +397,16 @@ impl AccessRule {
                 },
                 gas_limit.value
             );
-            return Ok((
+            Ok((
                 PredicateReport::new(predicate_names::GAS_USAGE, is_matched, result_reason),
                 Some(confirmation_request),
-            ));
+            ))
         } else {
             // If the gas limit is not defined then the rule matches
-            return Ok((
+            Ok((
                 PredicateReport::new(predicate_names::GAS_USAGE, true, "gas usage is not defined"),
                 None,
-            ));
+            ))
         }
     }
 
@@ -423,12 +425,12 @@ impl AccessRule {
             let result_reason = if result {
                 format!(
                     "rego expression matches: {}",
-                    rego_expression.source.location.to_string()
+                    rego_expression.source.location
                 )
             } else {
                 format!(
                     "rego expression does not match: {}",
-                    rego_expression.source.location.to_string()
+                    rego_expression.source.location
                 )
             };
             Ok(PredicateReport::new(
@@ -504,6 +506,7 @@ impl Default for TransactionContext {
 }
 
 impl TransactionContext {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         _signature: &UserSignature,
         transaction: &Transaction,
@@ -962,10 +965,9 @@ move_call_matches if {
             .allow()
             .build();
 
-        let package = Address::from_str(
-            "0xb674e2ed79db3c25fa4c00d5c7d62a9c18089e1fc4c2de5b5ee8b2836a85ae26",
-        )
-        .unwrap();
+        let package =
+            Address::from_str("0xb674e2ed79db3c25fa4c00d5c7d62a9c18089e1fc4c2de5b5ee8b2836a85ae26")
+                .unwrap();
         let sender = Address::from_bytes([0xa2; 32]).unwrap();
         let hello_bcs = bcs::to_bytes(&"hello".to_string()).unwrap();
 

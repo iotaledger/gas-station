@@ -17,8 +17,7 @@ use crate::access_controller::{rule::TransactionContext, utils::header_map_to_bt
 const HOOK_REQUEST_TIMEOUT_SECONDS: u64 = 60;
 
 fn header_map_to_hash_map(ctx: &TransactionContext) -> HookActionHeaders {
-    let headers = header_map_to_btree_map(&ctx.headers);
-    headers.into()
+    header_map_to_btree_map(&ctx.headers)
 }
 
 fn build_execute_tx_hook_request_payload(ctx: &TransactionContext) -> ExecuteTxHookRequest {
@@ -118,10 +117,9 @@ impl HookAction {
             .await?;
 
         if res.status().is_success() {
-            return res
-                .json()
+            res.json()
                 .await
-                .context("failed to parse successful hook response body");
+                .context("failed to parse successful hook response body")
         } else {
             let message = format!(
                 "hook call failed with status {}; {}",
@@ -168,7 +166,7 @@ mod tests {
         fn can_be_deserialized() {
             let action = HookAction::new_url(Url::parse(EXAMPLE_URL).unwrap()).unwrap();
             let deserialized: HookAction =
-                serde_yaml::from_str(&SERIALIZED_HOOK_ACTION_URL).unwrap();
+                serde_yaml::from_str(SERIALIZED_HOOK_ACTION_URL).unwrap();
             assert_eq!(deserialized, action);
         }
     }
@@ -198,7 +196,7 @@ mod tests {
                     HookAction::new_detailed(Url::parse(EXAMPLE_URL).unwrap(), None).unwrap();
 
                 let deserialized: HookAction =
-                    serde_yaml::from_str(&SERIALIZED_HOOK_ACTION).unwrap();
+                    serde_yaml::from_str(SERIALIZED_HOOK_ACTION).unwrap();
 
                 assert_eq!(deserialized, action);
             }
@@ -250,7 +248,7 @@ mod tests {
                 let action = get_test_action();
 
                 let deserialized: HookAction =
-                    serde_yaml::from_str(&SERIALIZED_HOOK_ACTION).unwrap();
+                    serde_yaml::from_str(SERIALIZED_HOOK_ACTION).unwrap();
 
                 assert_eq!(deserialized, action);
             }

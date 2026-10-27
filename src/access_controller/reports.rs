@@ -63,6 +63,12 @@ impl PredicateReport {
     }
 }
 
+impl Default for RuleReport {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RuleReport {
     pub fn new() -> Self {
         Self {
@@ -104,7 +110,7 @@ impl std::fmt::Display for RuleReport {
                 Action::Allow => format!("✅ Allow{}", action_details_fmt,),
                 Action::Deny => format!("❌ Deny{}", action_details_fmt,),
                 Action::HookAction(hook_action) => {
-                    format!("🔗 {}{}", hook_action.url().to_string(), action_details_fmt)
+                    format!("🔗 {}{}", hook_action.url(), action_details_fmt)
                 }
             },
             None => "[No action applied]".to_string(),
@@ -119,6 +125,12 @@ impl std::fmt::Display for RuleReport {
                 .join("\n\t"),
             action_fmt,
         )
+    }
+}
+
+impl Default for AccessReport {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -160,7 +172,7 @@ impl std::fmt::Display for AccessReport {
             .rules
             .iter()
             .enumerate()
-            .map(|(i, r)| format!("Rule {}: {}", i + 1, r.to_string()))
+            .map(|(i, r)| format!("Rule {}: {}", i + 1, r))
             .join("\n\n");
 
         let decision_fmt = match self.decision {

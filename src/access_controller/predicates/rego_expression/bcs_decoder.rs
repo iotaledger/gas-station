@@ -194,10 +194,7 @@ fn bcs_decode_bytes(data_bytes: &[u8], data_type: BcsDataType) -> Result<Value, 
             let decoded: Vec<u64> = bcs::from_bytes(data_bytes)
                 .map_err(|e| anyhow::anyhow!("Failed to decode vector of u64: {}", e))?;
             Ok(Value::from(
-                decoded
-                    .into_iter()
-                    .map(|v| Value::from(v))
-                    .collect::<Vec<_>>(),
+                decoded.into_iter().map(Value::from).collect::<Vec<_>>(),
             ))
         }
     }
