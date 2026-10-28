@@ -283,6 +283,17 @@ async fn execute_tx(
         );
     };
 
+    if let Err(err) = server
+        .gas_station
+        .check_gas_budget_validity(tx.as_v1().gas_payment.budget)
+    {
+        debug!("Invalid gas budget in execute_tx: {:?}", err);
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ExecuteTxResponse::new_err(err)),
+        );
+    }
+
     // collect information about request and transaction
     let ctx = TransactionContext::new(
         &user_sig,
@@ -326,6 +337,9 @@ async fn execute_tx_impl(
 ) -> (StatusCode, Json<ExecuteTxResponse>) {
     let transaction_digest = tx.digest();
 
+    // call to `check_access()` automatically registers the gas budget,
+    // this needs to be followed later by `confirm_transaction` to correct it
+    // with the actual usage (both for failed and successful execution)
     let is_rejected = match access_controller.load().check_access(&ctx).await {
         Ok(Decision::Allow) => {
             metrics.num_allowed_execute_tx_requests.inc();
