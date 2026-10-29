@@ -38,40 +38,53 @@ fn build_execute_tx_hook_request_payload(ctx: &TransactionContext) -> ExecuteTxH
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(transparent)]
+#[serde(try_from = "HookActionConfig", into = "HookActionConfig")]
 pub struct HookAction {
     config: HookActionConfig,
-    #[serde(skip)]
-    pub(crate) http_client: Client, // <- move to new caller struct? (--> "intercept" calls for test)
+    http_client: Client,
+}
+
+impl From<HookAction> for HookActionConfig {
+    fn from(action: HookAction) -> Self {
+        action.config
+    }
+}
+
+impl TryFrom<HookActionConfig> for HookAction {
+    type Error = anyhow::Error;
+
+    /// Constructs the respective [`HookAction`].
+    ///
+    /// The method builds the associated HTTP client with a default timeout.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the HTTP client cannot be built.
+    fn try_from(config: HookActionConfig) -> Result<Self, Self::Error> {
+        let http_client = Client::builder()
+            .timeout(std::time::Duration::from_secs(HOOK_REQUEST_TIMEOUT_SECONDS))
+            .build()?;
+        Ok(Self {
+            config,
+            http_client,
+        })
+    }
 }
 
 impl HookAction {
     pub fn new_url(url: Url) -> Result<Self, anyhow::Error> {
-        let http_client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(HOOK_REQUEST_TIMEOUT_SECONDS))
-            .build()?;
-        Ok(Self {
-            config: HookActionConfig::HookActionUrl(url),
-            http_client,
-        })
+        HookActionConfig::HookActionUrl(url).try_into()
     }
 
     pub fn new_detailed(
         url: Url,
         headers: Option<HookActionHeaders>,
     ) -> Result<Self, anyhow::Error> {
-        let http_client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(HOOK_REQUEST_TIMEOUT_SECONDS))
-            .build()?;
         let mut detailed = HookActionDetailed::new(url);
         if let Some(headers) = headers {
             detailed = detailed.with_headers(headers);
         };
-
-        Ok(Self {
-            config: HookActionConfig::HookActionDetailed(detailed),
-            http_client,
-        })
+        HookActionConfig::HookActionDetailed(detailed).try_into()
     }
 
     pub fn initialize(&mut self) -> Result<(), anyhow::Error> {
