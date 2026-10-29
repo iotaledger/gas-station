@@ -9,7 +9,7 @@ macro_rules! retry_with_max_attempts {
             .max_delay(std::time::Duration::from_secs(1))
             .take($max_attempts)
             .map(tokio_retry::strategy::jitter);
-        tokio_retry::Retry::spawn(retry_strategy, || $func).await
+        tokio_retry::Retry::start(retry_strategy, || $func).await
     }};
 }
 
@@ -18,7 +18,7 @@ macro_rules! retry_with_max_attempts {
 macro_rules! retry_forever {
     ($func:expr) => {{
         let retry_strategy = tokio_retry::strategy::FixedInterval::from_millis(500);
-        tokio_retry::Retry::spawn(retry_strategy, || $func).await
+        tokio_retry::Retry::start(retry_strategy, || $func).await
     }};
 }
 

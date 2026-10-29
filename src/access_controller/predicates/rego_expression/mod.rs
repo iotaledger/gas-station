@@ -30,7 +30,7 @@ impl RegoExpression {
             let mut engine = regorus::Engine::new();
             engine
                 .add_policy(source.location.to_string(), data)
-                .with_context(|| format!("failed to add policy {}", source.location.to_string()))?;
+                .with_context(|| format!("failed to add policy {}", source.location))?;
             engine.add_extension(
                 BCS_DECODE_EXTENSION_NAME.to_string(),
                 2,
@@ -40,7 +40,7 @@ impl RegoExpression {
         } else {
             trace!(
                 "Source data is empty for {}. Use 'reload_source()' to initialize the expression",
-                source.location.to_string()
+                source.location
             );
             None
         };
@@ -50,21 +50,14 @@ impl RegoExpression {
     /// Reload the policy from the source.
     pub async fn reload_source(&mut self) -> Result<(), anyhow::Error> {
         self.source.fetch().await?;
-        let source_data = self.source.get_data_string().with_context(|| {
-            format!(
-                "Source data is empty for {}",
-                self.source.location.to_string()
-            )
-        })?;
+        let source_data = self
+            .source
+            .get_data_string()
+            .with_context(|| format!("Source data is empty for {}", self.source.location))?;
         let mut expression = regorus::Engine::new();
         expression
             .add_policy(self.source.location.to_string(), source_data)
-            .with_context(|| {
-                format!(
-                    "error while loading policy {}",
-                    self.source.location.to_string()
-                )
-            })?;
+            .with_context(|| format!("error while loading policy {}", self.source.location))?;
         expression.add_extension(
             BCS_DECODE_EXTENSION_NAME.to_string(),
             2,
@@ -87,7 +80,7 @@ impl RegoExpression {
 
         let result = engine
             .eval_rule(rego_rule_name)
-            .with_context(|| format!("error while evaluating rule"))?;
+            .with_context(|| "error while evaluating rule".to_string())?;
 
         if let Value::Bool(result) = result {
             Ok(result)
@@ -135,11 +128,11 @@ mod test {
 
         let matched_input = r#"{"method": "GET"}"#;
         let result = rego_expression.matches(matched_input).unwrap();
-        assert_eq!(result, true);
+        assert!(result);
 
         let unmatched_input = r#"{"method": "POST"}"#;
         let result = rego_expression.matches(unmatched_input).unwrap();
-        assert_eq!(result, false);
+        assert!(!result);
     }
 
     #[tokio::test]
@@ -157,7 +150,7 @@ mod test {
             .await
             .expect("Failed to reload source");
         let result = rego_expression.matches(input_data).unwrap();
-        assert_eq!(result, true);
+        assert!(result);
     }
 
     #[tokio::test]

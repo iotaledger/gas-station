@@ -14,7 +14,7 @@ fn hash_map_to_header_map(hash_map: &HookActionHeaders) -> Result<HeaderMap, any
         for value in values.iter() {
             header_map.append(
                 HeaderName::from_bytes(key.as_bytes()).context("failed to parse header name")?,
-                HeaderValue::from_str(&value).context("failed to parse header value")?,
+                HeaderValue::from_str(value).context("failed to parse header value")?,
             );
         }
     }
@@ -50,7 +50,7 @@ pub struct HookActionDetailed {
 impl HookActionDetailed {
     pub fn initialize(&mut self) -> Result<(), anyhow::Error> {
         if let Some(headers) = &self.headers {
-            self.header_map = Some(hash_map_to_header_map(&headers)?);
+            self.header_map = Some(hash_map_to_header_map(headers)?);
         }
 
         Ok(())

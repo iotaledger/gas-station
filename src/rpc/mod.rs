@@ -20,6 +20,8 @@ mod tests {
     use crate::access_controller::rule::{predicate_names, AccessRuleBuilder};
     use crate::access_controller::AccessController;
     use crate::config::{Config, GasStationConfig};
+    use crate::gas_station::gas_station_core::NANOS_PER_IOTA;
+    use crate::rpc::effects::ExecutionStatusDto;
     use crate::rpc::ExecuteTransactionRequestType;
     use crate::test_env::{
         create_test_transaction, fetch_redis_val, remove_redis_key, start_rpc_server_for_testing,
@@ -28,8 +30,6 @@ mod tests {
     };
     use crate::tracker::stats_tracker_storage::redis::get_redis_aggr_key;
     use crate::tracker::stats_tracker_storage::AggregateType;
-    use crate::gas_station::gas_station_core::NANOS_PER_IOTA;
-    use crate::rpc::effects::ExecutionStatusDto;
     use crate::AUTH_ENV_NAME;
 
     #[tokio::test]

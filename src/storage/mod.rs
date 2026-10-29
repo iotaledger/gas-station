@@ -151,7 +151,7 @@ pub fn get_storage_namespace(network_url: &str, sponsor_address: &Address) -> St
         }
     };
     let host_port = format!("{}_{}", host, port);
-    format!("{}:{}", host_port, sponsor_address.to_string())
+    format!("{}:{}", host_port, sponsor_address)
 }
 
 #[cfg(test)]
@@ -256,15 +256,13 @@ mod tests {
         let storage = setup(sponsor, vec![1; 100000]).await;
         assert_coin_count(&storage, 100000, 0).await;
         let mut cur_available = 100000;
-        let mut expected_res_id = 1;
         // Up to MAX_GAS_PER_QUERY - 1: the bound is exclusive, matching the
         // protocol's strict `<` on gas payment objects.
-        for i in 1..MAX_GAS_PER_QUERY {
+        for (expected_res_id, i) in (1..).zip(1..MAX_GAS_PER_QUERY) {
             let (res_id, reserved_gas_coins) =
                 storage.reserve_gas_coins(i as u64, 1000).await.unwrap();
             assert_eq!(expected_res_id, res_id);
             assert_eq!(reserved_gas_coins.len(), i);
-            expected_res_id += 1;
             cur_available -= i;
         }
         assert_coin_count(&storage, cur_available, 100000 - cur_available).await;
@@ -412,10 +410,7 @@ mod tests {
         let (res_id, coins) = storage.reserve_gas_coins(10, 900).await.unwrap();
         let foreign = vec![ObjectId::random()];
 
-        assert!(storage
-            .ready_for_execution(res_id, &foreign)
-            .await
-            .is_err());
+        assert!(storage.ready_for_execution(res_id, &foreign).await.is_err());
         assert_coin_count(&storage, 90, 10).await;
 
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -459,7 +454,10 @@ mod tests {
 
         let first = coins[0].object_ref.object_id;
         let repeated = vec![first; coins.len()];
-        assert!(storage.ready_for_execution(res_id, &repeated).await.is_err());
+        assert!(storage
+            .ready_for_execution(res_id, &repeated)
+            .await
+            .is_err());
 
         let mut padded = payment_of(&coins);
         padded.push(ObjectId::random());

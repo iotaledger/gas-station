@@ -117,10 +117,9 @@ impl ToolCommand {
                 num_clients,
                 benchmark_mode,
             } => {
-                assert!(
-                    cfg!(not(debug_assertions)),
-                    "Benchmark should only run in release build"
-                );
+                if cfg!(debug_assertions) {
+                    panic!("Benchmark should only run in release build");
+                }
                 benchmark_mode
                     .run_benchmark(gas_station_url, reserve_duration_sec, num_clients)
                     .await
@@ -141,7 +140,8 @@ impl ToolCommand {
                         sidecar_url: "http://localhost:3000".to_string(),
                     }
                 } else {
-                    let keypair = SimpleKeypair::from(Ed25519PrivateKey::generate(rand::rngs::OsRng));
+                    let keypair =
+                        SimpleKeypair::from(Ed25519PrivateKey::generate(rand::rngs::OsRng));
                     new_iota_address = Some(keypair.public_key().derive_address());
                     TxSignerConfig::Local { keypair }
                 };

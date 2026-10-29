@@ -23,7 +23,8 @@ pub(crate) fn gas_object_reference(effects: &TransactionEffects) -> ObjectRefere
     let v1 = effects.as_v1();
     let gas_object_index = v1
         .gas_object_index
-        .expect("a signed, gas-paying transaction always records a gas object") as usize;
+        .expect("a signed, gas-paying transaction always records a gas object")
+        as usize;
     let changed = &v1.changed_objects[gas_object_index];
     match &changed.output_state {
         ObjectOut::ObjectWrite { digest, .. } => {
@@ -48,13 +49,15 @@ pub(crate) fn created_object_refs(effects: &TransactionEffects) -> Vec<ObjectRef
                 &changed.output_state,
                 &changed.id_operation,
             ) {
-                (ObjectIn::Missing, ObjectOut::ObjectWrite { digest, .. }, IdOperation::Created) => {
-                    Some(ObjectReference::new(
-                        changed.object_id,
-                        v1.lamport_version,
-                        *digest,
-                    ))
-                }
+                (
+                    ObjectIn::Missing,
+                    ObjectOut::ObjectWrite { digest, .. },
+                    IdOperation::Created,
+                ) => Some(ObjectReference::new(
+                    changed.object_id,
+                    v1.lamport_version,
+                    *digest,
+                )),
                 _ => None,
             }
         })
@@ -81,7 +84,10 @@ mod tests {
         ObjectDigest::new([byte; 32])
     }
 
-    fn base_effects(changed_objects: Vec<ChangedObject>, gas_object_index: Option<u32>) -> TransactionEffects {
+    fn base_effects(
+        changed_objects: Vec<ChangedObject>,
+        gas_object_index: Option<u32>,
+    ) -> TransactionEffects {
         TransactionEffects::V1(Box::new(TransactionEffectsV1 {
             status: ExecutionStatus::Success,
             epoch: 1,

@@ -43,7 +43,7 @@
 
 use iota_gas_station::gas_station::gas_station_core::NANOS_PER_IOTA;
 use iota_gas_station::rpc::client::GasStationRpcClient;
-use iota_sdk_crypto::{IotaSigner, ToFromBech32, ed25519::Ed25519PrivateKey};
+use iota_sdk_crypto::{ed25519::Ed25519PrivateKey, IotaSigner, ToFromBech32};
 use iota_sdk_grpc_client::Client;
 use iota_sdk_transaction_builder::TransactionBuilder;
 use iota_sdk_types::StructTag;
@@ -67,8 +67,9 @@ async fn main() -> anyhow::Result<()> {
             "{USER_PRIVATE_KEY_ENV} must be set to a bech32-encoded (`iotaprivkey1...`) ed25519 private key"
         )
     });
-    let keypair = Ed25519PrivateKey::from_bech32(&private_key)
-        .unwrap_or_else(|err| panic!("{USER_PRIVATE_KEY_ENV} is not a valid bech32 private key: {err}"));
+    let keypair = Ed25519PrivateKey::from_bech32(&private_key).unwrap_or_else(|err| {
+        panic!("{USER_PRIVATE_KEY_ENV} is not a valid bech32 private key: {err}")
+    });
     let user = keypair.public_key().derive_address();
 
     // Connect to a testnet fullnode over gRPC to resolve an object owned by `user` and the

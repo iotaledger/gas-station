@@ -31,7 +31,7 @@ impl ValueIotaAddress {
     }
 
     pub fn includes_any<'a>(&self, addresses: impl IntoIterator<Item = &'a Address>) -> bool {
-        addresses.into_iter().any(|address| self.includes(&address))
+        addresses.into_iter().any(|address| self.includes(address))
     }
 }
 

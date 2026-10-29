@@ -324,6 +324,7 @@ impl IotaClient {
     /// `gas_coin` itself is a real, separate object: it's
     /// the *input* being split by the move call, not the fee-paying gas
     /// object, so its object reference must be real and correct.
+    #[allow(clippy::result_large_err)]
     pub async fn calibrate_gas_cost_per_object(
         &self,
         sponsor_address: Address,
@@ -386,6 +387,7 @@ impl IotaClient {
     /// `WaitForLocalExecution`; it maps to the gRPC call's
     /// `checkpoint_inclusion_timeout_ms`, which asks the server to wait up to
     /// that long for checkpoint inclusion before responding.
+    #[allow(clippy::result_large_err)]
     pub async fn execute_transaction(
         &self,
         tx: SignedTransaction,

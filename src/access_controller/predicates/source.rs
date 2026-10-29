@@ -84,24 +84,25 @@ pub struct LocationPathHttp {
     rego_rule_path: String,
 }
 
-impl ToString for Location {
-    fn to_string(&self) -> String {
+impl std::fmt::Display for Location {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Location::LocationPathFile(path) => {
-                format!("path: {} rule_path: {}", path.path, path.rego_rule_path)
+                write!(f, "path: {} rule_path: {}", path.path, path.rego_rule_path)
             }
             Location::LocationPathRedis(path) => {
-                format!(
+                write!(
+                    f,
                     "url: {}, rule_path: {}, redis_key: {}",
                     path.url, path.rego_rule_path, path.redis_key
                 )
             }
             Location::LocationPathHttp(path) => {
-                format!("url: {}, rule_path: {}", path.url, path.rego_rule_path)
+                write!(f, "url: {}, rule_path: {}", path.url, path.rego_rule_path)
             }
             #[cfg(test)]
             Location::LocationPathMemory(path) => {
-                format!("data: {}", path.data)
+                write!(f, "data: {}", path.data)
             }
         }
     }
