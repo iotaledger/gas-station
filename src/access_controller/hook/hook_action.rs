@@ -14,7 +14,10 @@ use super::{
 
 use crate::access_controller::{rule::TransactionContext, utils::header_map_to_btree_map};
 
+#[cfg(not(test))]
 const HOOK_REQUEST_TIMEOUT_SECONDS: u64 = 60;
+#[cfg(test)]
+const HOOK_REQUEST_TIMEOUT_SECONDS: u64 = 3;
 
 fn header_map_to_hash_map(ctx: &TransactionContext) -> HookActionHeaders {
     header_map_to_btree_map(&ctx.headers)
@@ -283,6 +286,76 @@ mod tests {
                 assert_eq!(foobar_values.next().unwrap(), "bar");
                 assert_eq!(foobar_values.next(), None);
             }
+        }
+    }
+
+    mod timeout {
+        use std::time::Duration;
+
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        use super::*;
+
+        /// Starts a hook server that replies only after the timeout of the hook call.
+        async fn get_mock_server_slow() -> MockServer {
+            let mock_server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_delay(Duration::from_secs(HOOK_REQUEST_TIMEOUT_SECONDS * 5)),
+                )
+                .mount(&mock_server)
+                .await;
+            mock_server
+        }
+
+        fn deserialize_action(serialized: &str) -> HookAction {
+            let mut action: HookAction = serde_yaml::from_str(serialized).unwrap();
+            action.initialize().unwrap();
+            action
+        }
+
+        async fn assert_call_times_out(action: &HookAction) {
+            let err = action
+                .call_hook(&TransactionContext::default())
+                .await
+                .unwrap_err();
+
+            let err = err.downcast_ref::<reqwest::Error>().unwrap();
+            assert!(err.is_timeout());
+        }
+
+        #[tokio::test]
+        async fn url_action_times_out() {
+            let mock_server = get_mock_server_slow().await;
+            let url = Url::parse(&mock_server.uri()).unwrap();
+
+            assert_call_times_out(&HookAction::new_url(url).unwrap()).await;
+        }
+
+        #[tokio::test]
+        async fn detailed_action_times_out() {
+            let mock_server = get_mock_server_slow().await;
+            let url = Url::parse(&mock_server.uri()).unwrap();
+
+            assert_call_times_out(&HookAction::new_detailed(url, None).unwrap()).await;
+        }
+
+        #[tokio::test]
+        async fn deserialized_url_action_times_out() {
+            let mock_server = get_mock_server_slow().await;
+            let serialized = format!("---\n\"{}\"\n", mock_server.uri());
+
+            assert_call_times_out(&deserialize_action(&serialized)).await;
+        }
+
+        #[tokio::test]
+        async fn deserialized_detailed_action_times_out() {
+            let mock_server = get_mock_server_slow().await;
+            let serialized = format!("---\nurl: \"{}\"\n", mock_server.uri());
+
+            assert_call_times_out(&deserialize_action(&serialized)).await;
         }
     }
 }
