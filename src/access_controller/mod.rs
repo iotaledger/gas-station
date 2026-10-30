@@ -152,15 +152,18 @@ impl AccessController {
             for req in requests {
                 let diff = if let Some(real_gas_usage) = result.gas_usage {
                     let reserved_gas_usage = req.gas_usage;
-                    let diff = reserved_gas_usage.saturating_sub(real_gas_usage);
+                    let diff = reserved_gas_usage.saturating_sub(
+                        i64::try_from(real_gas_usage)
+                            .context("real gas usage does not fit in i64")?,
+                    );
                     debug!("Transaction with id: {transaction_digest} confirmed, reserved gas usage: {reserved_gas_usage}, real gas usage: {real_gas_usage}, diff: {diff}");
                     diff
                 } else {
                     debug!("Transaction with id: {transaction_digest} confirmed, but no gas usage was provided");
                     req.gas_usage
-                } as i64;
+                };
                 stats_tracker
-                    .update_aggr(req.rule_meta, &req.aggregate, -diff)
+                    .update_aggr(req.rule_meta, &req.aggregate, diff.saturating_neg())
                     .await
                     .context("Failed to update aggregate while when confirming transactions")?;
             }
@@ -209,17 +212,20 @@ impl TransactionExecutionResult {
 
 #[cfg(test)]
 mod test {
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, time::Duration};
 
     use indoc::indoc;
-    use iota_sdk_types::Address;
+    use iota_sdk_types::{Address, TransactionDigest};
     use url::Url;
 
-    use crate::access_controller::{
-        decision::Decision,
-        hook::{HookAction, HookActionHeaders},
-        predicates::{Action, ValueIotaAddress},
-        AccessController,
+    use crate::{
+        access_controller::{
+            decision::Decision,
+            hook::{HookAction, HookActionHeaders},
+            predicates::{Action, CountBy, ValueAggregate, ValueIotaAddress},
+            AccessController, TransactionExecutionResult,
+        },
+        test_env::{new_stats_tracker_for_testing, random_address},
     };
 
     use super::{
@@ -727,6 +733,72 @@ mod test {
             ac.check_access(&tx_sender_2_accepted).await,
             Ok(Decision::Allow)
         ));
+    }
+
+    /// Checks that a rejected request with the given `budget` leaves the
+    /// sender's `gas-usage` counter at 0.
+    async fn assert_gas_usage_counter_unaffected_by_budget(budget: u64) {
+        let sponsor_address = random_address();
+        let sender_address = random_address();
+        let stats_tracker = new_stats_tracker_for_testing(sponsor_address).await;
+        let rule = AccessRuleBuilder::new()
+            .sender_address(sender_address)
+            .gas_limit(
+                ValueAggregate::new(Duration::from_secs(60), ValueNumber::LessThanOrEqual(1000))
+                    .with_count_by(vec![CountBy::SenderAddress]),
+            )
+            .allow()
+            .build();
+        let ac = AccessController::new(AccessPolicy::DenyAll, [rule]);
+
+        let mut huge_budget_tx = TransactionContext::default()
+            .with_sender_address(sender_address)
+            .with_gas_budget(budget)
+            .with_stats_tracker(stats_tracker.clone());
+        huge_budget_tx.transaction_digest = TransactionDigest::new([1; 32]);
+        // The budget is far above the limit, so the request is not allowed.
+        assert!(!matches!(
+            ac.check_access(&huge_budget_tx).await,
+            Ok(Decision::Allow)
+        ));
+        // Confirming without gas usage refunds the whole charged budget.
+        let _ = ac
+            .confirm_transaction(
+                TransactionExecutionResult::new(huge_budget_tx.transaction_digest),
+                &stats_tracker,
+            )
+            .await;
+
+        let tx_500 = TransactionContext::default()
+            .with_sender_address(sender_address)
+            .with_gas_budget(500)
+            .with_stats_tracker(stats_tracker.clone());
+        let decision = ac.check_access(&tx_500).await;
+        assert!(
+            matches!(decision, Ok(Decision::Allow)),
+            "a budget of 500 should fit if the counter was left at 0, got {decision:?}"
+        );
+        let tx_600 = TransactionContext::default()
+            .with_sender_address(sender_address)
+            .with_gas_budget(600)
+            .with_stats_tracker(stats_tracker);
+        let decision = ac.check_access(&tx_600).await;
+        assert!(
+            matches!(decision, Ok(Decision::Deny)),
+            "a budget of 600 should be denied since 500 + 600 > 1000, got {decision:?}"
+        );
+    }
+
+    // The largest budget that fits in i64 is charged to the counter.
+    #[tokio::test]
+    async fn test_gas_usage_counter_unaffected_by_budget_i64_max() {
+        assert_gas_usage_counter_unaffected_by_budget(i64::MAX as u64).await;
+    }
+
+    // A budget that does not fit in i64 is rejected before it is charged.
+    #[tokio::test]
+    async fn test_gas_usage_counter_unaffected_by_budget_above_i64_max() {
+        assert_gas_usage_counter_unaffected_by_budget(i64::MAX as u64 + 1).await;
     }
 
     mod hook {

@@ -382,12 +382,7 @@ impl GasStation {
         &self,
         request: &ReserveGasRequest,
     ) -> anyhow::Result<()> {
-        if request.gas_budget == 0 {
-            anyhow::bail!("Gas budget must be positive");
-        }
-        if request.gas_budget > self.max_gas_budget {
-            anyhow::bail!("Gas budget must be less than {}", self.max_gas_budget);
-        }
+        self.check_gas_budget_validity(request.gas_budget)?;
         if request.reserve_duration_secs == 0 {
             anyhow::bail!("Reserve duration must be positive");
         }
@@ -396,6 +391,17 @@ impl GasStation {
                 "Reserve duration must be less than {} seconds",
                 RESERVE_GAS_MAX_DURATION_S
             );
+        }
+        Ok(())
+    }
+
+    /// Checks if gas budget is valid. This is intended to run both during reservation and before tx execution.
+    pub fn check_gas_budget_validity(&self, gas_budget: u64) -> anyhow::Result<()> {
+        if gas_budget == 0 {
+            anyhow::bail!("Gas budget must be positive");
+        }
+        if gas_budget > self.max_gas_budget {
+            anyhow::bail!("Gas budget must be less than {}", self.max_gas_budget);
         }
         Ok(())
     }

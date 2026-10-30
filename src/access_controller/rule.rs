@@ -167,7 +167,7 @@ pub struct AccessRule {
 pub struct GasUsageConfirmationRequest {
     pub rule_meta: Map<String, Value>,
     pub aggregate: Aggregate,
-    pub gas_usage: u64,
+    pub gas_usage: i64,
 }
 
 impl AccessRule {
@@ -376,15 +376,18 @@ impl AccessRule {
                 .with_aggr_type(AggregateType::Sum)
                 .with_window(gas_limit.window);
 
+            let transaction_budget = i64::try_from(ctx.transaction_budget)
+                .context("transaction budget too big for i64")?;
+
             let total_gas_claim = ctx
                 .stats_tracker
-                .update_aggr(rule_meta.clone(), &aggr, ctx.transaction_budget as i64)
+                .update_aggr(rule_meta.clone(), &aggr, transaction_budget)
                 .await
                 .context("Updating aggregate failed")?;
             let confirmation_request = GasUsageConfirmationRequest {
                 rule_meta,
                 aggregate: aggr,
-                gas_usage: ctx.transaction_budget,
+                gas_usage: transaction_budget,
             };
             let is_matched = gas_limit.value.matches(total_gas_claim as u64);
             let result_reason = format!(

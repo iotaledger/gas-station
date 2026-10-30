@@ -151,6 +151,40 @@ mod test {
         assert_eq!(result, 2);
     }
 
+    /// A fresh key per run, so a counter left by an earlier run cannot affect
+    /// this one.
+    fn random_sender_key() -> Vec<(String, Value)> {
+        vec![(
+            "sender_address".to_string(),
+            Value::String(crate::test_env::random_address().to_string()),
+        )]
+    }
+
+    // Amounts are added as exact integers, including above 2^53 where a Lua
+    // number (a double) would lose precision.
+    #[tokio::test]
+    async fn update_aggr_is_exact_above_2_pow_53() {
+        let storage = RedisStatsTrackerStorage::new_localhost().await;
+        let aggregate = Aggregate {
+            name: "gas_usage".to_string(),
+            window: Duration::from_secs(60),
+            aggr_type: AggregateType::Sum,
+        };
+        let key = random_sender_key();
+
+        let result = storage
+            .update_aggr(&key, &aggregate, 9_007_199_254_740_993)
+            .await
+            .unwrap();
+        assert_eq!(result, 9_007_199_254_740_993);
+
+        let result = storage
+            .update_aggr(&key, &aggregate, -9_007_199_254_740_993)
+            .await
+            .unwrap();
+        assert_eq!(result, 0);
+    }
+
     #[test]
     fn test_calculate_hash_map() {
         let map_data = json!({
