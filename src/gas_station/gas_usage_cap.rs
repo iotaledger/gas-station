@@ -6,6 +6,7 @@ use anyhow::bail;
 use chrono::{Local, NaiveDate};
 use tokio::sync::RwLock;
 
+/// The maximum net gas that can be sponsored in a day.
 pub struct GasUsageCap {
     daily_cap: u64,
     inner: RwLock<GasUsageCapInner>,
@@ -27,6 +28,11 @@ impl GasUsageCap {
         }
     }
 
+    /// Checks if the current daily gas usage is within the preset bounds.
+    ///
+    /// ## Errors
+    ///
+    /// Fails if usage exceeds the daily cap.
     pub async fn check_usage(&self) -> anyhow::Result<()> {
         self.reset_date_maybe().await;
         let cur_daily_usage = self.inner.read().await.cur_daily_usage;
@@ -44,6 +50,7 @@ impl GasUsageCap {
         inner.cur_daily_usage
     }
 
+    /// Resets the daily gas usage if the day has changed.
     async fn reset_date_maybe(&self) {
         let today = Local::now().date_naive();
         let cur_date = self.inner.read().await.cur_date;
