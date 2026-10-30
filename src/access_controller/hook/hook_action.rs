@@ -14,7 +14,10 @@ use super::{
 
 use crate::access_controller::{rule::TransactionContext, utils::header_map_to_btree_map};
 
+#[cfg(not(test))]
 const HOOK_REQUEST_TIMEOUT_SECONDS: u64 = 60;
+#[cfg(test)]
+const HOOK_REQUEST_TIMEOUT_SECONDS: u64 = 3;
 
 fn header_map_to_hash_map(ctx: &TransactionContext) -> HookActionHeaders {
     header_map_to_btree_map(&ctx.headers)
@@ -35,40 +38,53 @@ fn build_execute_tx_hook_request_payload(ctx: &TransactionContext) -> ExecuteTxH
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(transparent)]
+#[serde(try_from = "HookActionConfig", into = "HookActionConfig")]
 pub struct HookAction {
     config: HookActionConfig,
-    #[serde(skip)]
-    pub(crate) http_client: Client, // <- move to new caller struct? (--> "intercept" calls for test)
+    http_client: Client,
+}
+
+impl From<HookAction> for HookActionConfig {
+    fn from(action: HookAction) -> Self {
+        action.config
+    }
+}
+
+impl TryFrom<HookActionConfig> for HookAction {
+    type Error = anyhow::Error;
+
+    /// Constructs the respective [`HookAction`].
+    ///
+    /// The method builds the associated HTTP client with a default timeout.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the HTTP client cannot be built.
+    fn try_from(config: HookActionConfig) -> Result<Self, Self::Error> {
+        let http_client = Client::builder()
+            .timeout(std::time::Duration::from_secs(HOOK_REQUEST_TIMEOUT_SECONDS))
+            .build()?;
+        Ok(Self {
+            config,
+            http_client,
+        })
+    }
 }
 
 impl HookAction {
     pub fn new_url(url: Url) -> Result<Self, anyhow::Error> {
-        let http_client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(HOOK_REQUEST_TIMEOUT_SECONDS))
-            .build()?;
-        Ok(Self {
-            config: HookActionConfig::HookActionUrl(url),
-            http_client,
-        })
+        HookActionConfig::HookActionUrl(url).try_into()
     }
 
     pub fn new_detailed(
         url: Url,
         headers: Option<HookActionHeaders>,
     ) -> Result<Self, anyhow::Error> {
-        let http_client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(HOOK_REQUEST_TIMEOUT_SECONDS))
-            .build()?;
         let mut detailed = HookActionDetailed::new(url);
         if let Some(headers) = headers {
             detailed = detailed.with_headers(headers);
         };
-
-        Ok(Self {
-            config: HookActionConfig::HookActionDetailed(detailed),
-            http_client,
-        })
+        HookActionConfig::HookActionDetailed(detailed).try_into()
     }
 
     pub fn initialize(&mut self) -> Result<(), anyhow::Error> {
@@ -283,6 +299,76 @@ mod tests {
                 assert_eq!(foobar_values.next().unwrap(), "bar");
                 assert_eq!(foobar_values.next(), None);
             }
+        }
+    }
+
+    mod timeout {
+        use std::time::Duration;
+
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        use super::*;
+
+        /// Starts a hook server that replies only after the timeout of the hook call.
+        async fn get_mock_server_slow() -> MockServer {
+            let mock_server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_delay(Duration::from_secs(HOOK_REQUEST_TIMEOUT_SECONDS * 5)),
+                )
+                .mount(&mock_server)
+                .await;
+            mock_server
+        }
+
+        fn deserialize_action(serialized: &str) -> HookAction {
+            let mut action: HookAction = serde_yaml::from_str(serialized).unwrap();
+            action.initialize().unwrap();
+            action
+        }
+
+        async fn assert_call_times_out(action: &HookAction) {
+            let err = action
+                .call_hook(&TransactionContext::default())
+                .await
+                .unwrap_err();
+
+            let err = err.downcast_ref::<reqwest::Error>().unwrap();
+            assert!(err.is_timeout());
+        }
+
+        #[tokio::test]
+        async fn url_action_times_out() {
+            let mock_server = get_mock_server_slow().await;
+            let url = Url::parse(&mock_server.uri()).unwrap();
+
+            assert_call_times_out(&HookAction::new_url(url).unwrap()).await;
+        }
+
+        #[tokio::test]
+        async fn detailed_action_times_out() {
+            let mock_server = get_mock_server_slow().await;
+            let url = Url::parse(&mock_server.uri()).unwrap();
+
+            assert_call_times_out(&HookAction::new_detailed(url, None).unwrap()).await;
+        }
+
+        #[tokio::test]
+        async fn deserialized_url_action_times_out() {
+            let mock_server = get_mock_server_slow().await;
+            let serialized = format!("---\n\"{}\"\n", mock_server.uri());
+
+            assert_call_times_out(&deserialize_action(&serialized)).await;
+        }
+
+        #[tokio::test]
+        async fn deserialized_detailed_action_times_out() {
+            let mock_server = get_mock_server_slow().await;
+            let serialized = format!("---\nurl: \"{}\"\n", mock_server.uri());
+
+            assert_call_times_out(&deserialize_action(&serialized)).await;
         }
     }
 }
