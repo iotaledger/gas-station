@@ -155,7 +155,7 @@ mod tests {
 
     async fn flush_db(conn: &mut ConnectionManager) {
         redis::cmd("FLUSHDB")
-            .query_async::<_, String>(conn)
+            .query_async::<String>(conn)
             .await
             .unwrap();
     }
