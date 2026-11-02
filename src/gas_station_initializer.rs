@@ -186,8 +186,23 @@ impl CoinSplitEnv {
 }
 
 enum RunMode {
-    Init,
-    Refresh,
+    Init,    // registers the on-chain coins for the first time
+    ReInit,  // like `Init`, but wipes the storage beforehand
+    Refresh, // normal periodic refresh
+}
+
+impl RunMode {
+    fn requires_wipe(&self) -> bool {
+        matches!(self, Self::ReInit)
+    }
+
+    fn requires_coin_initialization(&self) -> bool {
+        matches!(self, Self::Init | Self::ReInit)
+    }
+
+    fn runs_in_maintenance_mode(&self) -> bool {
+        matches!(self, Self::ReInit)
+    }
 }
 
 enum WakeReason {
@@ -304,12 +319,10 @@ impl GasStationInitializer {
         signer: &Arc<dyn TxSigner>,
         ignore_init_lock: bool,
     ) -> anyhow::Result<()> {
-        storage.clean_up_coin_registry().await?;
-        storage.init_coin_stats_at_startup().await?;
         Self::run_once(
             iota_client,
             storage,
-            RunMode::Init,
+            RunMode::ReInit,
             target_init_balance,
             signer,
             ignore_init_lock,
@@ -396,8 +409,25 @@ impl GasStationInitializer {
         }
 
         let start = Instant::now();
-        let balance_threshold = if matches!(mode, RunMode::Init) {
-            info!("The pool has never been initialized. Initializing it for the first time");
+
+        if mode.requires_wipe() {
+            // safe to wipe and reinitialize the storage, since we hold both
+            // the init lock and the maintenance lock.
+            // Init lock blocks other refreshes,
+            // maintenance lock blocks the usage of coins by reservations and coin releases.
+            if let Err(e) = async {
+                storage.clean_up_coin_registry().await?;
+                storage.init_coin_stats_at_startup().await
+            }
+            .await
+            {
+                storage.release_init_lock().await.unwrap();
+                return Err(e);
+            }
+        }
+
+        let balance_threshold = if mode.requires_coin_initialization() {
+            info!("The pool needs to be (re)initialized. Scanning coins of all sizes.");
             0
         } else {
             target_init_coin_balance * NEW_COIN_BALANCE_FACTOR_THRESHOLD
@@ -480,7 +510,13 @@ impl GasStationInitializer {
         )
         .await;
         for chunk in result.chunks(5000) {
-            storage.add_new_coins(chunk.to_vec()).await.unwrap();
+            if let Err(e) = storage
+                .add_new_coins(chunk.to_vec(), mode.runs_in_maintenance_mode())
+                .await
+            {
+                storage.release_init_lock().await.unwrap();
+                return Err(e);
+            }
         }
         storage.release_init_lock().await.unwrap();
         info!(
