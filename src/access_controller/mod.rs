@@ -90,7 +90,9 @@ impl AccessController {
                     self.confirmation_requests
                         .lock()
                         .await
-                        .insert(ctx.transaction_digest, matching_result.1);
+                        .entry(ctx.transaction_digest)
+                        .or_default()
+                        .extend(matching_result.1);
                 }
                 // add the the predicate reports from global limits to get the "full" report for the rule
                 rule_report.add_predicate_reports(matching_result.0.predicate_reports);
