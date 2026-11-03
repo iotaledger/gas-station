@@ -153,11 +153,22 @@ impl GasStation {
             ?reservation_id,
             "Payment coins in transaction: {:?}", payment
         );
+
+        self.gas_usage_cap
+            .add_execution_request(reservation_id)
+            .await;
         // Consuming the reservation is also what binds it to these coins. Before
         // the read and the dispatch, so a mismatch costs nothing.
-        self.gas_station_store
+        if let Err(e) = self
+            .gas_station_store
             .ready_for_execution(reservation_id, &payment)
-            .await?;
+            .await
+        {
+            self.gas_usage_cap
+                .remove_execution_request(reservation_id)
+                .await;
+            return Err(e);
+        }
         debug!(?reservation_id, "Reservation is ready for execution");
 
         // To avoid read-after-write inconsistency, we apply a trick here to calculate the

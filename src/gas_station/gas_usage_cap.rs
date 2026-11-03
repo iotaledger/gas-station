@@ -48,7 +48,28 @@ impl Reservations {
 
     /// Removes any expired reservations.
     pub fn remove_expired(&mut self, now: Instant) {
-        for (_, usage) in self.usage.extract_if(.., |_, usage| usage.expires_at < now) {
+        for (_, usage) in self.usage.extract_if(.., |_, usage| {
+            usage.expires_at < now && usage.active_execution_requests == 0
+        }) {
+            self.total -= usage.amount;
+        }
+    }
+
+    pub fn add_execution_request(&mut self, reservation_id: ReservationID) {
+        if let Some(usage) = self.usage.get_mut(&reservation_id) {
+            usage.active_execution_requests += 1;
+        }
+    }
+
+    pub fn remove_execution_request(&mut self, reservation_id: ReservationID) {
+        if let Some(usage) = self.usage.get_mut(&reservation_id) {
+            usage.active_execution_requests = usage.active_execution_requests.saturating_sub(1);
+        }
+    }
+
+    /// Removes a reservation if it exists.
+    pub fn remove_reservation(&mut self, reservation_id: ReservationID) {
+        if let Some(usage) = self.usage.remove(&reservation_id) {
             self.total -= usage.amount;
         }
     }
@@ -60,8 +81,8 @@ struct ReservationGasUsage {
     amount: u64,
     /// Expiration deadeline.
     expires_at: Instant,
-    /// State of the reservation.
-    under_execution: bool,
+    /// Number of active execution requests.
+    active_execution_requests: usize,
 }
 
 impl ReservationGasUsage {
@@ -69,7 +90,7 @@ impl ReservationGasUsage {
         Self {
             amount,
             expires_at,
-            under_execution: false,
+            active_execution_requests: 0,
         }
     }
 }
@@ -84,6 +105,22 @@ impl GasUsageCap {
                 cur_date: Local::now().date_naive(),
             }),
         }
+    }
+
+    /// Increases the inner counter of active requests for the given reservation.
+    pub async fn add_execution_request(&self, reservation_id: ReservationID) {
+        self.reservations
+            .write()
+            .await
+            .add_execution_request(reservation_id);
+    }
+
+    /// Decreases the counter of active requests for the given reservation.
+    pub async fn remove_execution_request(&self, reservation_id: ReservationID) {
+        self.reservations
+            .write()
+            .await
+            .remove_execution_request(reservation_id);
     }
 
     /// Books an amount for subsequent reservation.
@@ -124,6 +161,10 @@ impl GasUsageCap {
             >= self.daily_cap
     }
 
+    pub fn reservations(&self) -> &RwLock<Reservations> {
+        &self.reservations
+    }
+
     pub async fn insert_reservation(
         &self,
         reservation_id: ReservationID,
@@ -141,9 +182,7 @@ impl GasUsageCap {
 
     pub async fn remove_reservation(&self, reservation_id: ReservationID) {
         let mut reservations = self.reservations.write().await;
-        if let Some(reservation_usage) = reservations.usage.remove(&reservation_id) {
-            reservations.total -= reservation_usage.amount;
-        }
+        reservations.remove_reservation(reservation_id);
     }
 
     /// Update daily usage and returns the new current usage.
@@ -222,6 +261,19 @@ mod tests {
         assert!(
             cap.book_reservation(1).await.is_err(),
             "the previous reservation has not expired yet"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_reservations_ready_for_execution_not_expired() {
+        let cap = GasUsageCap::new(100);
+        let booking = cap.book_reservation(100).await.unwrap();
+        let expires_at = Instant::now() - Duration::from_secs(60);
+        cap.insert_reservation(0, booking, 100, expires_at).await;
+        cap.add_execution_request(0).await;
+        assert!(
+            cap.book_reservation(1).await.is_err(),
+            "the previous reservation is ready for execution so not expired yet"
         );
     }
 
