@@ -228,6 +228,7 @@ mod test {
             AccessController, TransactionExecutionResult,
         },
         test_env::{new_stats_tracker_for_testing, random_address},
+        tracker::StatsTracker,
     };
 
     use super::{
@@ -801,6 +802,87 @@ mod test {
     #[tokio::test]
     async fn test_gas_usage_counter_unaffected_by_budget_above_i64_max() {
         assert_gas_usage_counter_unaffected_by_budget(i64::MAX as u64 + 1).await;
+    }
+
+    fn gas_limit_rule(sender: Address, limit: u64) -> AccessRuleBuilder {
+        AccessRuleBuilder::new().sender_address(sender).gas_limit(
+            ValueAggregate::new(Duration::from_secs(60), ValueNumber::LessThanOrEqual(limit))
+                .with_count_by(vec![CountBy::SenderAddress]),
+        )
+    }
+
+    fn tx(sender: Address, budget: u64, stats_tracker: &StatsTracker) -> TransactionContext {
+        let mut tx = TransactionContext::default()
+            .with_sender_address(sender)
+            .with_gas_budget(budget)
+            .with_stats_tracker(stats_tracker.clone());
+        tx.transaction_digest = TransactionDigest::new([budget as u8; 32]);
+        tx
+    }
+
+    // Two in-flight requests with the same digest are both charged, so both
+    // must be reconciled: the counter has to end at the real gas usage.
+    #[tokio::test]
+    async fn test_gas_usage_counter_reconciles_duplicated_requests() {
+        let sender = random_address();
+        let stats_tracker = new_stats_tracker_for_testing(random_address()).await;
+        let ac = AccessController::new(
+            AccessPolicy::DenyAll,
+            [gas_limit_rule(sender, 1000).allow().build()],
+        );
+
+        let dup = tx(sender, 400, &stats_tracker);
+        // The same transaction is submitted twice before either copy is confirmed.
+        // Each copy charges its budget: counter = 400 + 400 = 800.
+        for _ in 0..2 {
+            assert!(matches!(ac.check_access(&dup).await, Ok(Decision::Allow)));
+        }
+
+        // Each confirmation replaces its charge with the real usage, so it
+        // subtracts 400 - 100 = 300: counter = 800 - 300 - 300 = 200.
+        for _ in 0..2 {
+            let result =
+                TransactionExecutionResult::new(dup.transaction_digest).with_gas_usage(100);
+            ac.confirm_transaction(result, &stats_tracker)
+                .await
+                .unwrap();
+        }
+
+        // Read the counter back through the limit of 1000. A budget of 800 is
+        // allowed only if the counter is at most 200. It is never confirmed, so
+        // counter = 200 + 800 = 1000, and the next budget of 1 must be denied.
+        // Together the two checks pin the counter to exactly 200.
+        let decision = ac.check_access(&tx(sender, 800, &stats_tracker)).await;
+        assert!(matches!(decision, Ok(Decision::Allow)), "got {decision:?}");
+        let decision = ac.check_access(&tx(sender, 1, &stats_tracker)).await;
+        assert!(matches!(decision, Ok(Decision::Deny)), "got {decision:?}");
+    }
+
+    // Two rules with a gas-usage limit both charge the same transaction. The
+    // second rule's record must not drop the first rule's.
+    #[tokio::test]
+    async fn test_gas_usage_counter_reconciles_every_charging_rule() {
+        let sender = random_address();
+        let stats_tracker = new_stats_tracker_for_testing(random_address()).await;
+        let ac = AccessController::new(
+            AccessPolicy::DenyAll,
+            [
+                gas_limit_rule(sender, 100).allow().build(),
+                gas_limit_rule(sender, 1000).deny().build(),
+            ],
+        );
+
+        // 500 exceeds the first limit, so both rules charge and the second decides.
+        let over = tx(sender, 500, &stats_tracker);
+        assert!(matches!(ac.check_access(&over).await, Ok(Decision::Deny)));
+        let result = TransactionExecutionResult::new(over.transaction_digest);
+        ac.confirm_transaction(result, &stats_tracker)
+            .await
+            .unwrap();
+
+        // The first rule's counter is back at 0, so 100 fits its limit.
+        let decision = ac.check_access(&tx(sender, 100, &stats_tracker)).await;
+        assert!(matches!(decision, Ok(Decision::Allow)), "got {decision:?}");
     }
 
     mod hook {
