@@ -67,11 +67,11 @@ impl Reservations {
         }
     }
 
-    /// Removes a reservation if it exists.
-    pub fn remove_reservation(&mut self, reservation_id: ReservationID) {
-        if let Some(usage) = self.usage.remove(&reservation_id) {
-            self.total -= usage.amount;
-        }
+    /// Removes a reservation if it exists, and returns its amount.
+    pub fn remove_reservation(&mut self, reservation_id: ReservationID) -> Option<u64> {
+        let usage = self.usage.remove(&reservation_id)?;
+        self.total -= usage.amount;
+        Some(usage.amount)
     }
 }
 
@@ -185,11 +185,23 @@ impl GasUsageCap {
         reservations.remove_reservation(reservation_id);
     }
 
+    /// Charges the reserved amount and removes the given reservation.
+    ///
+    /// Returns the new current usage.
+    pub async fn charge_and_remove_reservation(&self, reservation_id: ReservationID) -> i64 {
+        let mut reservations = self.reservations.write().await;
+        let amount = reservations
+            .remove_reservation(reservation_id)
+            .unwrap_or_default();
+        self.update_usage(i64::try_from(amount).unwrap_or(i64::MAX))
+            .await
+    }
+
     /// Update daily usage and returns the new current usage.
     pub async fn update_usage(&self, usage: i64) -> i64 {
         self.reset_date_maybe().await;
         let mut inner = self.inner.write().await;
-        inner.cur_daily_usage += usage;
+        inner.cur_daily_usage = inner.cur_daily_usage.saturating_add(usage);
         inner.cur_daily_usage
     }
 
@@ -287,6 +299,23 @@ mod tests {
         assert!(
             cap.book_reservation(100).await.is_ok(),
             "we should be able to book as the previous reservation was removed"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_charge_reservation() {
+        let cap = GasUsageCap::new(100);
+        let booking = cap.book_reservation(100).await.unwrap();
+        let expires_at = Instant::now() + Duration::from_secs(60);
+        cap.insert_reservation(0, booking, 60, expires_at).await;
+        assert_eq!(
+            cap.charge_and_remove_reservation(0).await,
+            60,
+            "the reserved amount should be charged as usage"
+        );
+        assert!(
+            cap.book_reservation(40).await.is_ok(),
+            "the charged reservation should no longer count as reserved"
         );
     }
 

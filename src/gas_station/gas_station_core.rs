@@ -5,7 +5,7 @@
 use crate::gas_station::effects_util::gas_object_reference;
 use crate::gas_station::rescan_trigger::RescanGasObjectsTrigger;
 use crate::gas_station_initializer::NEW_COIN_BALANCE_FACTOR_THRESHOLD;
-use crate::iota_client::{IotaClient, GAS_COIN_RESOLVE_ATTEMPTS};
+use crate::iota_client::{ExecutionOutcome, IotaClient, GAS_COIN_RESOLVE_ATTEMPTS};
 use crate::metrics::GasStationCoreMetrics;
 use crate::rpc::rpc_types::{ExecuteTransactionRequestType, ReserveGasRequest};
 use crate::storage::{Storage, MAX_GAS_PER_QUERY};
@@ -255,7 +255,6 @@ impl GasStation {
                 }]
             }
             Err(_) => {
-                self.gas_usage_cap.remove_reservation(reservation_id).await;
                 debug!(
                     ?reservation_id,
                     "Querying latest gas state since transaction failed"
@@ -347,7 +346,7 @@ impl GasStation {
     ) -> anyhow::Result<TransactionEffects> {
         let sponsor = tx.as_v1().gas_payment.owner;
         let cur_time = std::time::Instant::now();
-        let sponsor_sig = retry_with_max_attempts!(
+        let sponsor_sig = match retry_with_max_attempts!(
             async {
                 self.signer
                     .sign_transaction(&tx)
@@ -355,7 +354,14 @@ impl GasStation {
                     .tap_err(|err| error!("Failed to sign transaction: {:?}", err))
             },
             3
-        )?;
+        ) {
+            Ok(sponsor_sig) => sponsor_sig,
+            Err(err) => {
+                // Not signed, so not sent: nothing can be charged.
+                self.gas_usage_cap.remove_reservation(reservation_id).await;
+                return Err(err);
+            }
+        };
         let elapsed = cur_time.elapsed().as_millis();
         self.metrics
             .transaction_signing_latency_ms
@@ -367,7 +373,7 @@ impl GasStation {
             signatures: vec![sponsor_sig, user_sig],
         };
         let cur_time = std::time::Instant::now();
-        let effects = self
+        let effects = match self
             .iota_client
             .execute_transaction(
                 signed_tx,
@@ -375,7 +381,31 @@ impl GasStation {
                 request_type,
                 self.checkpoint_inclusion_timeout_ms,
             )
-            .await?;
+            .await
+        {
+            Ok(effects) => effects,
+            Err(err) => {
+                // Without effects the charge is unknown.
+                match err.outcome {
+                    ExecutionOutcome::Executed | ExecutionOutcome::MaybeExecuted => {
+                        // We charge the reserved amount which is the maximum that could have been spent.
+                        let new_daily_usage = self
+                            .gas_usage_cap
+                            .charge_and_remove_reservation(reservation_id)
+                            .await;
+                        self.metrics
+                            .daily_gas_usage
+                            .with_label_values(&[&sponsor.to_string()])
+                            .set(new_daily_usage);
+                    }
+                    ExecutionOutcome::NotExecuted => {
+                        // We charge nothing.
+                        self.gas_usage_cap.remove_reservation(reservation_id).await;
+                    }
+                }
+                return Err(err.error);
+            }
+        };
         debug!(?reservation_id, "Transaction executed");
         let elapsed = cur_time.elapsed().as_millis();
         self.metrics
