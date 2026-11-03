@@ -46,7 +46,7 @@ pub struct GasStation {
     gas_station_store: Arc<dyn Storage>,
     iota_client: IotaClient,
     metrics: Arc<GasStationCoreMetrics>,
-    gas_usage_cap: Arc<GasUsageCap>,
+    pub(crate) gas_usage_cap: Arc<GasUsageCap>,
     max_gas_budget: u64,
     checkpoint_inclusion_timeout_ms: u64,
     rescan_config: RescanGasObjectsTrigger,
@@ -85,18 +85,38 @@ impl GasStation {
         Arc::new(pool)
     }
 
+    /// Reserves the maximum spendable amount associated with the requested `gas_budget`.
     pub async fn reserve_gas(
         &self,
         gas_budget: u64,
         duration: Duration,
     ) -> anyhow::Result<(Address, ReservationID, Vec<ObjectReference>)> {
         let cur_time = std::time::Instant::now();
-        self.gas_usage_cap.check_usage().await?;
         let sponsor = self.signer.get_address();
-        let (reservation_id, gas_coins) = self
+        let booking = self
+            .gas_usage_cap
+            .book_reservation(self.max_gas_budget)
+            .await?;
+        let response = self
             .gas_station_store
             .reserve_gas_coins(gas_budget, duration.as_millis() as u64)
-            .await?;
+            .await;
+        let Ok((reservation_id, gas_coins)) = response else {
+            self.gas_usage_cap.cancel_booking(booking).await;
+            return Err(response.expect_err("we should be on the Err branch"));
+        };
+        let spendable_amount = min(
+            gas_coins.iter().map(|coin| coin.balance).sum(),
+            self.max_gas_budget,
+        );
+        self.gas_usage_cap
+            .insert_reservation(
+                reservation_id,
+                booking,
+                spendable_amount,
+                cur_time + duration,
+            )
+            .await;
         let elapsed = cur_time.elapsed().as_millis();
         self.metrics.reserve_gas_latency_ms.observe(elapsed as f64);
         self.metrics
@@ -224,6 +244,7 @@ impl GasStation {
                 }]
             }
             Err(_) => {
+                self.gas_usage_cap.remove_reservation(reservation_id).await;
                 debug!(
                     ?reservation_id,
                     "Querying latest gas state since transaction failed"
@@ -351,6 +372,7 @@ impl GasStation {
             .observe(elapsed as f64);
         let net_gas_usage = effects.as_v1().gas_cost_summary.net_gas_usage();
         let new_daily_usage = self.gas_usage_cap.update_usage(net_gas_usage).await;
+        self.gas_usage_cap.remove_reservation(reservation_id).await;
         self.metrics
             .daily_gas_usage
             .with_label_values(&[&sponsor.to_string()])
