@@ -6,14 +6,14 @@ use std::{collections::BTreeMap, time::Instant};
 
 use anyhow::bail;
 use chrono::{Local, NaiveDate};
-use tokio::sync::{RwLock, RwLockWriteGuard};
+use tokio::sync::{Mutex, MutexGuard};
 
 use crate::types::ReservationID;
 
 /// The maximum net gas that can be sponsored in a day.
 pub struct GasUsageCap {
     daily_cap: u64,
-    usage: RwLock<Usage>,
+    usage: Mutex<Usage>,
 }
 
 /// The daily gas usage and the gas reserved for execution.
@@ -50,7 +50,7 @@ impl GasUsageCap {
     pub fn new(daily_cap: u64) -> Self {
         Self {
             daily_cap,
-            usage: RwLock::new(Usage {
+            usage: Mutex::new(Usage {
                 reservations: Default::default(),
                 cur_daily_usage: 0,
                 cur_date: Local::now().date_naive(),
@@ -61,8 +61,8 @@ impl GasUsageCap {
     /// Reserves a write lock on the inner usage.
     ///
     /// Must be released as soon as possible to avoid contention and deadlocks.
-    pub async fn usage_lock(&self) -> RwLockWriteGuard<'_, Usage> {
-        self.usage.write().await
+    pub async fn usage_lock(&self) -> MutexGuard<'_, Usage> {
+        self.usage.lock().await
     }
 
     /// Increases the inner counter of active requests for the given reservation.
