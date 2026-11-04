@@ -86,6 +86,16 @@ impl GasStation {
     }
 
     /// Reserves the maximum spendable amount associated with the requested `gas_budget`.
+    ///
+    /// To guard the daily cap we first book `max_gas_budget` which is the maximum amount
+    /// that a transaction can spend, and then reserve actual coins.
+    ///
+    /// The reserved amount is then updated as the `min(<sum_of_gas_coins>, max_gas_budget)`
+    /// for more accurate book-keeping of the running reservations.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the booking exceeds the daily cap, or if storage cannot reserve the coins.
     pub async fn reserve_gas(
         &self,
         gas_budget: u64,
