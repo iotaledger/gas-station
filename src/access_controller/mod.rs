@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tracing::{debug, trace};
 
-use crate::{access_controller::reports::AccessReport, tracker::StatsTracker};
+use crate::access_controller::{reports::AccessReport, rule::RequestId};
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
@@ -36,7 +36,9 @@ pub struct AccessController {
     pub rules: Vec<AccessRule>,
 
     #[serde(skip)]
-    confirmation_requests: Arc<Mutex<HashMap<TransactionDigest, Vec<GasUsageConfirmationRequest>>>>,
+    /// What each request charged, keyed by `TransactionContext::request_id`, so
+    /// that `confirm_transaction` settles its own request with its own result.
+    confirmation_requests: Arc<Mutex<HashMap<RequestId, Vec<GasUsageConfirmationRequest>>>>,
 }
 
 impl std::fmt::Debug for AccessController {
@@ -77,7 +79,6 @@ impl AccessController {
 
         let mut access_report = AccessReport::new();
         access_report.set_transaction_data(ctx.transaction_data.clone());
-
         for rule in self.rules.iter() {
             let mut maybe_decision: Option<Decision> = None;
             let mut rule_report = rule.matches(ctx).await?;
@@ -90,7 +91,7 @@ impl AccessController {
                     self.confirmation_requests
                         .lock()
                         .await
-                        .entry(ctx.transaction_digest)
+                        .entry(ctx.request_id)
                         .or_default()
                         .extend(matching_result.1);
                 }
@@ -144,12 +145,16 @@ impl AccessController {
 
     pub async fn confirm_transaction(
         &self,
+        ctx: &TransactionContext,
         result: TransactionExecutionResult,
-        stats_tracker: &StatsTracker,
     ) -> Result<()> {
-        let mut confirmation_requests = self.confirmation_requests.lock().await;
+        let request_id = ctx.request_id;
         let transaction_digest = result.transaction_digest;
-        let maybe_requests = confirmation_requests.remove(&transaction_digest);
+        let maybe_requests = self
+            .confirmation_requests
+            .lock()
+            .await
+            .remove(&ctx.request_id);
         if let Some(requests) = maybe_requests {
             for req in requests {
                 let diff = if let Some(real_gas_usage) = result.gas_usage {
@@ -158,13 +163,13 @@ impl AccessController {
                         i64::try_from(real_gas_usage)
                             .context("real gas usage does not fit in i64")?,
                     );
-                    debug!("Transaction with id: {transaction_digest} confirmed, reserved gas usage: {reserved_gas_usage}, real gas usage: {real_gas_usage}, diff: {diff}");
+                    debug!("Transaction with id: {transaction_digest} (request {request_id:?}) confirmed, reserved gas usage: {reserved_gas_usage}, real gas usage: {real_gas_usage}, diff: {diff}");
                     diff
                 } else {
-                    debug!("Transaction with id: {transaction_digest} confirmed, but no gas usage was provided");
+                    debug!("Transaction with id: {transaction_digest} (request {request_id:?}) confirmed, but no gas usage was provided");
                     req.gas_usage
                 };
-                stats_tracker
+                ctx.stats_tracker
                     .update_aggr(req.rule_meta, &req.aggregate, diff.saturating_neg())
                     .await
                     .context("Failed to update aggregate while when confirming transactions")?;
@@ -767,8 +772,8 @@ mod test {
         // Confirming without gas usage refunds the whole charged budget.
         let _ = ac
             .confirm_transaction(
+                &huge_budget_tx,
                 TransactionExecutionResult::new(huge_budget_tx.transaction_digest),
-                &stats_tracker,
             )
             .await;
 
@@ -820,44 +825,6 @@ mod test {
         tx
     }
 
-    // Two in-flight requests with the same digest are both charged, so both
-    // must be reconciled: the counter has to end at the real gas usage.
-    #[tokio::test]
-    async fn test_gas_usage_counter_reconciles_duplicated_requests() {
-        let sender = random_address();
-        let stats_tracker = new_stats_tracker_for_testing(random_address()).await;
-        let ac = AccessController::new(
-            AccessPolicy::DenyAll,
-            [gas_limit_rule(sender, 1000).allow().build()],
-        );
-
-        let dup = tx(sender, 400, &stats_tracker);
-        // The same transaction is submitted twice before either copy is confirmed.
-        // Each copy charges its budget: counter = 400 + 400 = 800.
-        for _ in 0..2 {
-            assert!(matches!(ac.check_access(&dup).await, Ok(Decision::Allow)));
-        }
-
-        // Each confirmation replaces its charge with the real usage, so it
-        // subtracts 400 - 100 = 300: counter = 800 - 300 - 300 = 200.
-        for _ in 0..2 {
-            let result =
-                TransactionExecutionResult::new(dup.transaction_digest).with_gas_usage(100);
-            ac.confirm_transaction(result, &stats_tracker)
-                .await
-                .unwrap();
-        }
-
-        // Read the counter back through the limit of 1000. A budget of 800 is
-        // allowed only if the counter is at most 200. It is never confirmed, so
-        // counter = 200 + 800 = 1000, and the next budget of 1 must be denied.
-        // Together the two checks pin the counter to exactly 200.
-        let decision = ac.check_access(&tx(sender, 800, &stats_tracker)).await;
-        assert!(matches!(decision, Ok(Decision::Allow)), "got {decision:?}");
-        let decision = ac.check_access(&tx(sender, 1, &stats_tracker)).await;
-        assert!(matches!(decision, Ok(Decision::Deny)), "got {decision:?}");
-    }
-
     // Two rules with a gas-usage limit both charge the same transaction. The
     // second rule's record must not drop the first rule's.
     #[tokio::test]
@@ -876,13 +843,46 @@ mod test {
         let over = tx(sender, 500, &stats_tracker);
         assert!(matches!(ac.check_access(&over).await, Ok(Decision::Deny)));
         let result = TransactionExecutionResult::new(over.transaction_digest);
-        ac.confirm_transaction(result, &stats_tracker)
-            .await
-            .unwrap();
+        ac.confirm_transaction(&over, result).await.unwrap();
 
         // The first rule's counter is back at 0, so 100 fits its limit.
         let decision = ac.check_access(&tx(sender, 100, &stats_tracker)).await;
         assert!(matches!(decision, Ok(Decision::Allow)), "got {decision:?}");
+    }
+
+    // A copy that fails before execution, for example because the other copy
+    // already consumed the reservation, must release only its own charge.
+    #[tokio::test]
+    async fn test_gas_usage_counter_keeps_executed_copy_when_duplicate_fails_first() {
+        let sender = random_address();
+        let stats_tracker = new_stats_tracker_for_testing(random_address()).await;
+        let ac = AccessController::new(
+            AccessPolicy::DenyAll,
+            [gas_limit_rule(sender, 1000).allow().build()],
+        );
+
+        let executed = tx(sender, 400, &stats_tracker);
+        let failed = tx(sender, 400, &stats_tracker);
+        for copy in [&executed, &failed] {
+            assert!(matches!(ac.check_access(copy).await, Ok(Decision::Allow)));
+        }
+
+        // The failed copy is confirmed first, without gas usage.
+        let result = TransactionExecutionResult::new(failed.transaction_digest);
+        ac.confirm_transaction(&failed, result).await.unwrap();
+        // The executed copy is confirmed with its real gas usage.
+        let result =
+            TransactionExecutionResult::new(executed.transaction_digest).with_gas_usage(100);
+        ac.confirm_transaction(&executed, result).await.unwrap();
+
+        // Read the counter back through the limit of 1000. A budget of 900 is
+        // allowed only if the counter is at most 100. It is never confirmed, so
+        // counter = 100 + 900 = 1000, and the next budget of 1 must be denied.
+        // Together the two checks pin the counter to exactly the 100 really used.
+        let decision = ac.check_access(&tx(sender, 900, &stats_tracker)).await;
+        assert!(matches!(decision, Ok(Decision::Allow)), "got {decision:?}");
+        let decision = ac.check_access(&tx(sender, 1, &stats_tracker)).await;
+        assert!(matches!(decision, Ok(Decision::Deny)), "got {decision:?}");
     }
 
     mod hook {

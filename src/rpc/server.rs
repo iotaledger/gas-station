@@ -373,10 +373,7 @@ async fn execute_tx_impl(
     if let Some((status_code, error)) = is_rejected {
         let confirmation_result = access_controller
             .load()
-            .confirm_transaction(
-                TransactionExecutionResult::new(transaction_digest),
-                &ctx.stats_tracker,
-            )
+            .confirm_transaction(&ctx, TransactionExecutionResult::new(transaction_digest))
             .await;
         if let Err(err) = confirmation_result {
             error!("Error while canceling transaction in AC: {:?}", err);
@@ -385,7 +382,7 @@ async fn execute_tx_impl(
     }
 
     match gas_station
-        .execute_transaction(ctx.reservation_id, tx, user_sig, ctx.request_type)
+        .execute_transaction(ctx.reservation_id, tx, user_sig, ctx.request_type.clone())
         .await
     {
         Ok(effects) => {
@@ -401,8 +398,8 @@ async fn execute_tx_impl(
             let confirmation_result = access_controller
                 .load()
                 .confirm_transaction(
+                    &ctx,
                     TransactionExecutionResult::new(transaction_digest).with_gas_usage(gas_used),
-                    &ctx.stats_tracker.clone(),
                 )
                 .await;
             // When then confirmation fails, the error shouldn't prevent the user from
@@ -423,10 +420,7 @@ async fn execute_tx_impl(
 
             let confirmation_result = access_controller
                 .load()
-                .confirm_transaction(
-                    TransactionExecutionResult::new(transaction_digest),
-                    &ctx.stats_tracker,
-                )
+                .confirm_transaction(&ctx, TransactionExecutionResult::new(transaction_digest))
                 .await;
             if let Err(err) = confirmation_result {
                 error!("Error while canceling transaction in AC: {:?}", err);

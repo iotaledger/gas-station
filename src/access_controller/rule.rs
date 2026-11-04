@@ -12,6 +12,7 @@ use serde_json::{Map, Value};
 use serde_with::skip_serializing_none;
 use tracing::trace;
 use url::Url;
+use uuid::Uuid;
 
 use crate::{
     access_controller::{
@@ -468,6 +469,23 @@ impl RegoInputPayload {
     }
 }
 
+/// A unique identifier for a request, wrapping a version 4 UUID.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct RequestId(Uuid);
+
+impl RequestId {
+    /// Generates a new, randomly created request identifier (UUID v4).
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+
+impl Default for RequestId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // This input is used to check the access policy.
 #[derive(Clone)]
 pub struct TransactionContext {
@@ -477,6 +495,8 @@ pub struct TransactionContext {
     pub move_call_package_addresses: Vec<Address>,
     pub ptb_command_count: Option<usize>,
     pub transaction_data: Value,
+    /// Identifies every request with a distinct request id.
+    pub request_id: RequestId,
 
     pub stats_tracker: StatsTracker,
     pub reservation_id: u64,
@@ -497,6 +517,7 @@ impl Default for TransactionContext {
             stats_tracker: crate::test_env::mocked_stats_tracker(),
             transaction_digest: TransactionDigest::default(),
             transaction_data: Value::Null,
+            request_id: RequestId::new(),
             reservation_id: 0,
             tx_bytes: Base64::try_from(String::default())
                 .expect("empty string should be valid base64"),
@@ -538,6 +559,7 @@ impl TransactionContext {
             ptb_command_count,
             stats_tracker,
             transaction_data: transaction_value,
+            request_id: RequestId::new(),
             reservation_id,
             tx_bytes,
             user_sig,
