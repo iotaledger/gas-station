@@ -6,77 +6,33 @@ use std::{collections::BTreeMap, time::Instant};
 
 use anyhow::bail;
 use chrono::{Local, NaiveDate};
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, RwLockWriteGuard};
 
 use crate::types::ReservationID;
 
 /// The maximum net gas that can be sponsored in a day.
 pub struct GasUsageCap {
     daily_cap: u64,
-    reservations: RwLock<Reservations>,
-    inner: RwLock<GasUsageCapInner>,
+    usage: RwLock<Usage>,
 }
 
-struct GasUsageCapInner {
+/// The daily gas usage and the gas reserved for execution.
+pub struct Usage {
+    reservations: Reservations,
     cur_daily_usage: i64,
     cur_date: NaiveDate,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct Reservations {
+#[derive(Debug, Default)]
+struct Reservations {
     /// Map of in-flight reservations and their gas usage.
-    usage: BTreeMap<ReservationID, ReservationGasUsage>,
+    inner: BTreeMap<ReservationID, Reservation>,
     /// Running total of the amount of gas reserved for execution.
     total: u64,
 }
 
-/// A booked amount that can help clearing a reservation.
-pub struct Booking {
-    amount: u64,
-}
-
-impl Reservations {
-    /// Adds to the total amount reserved.
-    pub fn add_to_total(&mut self, amount: u64) {
-        self.total += amount;
-    }
-
-    /// Substracts from the total amount reserved.
-    pub fn sub_from_total(&mut self, amount: u64) {
-        self.total -= amount;
-    }
-
-    /// Removes any expired reservations.
-    pub fn remove_expired(&mut self, now: Instant) {
-        for (_, usage) in self.usage.extract_if(.., |_, usage| {
-            usage.expires_at < now && usage.active_execution_requests == 0
-        }) {
-            self.total -= usage.amount;
-        }
-    }
-
-    pub fn add_execution_request(&mut self, reservation_id: ReservationID) {
-        if let Some(usage) = self.usage.get_mut(&reservation_id) {
-            usage.active_execution_requests += 1;
-        }
-    }
-
-    pub fn remove_execution_request(&mut self, reservation_id: ReservationID) {
-        if let Some(usage) = self.usage.get_mut(&reservation_id) {
-            usage.active_execution_requests = usage.active_execution_requests.saturating_sub(1);
-        }
-    }
-
-    /// Removes a reservation if it exists, and returns its amount.
-    pub fn remove_reservation(&mut self, reservation_id: ReservationID) -> Option<u64> {
-        let usage = self.usage.remove(&reservation_id)?;
-        self.total -= usage.amount;
-        Some(usage.amount)
-    }
-}
-
 #[derive(Copy, Debug, Clone)]
-struct ReservationGasUsage {
+struct Reservation {
     /// Maximum amount of gas that can be spent after a reservation.
     amount: u64,
     /// Expiration deadeline.
@@ -85,42 +41,44 @@ struct ReservationGasUsage {
     active_execution_requests: usize,
 }
 
-impl ReservationGasUsage {
-    fn new(amount: u64, expires_at: Instant) -> Self {
-        Self {
-            amount,
-            expires_at,
-            active_execution_requests: 0,
-        }
-    }
+/// The amount booked until a reservation is resolved from storage.
+pub struct Booking {
+    amount: u64,
 }
 
 impl GasUsageCap {
     pub fn new(daily_cap: u64) -> Self {
         Self {
             daily_cap,
-            reservations: Default::default(),
-            inner: RwLock::new(GasUsageCapInner {
+            usage: RwLock::new(Usage {
+                reservations: Default::default(),
                 cur_daily_usage: 0,
                 cur_date: Local::now().date_naive(),
             }),
         }
     }
 
+    /// Reserves a write lock on the inner usage.
+    ///
+    /// Must be released as soon as possible to avoid contention and deadlocks.
+    pub async fn usage_lock(&self) -> RwLockWriteGuard<'_, Usage> {
+        self.usage.write().await
+    }
+
     /// Increases the inner counter of active requests for the given reservation.
     pub async fn add_execution_request(&self, reservation_id: ReservationID) {
-        self.reservations
-            .write()
+        self.usage_lock()
             .await
-            .add_execution_request(reservation_id);
+            .reservations
+            .add_execution_request(reservation_id)
     }
 
     /// Decreases the counter of active requests for the given reservation.
     pub async fn remove_execution_request(&self, reservation_id: ReservationID) {
-        self.reservations
-            .write()
+        self.usage_lock()
             .await
-            .remove_execution_request(reservation_id);
+            .reservations
+            .remove_execution_request(reservation_id)
     }
 
     /// Books an amount for subsequent reservation.
@@ -128,43 +86,16 @@ impl GasUsageCap {
     /// # Errors
     ///
     /// Fails if the requested amount will exceed the daily cap.
-    pub async fn book_reservation(&self, amount: u64) -> Result<Booking, anyhow::Error> {
-        self.reset_date_maybe().await;
-        let mut reservations = self.reservations.write().await;
-        reservations.remove_expired(Instant::now());
-        let cur_daily_usage = self.inner.read().await.cur_daily_usage;
-
-        let exceeds_cap = reservations
-            .total
-            .checked_add(amount)
-            .is_none_or(|total| total as i128 + cur_daily_usage as i128 > self.daily_cap as i128);
-        if exceeds_cap {
-            bail!("Gas usage exceeds daily cap");
-        }
-        reservations.add_to_total(amount);
-        Ok(Booking { amount })
+    pub async fn book_reservation(&self, amount: u64) -> anyhow::Result<Booking> {
+        self.usage_lock().await.book(amount, self.daily_cap)
     }
 
     /// Cancells a reservation booking.
     pub async fn cancel_booking(&self, booking: Booking) {
-        self.reservations
-            .write()
-            .await
-            .sub_from_total(booking.amount);
+        self.usage_lock().await.reservations.total -= booking.amount
     }
 
-    /// Check if the reserved amount exceeds the usage limits.
-    pub async fn exceeds_usage(&self, reserved_amount: u64) -> bool {
-        self.reset_date_maybe().await;
-        let cur_daily_usage = self.inner.read().await.cur_daily_usage;
-        cur_daily_usage as u64 + self.reservations.read().await.total + reserved_amount
-            >= self.daily_cap
-    }
-
-    pub fn reservations(&self) -> &RwLock<Reservations> {
-        &self.reservations
-    }
-
+    /// Replaces the booking with a reservation of the given amount.
     pub async fn insert_reservation(
         &self,
         reservation_id: ReservationID,
@@ -172,53 +103,109 @@ impl GasUsageCap {
         amount: u64,
         expires_at: Instant,
     ) {
-        let mut reservations = self.reservations.write().await;
-        reservations
-            .usage
-            .insert(reservation_id, ReservationGasUsage::new(amount, expires_at));
-        reservations.total -= booking.amount;
-        reservations.total += amount;
-    }
-
-    pub async fn remove_reservation(&self, reservation_id: ReservationID) {
-        let mut reservations = self.reservations.write().await;
-        reservations.remove_reservation(reservation_id);
-    }
-
-    /// Charges the reserved amount and removes the given reservation.
-    ///
-    /// Returns the new current usage.
-    pub async fn charge_and_remove_reservation(&self, reservation_id: ReservationID) -> i64 {
-        let mut reservations = self.reservations.write().await;
-        let amount = reservations
-            .remove_reservation(reservation_id)
-            .unwrap_or_default();
-        self.update_usage(i64::try_from(amount).unwrap_or(i64::MAX))
+        self.usage_lock()
             .await
+            .reservations
+            .insert(reservation_id, booking, amount, expires_at)
     }
 
-    /// Update daily usage and returns the new current usage.
-    pub async fn update_usage(&self, usage: i64) -> i64 {
-        self.reset_date_maybe().await;
-        let mut inner = self.inner.write().await;
-        inner.cur_daily_usage = inner.cur_daily_usage.saturating_add(usage);
-        inner.cur_daily_usage
+    /// Removes the given reservation, and charges nothing.
+    pub async fn remove_reservation(&self, reservation_id: ReservationID) {
+        self.usage_lock().await.remove_reservation(reservation_id);
+    }
+}
+
+impl Usage {
+    /// Adds to the daily usage and returns the new current usage.
+    pub fn add(&mut self, usage: i64) -> i64 {
+        self.reset_date_maybe();
+        self.cur_daily_usage = self.cur_daily_usage.saturating_add(usage);
+        self.cur_daily_usage
+    }
+
+    /// Removes a reservation if it exists, and returns its amount.
+    pub fn remove_reservation(&mut self, reservation_id: ReservationID) -> Option<u64> {
+        self.reservations.remove(reservation_id)
+    }
+
+    /// Books `amount` if the daily usage and the reserved total stay within `daily_cap`.
+    fn book(&mut self, amount: u64, daily_cap: u64) -> anyhow::Result<Booking> {
+        self.reset_date_maybe();
+        self.reservations.remove_expired(Instant::now());
+
+        let exceeds_cap = self
+            .reservations
+            .total
+            .checked_add(amount)
+            .is_none_or(|total| total as i128 + self.cur_daily_usage as i128 > daily_cap as i128);
+        if exceeds_cap {
+            bail!("Gas usage exceeds daily cap");
+        }
+        self.reservations.total += amount;
+        Ok(Booking { amount })
     }
 
     /// Resets the daily gas usage if the day has changed.
-    async fn reset_date_maybe(&self) {
+    fn reset_date_maybe(&mut self) {
         let today = Local::now().date_naive();
-        let cur_date = self.inner.read().await.cur_date;
-        if cur_date != today {
-            self.inner.write().await.reset_date(today);
+        if self.cur_date != today {
+            self.cur_date = today;
+            self.cur_daily_usage = 0;
         }
     }
 }
 
-impl GasUsageCapInner {
-    fn reset_date(&mut self, new_date: NaiveDate) {
-        self.cur_date = new_date;
-        self.cur_daily_usage = 0;
+impl Reservations {
+    /// Removes any expired reservations.
+    fn remove_expired(&mut self, now: Instant) {
+        for (_, usage) in self.inner.extract_if(.., |_, usage| {
+            usage.expires_at < now && usage.active_execution_requests == 0
+        }) {
+            self.total -= usage.amount;
+        }
+    }
+
+    /// Replaces a booking with a reservation of the given amount.
+    fn insert(
+        &mut self,
+        reservation_id: ReservationID,
+        booking: Booking,
+        amount: u64,
+        expires_at: Instant,
+    ) {
+        self.inner
+            .insert(reservation_id, Reservation::new(amount, expires_at));
+        self.total -= booking.amount;
+        self.total += amount;
+    }
+
+    fn add_execution_request(&mut self, reservation_id: ReservationID) {
+        if let Some(usage) = self.inner.get_mut(&reservation_id) {
+            usage.active_execution_requests += 1;
+        }
+    }
+
+    fn remove_execution_request(&mut self, reservation_id: ReservationID) {
+        if let Some(usage) = self.inner.get_mut(&reservation_id) {
+            usage.active_execution_requests = usage.active_execution_requests.saturating_sub(1);
+        }
+    }
+
+    /// Removes a reservation if it exists, and returns its amount.
+    fn remove(&mut self, reservation_id: ReservationID) -> Option<u64> {
+        let usage = self.inner.remove(&reservation_id)?;
+        self.total -= usage.amount;
+        Some(usage.amount)
+    }
+}
+
+impl Reservation {
+    fn new(amount: u64, expires_at: Instant) -> Self {
+        Self {
+            amount,
+            expires_at,
+            active_execution_requests: 0,
+        }
     }
 }
 
@@ -232,11 +219,11 @@ mod tests {
     async fn test_gas_usage_cap() {
         let cap = GasUsageCap::new(100);
         assert!(cap.book_reservation(25).await.is_ok());
-        cap.update_usage(50).await;
+        cap.usage_lock().await.add(50);
         assert!(cap.book_reservation(20).await.is_ok());
-        cap.update_usage(4).await;
+        cap.usage_lock().await.add(4);
         assert!(cap.book_reservation(1).await.is_ok());
-        cap.update_usage(1).await;
+        cap.usage_lock().await.add(1);
         assert!(cap.book_reservation(1).await.is_err());
     }
 
@@ -244,9 +231,9 @@ mod tests {
     async fn test_gas_usage_cap_reset() {
         let today = Local::now().date_naive();
         let cap = GasUsageCap::new(100);
-        cap.update_usage(100).await;
+        cap.usage_lock().await.add(100);
         assert!(cap.book_reservation(10).await.is_err());
-        cap.inner.write().await.cur_date = today + chrono::Duration::days(1);
+        cap.usage_lock().await.cur_date = today + chrono::Duration::days(1);
         assert!(cap.book_reservation(10).await.is_ok());
     }
 
@@ -303,23 +290,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_charge_reservation() {
-        let cap = GasUsageCap::new(100);
-        let booking = cap.book_reservation(100).await.unwrap();
-        let expires_at = Instant::now() + Duration::from_secs(60);
-        cap.insert_reservation(0, booking, 60, expires_at).await;
-        assert_eq!(
-            cap.charge_and_remove_reservation(0).await,
-            60,
-            "the reserved amount should be charged as usage"
-        );
-        assert!(
-            cap.book_reservation(40).await.is_ok(),
-            "the charged reservation should no longer count as reserved"
-        );
-    }
-
-    #[tokio::test]
     async fn test_cancel_booking() {
         let cap = GasUsageCap::new(100);
         let booking = cap.book_reservation(100).await.unwrap();
@@ -333,7 +303,7 @@ mod tests {
     #[tokio::test]
     async fn test_negative_usage() {
         let cap = GasUsageCap::new(100);
-        cap.update_usage(-50).await;
+        cap.usage_lock().await.add(-50);
         assert!(
             cap.book_reservation(150).await.is_ok(),
             "a storage rebate adds to the available amount"

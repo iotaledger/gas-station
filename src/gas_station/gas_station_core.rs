@@ -46,7 +46,7 @@ pub struct GasStation {
     gas_station_store: Arc<dyn Storage>,
     iota_client: IotaClient,
     metrics: Arc<GasStationCoreMetrics>,
-    pub(crate) gas_usage_cap: Arc<GasUsageCap>,
+    gas_usage_cap: Arc<GasUsageCap>,
     max_gas_budget: u64,
     checkpoint_inclusion_timeout_ms: u64,
     rescan_config: RescanGasObjectsTrigger,
@@ -388,11 +388,14 @@ impl GasStation {
                 // Without effects the charge is unknown.
                 match err.outcome {
                     ExecutionOutcome::Executed | ExecutionOutcome::MaybeExecuted => {
+                        let mut usage = self.gas_usage_cap.usage_lock().await;
                         // We charge the reserved amount which is the maximum that could have been spent.
-                        let new_daily_usage = self
-                            .gas_usage_cap
-                            .charge_and_remove_reservation(reservation_id)
-                            .await;
+                        let reserved_amount =
+                            usage.remove_reservation(reservation_id).unwrap_or_default();
+                        let new_daily_usage =
+                            usage.add(i64::try_from(reserved_amount).unwrap_or(i64::MAX));
+                        drop(usage);
+
                         self.metrics
                             .daily_gas_usage
                             .with_label_values(&[&sponsor.to_string()])
@@ -412,8 +415,12 @@ impl GasStation {
             .transaction_execution_latency_ms
             .observe(elapsed as f64);
         let net_gas_usage = effects.as_v1().gas_cost_summary.net_gas_usage();
-        let new_daily_usage = self.gas_usage_cap.update_usage(net_gas_usage).await;
-        self.gas_usage_cap.remove_reservation(reservation_id).await;
+
+        let mut usage = self.gas_usage_cap.usage_lock().await;
+        usage.remove_reservation(reservation_id);
+        let new_daily_usage = usage.add(net_gas_usage);
+        drop(usage);
+
         self.metrics
             .daily_gas_usage
             .with_label_values(&[&sponsor.to_string()])
