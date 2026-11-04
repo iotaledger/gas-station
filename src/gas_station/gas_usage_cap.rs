@@ -93,7 +93,7 @@ impl GasUsageCap {
         self.usage_lock().await.book(amount, self.daily_cap)
     }
 
-    /// Cancells a reservation booking.
+    /// Cancels a reservation booking.
     pub async fn cancel_booking(&self, booking: Booking) {
         self.usage_lock().await.reservations.total -= booking.amount
     }
