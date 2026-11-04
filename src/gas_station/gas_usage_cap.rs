@@ -2,7 +2,10 @@
 // Modifications Copyright (c) 2026 IOTA Stiftung
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::BTreeMap, time::Instant};
+use std::{
+    collections::{BTreeSet, HashMap},
+    time::Instant,
+};
 
 use anyhow::bail;
 use chrono::{Local, NaiveDate};
@@ -26,7 +29,9 @@ pub struct Usage {
 #[derive(Debug, Default)]
 struct Reservations {
     /// Map of in-flight reservations and their gas usage.
-    inner: BTreeMap<ReservationID, Reservation>,
+    inner: HashMap<ReservationID, Reservation>,
+    /// The expiration time of each reservation, in the order of expiration.
+    expirations: BTreeSet<(Instant, ReservationID)>,
     /// Running total of the amount of gas reserved for execution.
     total: u64,
 }
@@ -35,8 +40,6 @@ struct Reservations {
 struct Reservation {
     /// Maximum amount of gas that can be spent after a reservation.
     amount: u64,
-    /// Expiration deadeline.
-    expires_at: Instant,
     /// Number of active execution requests.
     active_execution_requests: usize,
 }
@@ -156,12 +159,24 @@ impl Usage {
 }
 
 impl Reservations {
-    /// Removes any expired reservations.
+    /// Removes the reservations that expired at or before `now`.
+    ///
+    /// A reservation with an active execution request stays, and the next call
+    /// checks it again.
     fn remove_expired(&mut self, now: Instant) {
-        for (_, usage) in self.inner.extract_if(.., |_, usage| {
-            usage.expires_at < now && usage.active_execution_requests == 0
-        }) {
-            self.total -= usage.amount;
+        let inner = &self.inner;
+        let expired: Vec<ReservationID> = self
+            .expirations
+            .extract_if(..=(now, ReservationID::MAX), |(_, reservation_id)| {
+                // `None`: the reservation was removed before it expired.
+                inner
+                    .get(reservation_id)
+                    .is_none_or(|reservation| reservation.active_execution_requests == 0)
+            })
+            .map(|(_, reservation_id)| reservation_id)
+            .collect();
+        for reservation_id in expired {
+            self.remove(reservation_id);
         }
     }
 
@@ -173,37 +188,37 @@ impl Reservations {
         amount: u64,
         expires_at: Instant,
     ) {
-        self.inner
-            .insert(reservation_id, Reservation::new(amount, expires_at));
+        self.inner.insert(reservation_id, Reservation::new(amount));
+        self.expirations.insert((expires_at, reservation_id));
         self.total -= booking.amount;
         self.total += amount;
     }
 
     fn add_execution_request(&mut self, reservation_id: ReservationID) {
-        if let Some(usage) = self.inner.get_mut(&reservation_id) {
-            usage.active_execution_requests += 1;
+        if let Some(reservation) = self.inner.get_mut(&reservation_id) {
+            reservation.active_execution_requests += 1;
         }
     }
 
     fn remove_execution_request(&mut self, reservation_id: ReservationID) {
-        if let Some(usage) = self.inner.get_mut(&reservation_id) {
-            usage.active_execution_requests = usage.active_execution_requests.saturating_sub(1);
+        if let Some(reservation) = self.inner.get_mut(&reservation_id) {
+            reservation.active_execution_requests =
+                reservation.active_execution_requests.saturating_sub(1);
         }
     }
 
     /// Removes a reservation if it exists, and returns its amount.
     fn remove(&mut self, reservation_id: ReservationID) -> Option<u64> {
-        let usage = self.inner.remove(&reservation_id)?;
-        self.total -= usage.amount;
-        Some(usage.amount)
+        let reservation = self.inner.remove(&reservation_id)?;
+        self.total -= reservation.amount;
+        Some(reservation.amount)
     }
 }
 
 impl Reservation {
-    fn new(amount: u64, expires_at: Instant) -> Self {
+    fn new(amount: u64) -> Self {
         Self {
             amount,
-            expires_at,
             active_execution_requests: 0,
         }
     }
@@ -273,6 +288,52 @@ mod tests {
         assert!(
             cap.book_reservation(1).await.is_err(),
             "the previous reservation is ready for execution so not expired yet"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_reservation_expired_during_execution() {
+        let cap = GasUsageCap::new(100);
+        let booking = cap.book_reservation(100).await.unwrap();
+        let expires_at = Instant::now() - Duration::from_secs(60);
+        cap.insert_reservation(0, booking, 100, expires_at).await;
+        cap.add_execution_request(0).await;
+        assert!(cap.book_reservation(1).await.is_err());
+        cap.remove_execution_request(0).await;
+        assert!(
+            cap.book_reservation(100).await.is_ok(),
+            "the next booking should remove the expired reservation when no request is active"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_removed_reservation_expires_without_effect() {
+        let cap = GasUsageCap::new(100);
+        let booking = cap.book_reservation(60).await.unwrap();
+        let expires_at = Instant::now() - Duration::from_secs(1);
+        cap.insert_reservation(0, booking, 60, expires_at).await;
+        cap.remove_reservation(0).await;
+        let _booking = cap.book_reservation(100).await.unwrap();
+        let usage = cap.usage_lock().await;
+        assert!(usage.reservations.expirations.is_empty());
+        assert_eq!(
+            usage.reservations.total, 100,
+            "the expiration of a removed reservation should not change the total"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_reservations_with_equal_expiration() {
+        let cap = GasUsageCap::new(100);
+        let expires_at = Instant::now() - Duration::from_secs(1);
+        for reservation_id in 0..2 {
+            let booking = cap.book_reservation(50).await.unwrap();
+            cap.insert_reservation(reservation_id, booking, 50, expires_at)
+                .await;
+        }
+        assert!(
+            cap.book_reservation(100).await.is_ok(),
+            "both reservations should expire"
         );
     }
 
