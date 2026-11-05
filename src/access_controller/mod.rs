@@ -825,31 +825,6 @@ mod test {
         tx
     }
 
-    // Two rules with a gas-usage limit both charge the same transaction. The
-    // second rule's record must not drop the first rule's.
-    #[tokio::test]
-    async fn test_gas_usage_counter_reconciles_every_charging_rule() {
-        let sender = random_address();
-        let stats_tracker = new_stats_tracker_for_testing(random_address()).await;
-        let ac = AccessController::new(
-            AccessPolicy::DenyAll,
-            [
-                gas_limit_rule(sender, 100).allow().build(),
-                gas_limit_rule(sender, 1000).deny().build(),
-            ],
-        );
-
-        // 500 exceeds the first limit, so both rules charge and the second decides.
-        let over = tx(sender, 500, &stats_tracker);
-        assert!(matches!(ac.check_access(&over).await, Ok(Decision::Deny)));
-        let result = TransactionExecutionResult::new(over.transaction_digest);
-        ac.confirm_transaction(&over, result).await.unwrap();
-
-        // The first rule's counter is back at 0, so 100 fits its limit.
-        let decision = ac.check_access(&tx(sender, 100, &stats_tracker)).await;
-        assert!(matches!(decision, Ok(Decision::Allow)), "got {decision:?}");
-    }
-
     // A copy that fails before execution, for example because the other copy
     // already consumed the reservation, must release only its own charge.
     #[tokio::test]
@@ -880,6 +855,46 @@ mod test {
         // counter = 100 + 900 = 1000, and the next budget of 1 must be denied.
         // Together the two checks pin the counter to exactly the 100 really used.
         let decision = ac.check_access(&tx(sender, 900, &stats_tracker)).await;
+        assert!(matches!(decision, Ok(Decision::Allow)), "got {decision:?}");
+        let decision = ac.check_access(&tx(sender, 1, &stats_tracker)).await;
+        assert!(matches!(decision, Ok(Decision::Deny)), "got {decision:?}");
+    }
+
+    // Two throttles on one sender, both charge every request. After execution
+    // both counters must be corrected to the real usage, not only the last one.
+    #[tokio::test]
+    async fn test_gas_usage_counter_refunds_every_throttle() {
+        let sender = random_address();
+        let stats_tracker = new_stats_tracker_for_testing(random_address()).await;
+        let throttle = |limit, window| {
+            AccessRuleBuilder::new()
+                .sender_address(sender)
+                .gas_limit(
+                    ValueAggregate::new(window, ValueNumber::GreaterThan(limit))
+                        .with_count_by(vec![CountBy::SenderAddress]),
+                )
+                .deny()
+                .build()
+        };
+        let ac = AccessController::new(
+            AccessPolicy::AllowAll,
+            [
+                throttle(100, Duration::from_secs(60)),
+                throttle(1000, Duration::from_secs(3600)),
+            ],
+        );
+
+        // A budget of 50 charges both counters, trips neither, and is allowed.
+        let first = tx(sender, 50, &stats_tracker);
+        assert!(matches!(ac.check_access(&first).await, Ok(Decision::Allow)));
+        // It really used 10, so both counters must drop from 50 to 10.
+        let result = TransactionExecutionResult::new(first.transaction_digest).with_gas_usage(10);
+        ac.confirm_transaction(&first, result).await.unwrap();
+
+        // Read the 60s counter back through its limit of 100. A budget of 90 is
+        // allowed only if the counter is at most 10. It is never confirmed, so
+        // counter = 10 + 90 = 100, and the next budget of 1 must be denied.
+        let decision = ac.check_access(&tx(sender, 90, &stats_tracker)).await;
         assert!(matches!(decision, Ok(Decision::Allow)), "got {decision:?}");
         let decision = ac.check_access(&tx(sender, 1, &stats_tracker)).await;
         assert!(matches!(decision, Ok(Decision::Deny)), "got {decision:?}");
