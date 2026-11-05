@@ -495,8 +495,6 @@ pub struct TransactionContext {
     pub move_call_package_addresses: Vec<Address>,
     pub ptb_command_count: Option<usize>,
     pub transaction_data: Value,
-    /// Identifies every request with a distinct request id.
-    pub request_id: RequestId,
 
     pub stats_tracker: StatsTracker,
     pub reservation_id: u64,
@@ -517,7 +515,6 @@ impl Default for TransactionContext {
             stats_tracker: crate::test_env::mocked_stats_tracker(),
             transaction_digest: TransactionDigest::default(),
             transaction_data: Value::Null,
-            request_id: RequestId::new(),
             reservation_id: 0,
             tx_bytes: Base64::try_from(String::default())
                 .expect("empty string should be valid base64"),
@@ -559,7 +556,6 @@ impl TransactionContext {
             ptb_command_count,
             stats_tracker,
             transaction_data: transaction_value,
-            request_id: RequestId::new(),
             reservation_id,
             tx_bytes,
             user_sig,
