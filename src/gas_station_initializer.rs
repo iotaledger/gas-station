@@ -186,20 +186,26 @@ impl CoinSplitEnv {
 }
 
 enum RunMode {
-    Init,    // registers the on-chain coins for the first time
-    ReInit,  // like `Init`, but wipes the storage beforehand
-    Refresh, // normal periodic refresh
+    /// Registers the on-chain coins for the first time.
+    Init,
+    /// Like `Init`, but wipes the storage beforehand.
+    ReInit,
+    /// Normal periodic refresh.
+    Refresh,
 }
 
 impl RunMode {
-    fn requires_wipe(&self) -> bool {
-        matches!(self, Self::ReInit)
-    }
-
     fn requires_coin_initialization(&self) -> bool {
         matches!(self, Self::Init | Self::ReInit)
     }
 
+    /// Only valid on a pool that is not initialized yet.
+    fn requires_uninitialized_pool(&self) -> bool {
+        matches!(self, Self::Init)
+    }
+
+    /// Runs while holding the maintenance lock, which also makes it safe to
+    /// wipe the registry.
     fn runs_in_maintenance_mode(&self) -> bool {
         matches!(self, Self::ReInit)
     }
@@ -262,9 +268,10 @@ impl GasStationInitializer {
                     panic!("Another instance is already performing maintenance. Please wait for it to complete or use the --ignore-locks flag to force a full rescan.");
                 }
             }
-            let result = Self::clean_and_rescan_registry(
+            let result = Self::run_once(
                 iota_client.clone(),
                 &storage,
+                RunMode::ReInit,
                 coin_init_config.target_init_balance,
                 &signer,
                 ignore_locks,
@@ -309,26 +316,6 @@ impl GasStationInitializer {
             _task_handle,
             cancel_sender: Some(cancel_sender),
         }
-    }
-
-    /// Performs full rescan operations while holding the maintenance lock.
-    async fn clean_and_rescan_registry(
-        iota_client: IotaClient,
-        storage: &Arc<dyn Storage>,
-        target_init_balance: u64,
-        signer: &Arc<dyn TxSigner>,
-        ignore_init_lock: bool,
-    ) -> anyhow::Result<()> {
-        Self::run_once(
-            iota_client,
-            storage,
-            RunMode::ReInit,
-            target_init_balance,
-            signer,
-            ignore_init_lock,
-        )
-        .await?;
-        Ok(())
     }
 
     async fn run(
@@ -393,7 +380,6 @@ impl GasStationInitializer {
         signer: &Arc<dyn TxSigner>,
         ignore_init_lock: bool,
     ) -> anyhow::Result<()> {
-        let sponsor_address = signer.get_address();
         let lock_status = storage.acquire_init_lock(MAX_INIT_DURATION_SEC).await?;
         match lock_status {
             true => {
@@ -408,22 +394,38 @@ impl GasStationInitializer {
             }
         }
 
+        let result =
+            Self::run_once_locked(iota_client, storage, mode, target_init_coin_balance, signer)
+                .await;
+        storage.release_init_lock().await.unwrap();
+        result
+    }
+
+    /// The body of [`Self::run_once`], run while the init lock is held.
+    async fn run_once_locked(
+        iota_client: IotaClient,
+        storage: &Arc<dyn Storage>,
+        mode: RunMode,
+        target_init_coin_balance: u64,
+        signer: &Arc<dyn TxSigner>,
+    ) -> anyhow::Result<()> {
+        // Another instance may have initialized the pool between our
+        // `is_initialized` check and taking the lock.
+        if mode.requires_uninitialized_pool() && storage.is_initialized().await? {
+            info!("Pool was initialized by another instance, skipping Init");
+            return Ok(());
+        }
+
+        let sponsor_address = signer.get_address();
         let start = Instant::now();
 
-        if mode.requires_wipe() {
+        if mode.runs_in_maintenance_mode() {
             // safe to wipe and reinitialize the storage, since we hold both
             // the init lock and the maintenance lock.
             // Init lock blocks other refreshes,
             // maintenance lock blocks the usage of coins by reservations and coin releases.
-            if let Err(e) = async {
-                storage.clean_up_coin_registry().await?;
-                storage.init_coin_stats_at_startup().await
-            }
-            .await
-            {
-                storage.release_init_lock().await.unwrap();
-                return Err(e);
-            }
+            storage.clean_up_coin_registry().await?;
+            storage.init_coin_stats_at_startup().await?;
         }
 
         let balance_threshold = if mode.requires_coin_initialization() {
@@ -469,7 +471,6 @@ impl GasStationInitializer {
                 "No coins with balance above {} found. Skipping new coin initialization",
                 balance_threshold
             );
-            storage.release_init_lock().await.unwrap();
             return Ok(());
         }
         let total_coin_count = Arc::new(AtomicUsize::new(coins.len()));
@@ -491,7 +492,6 @@ impl GasStationInitializer {
                 gas_cost_per_object / 99 + 1
             );
             error!("{}", err_msg);
-            storage.release_init_lock().await.unwrap();
             return Err(anyhow::anyhow!(err_msg));
         }
 
@@ -510,15 +510,10 @@ impl GasStationInitializer {
         )
         .await;
         for chunk in result.chunks(5000) {
-            if let Err(e) = storage
+            storage
                 .add_new_coins(chunk.to_vec(), mode.runs_in_maintenance_mode())
-                .await
-            {
-                storage.release_init_lock().await.unwrap();
-                return Err(e);
-            }
+                .await?;
         }
-        storage.release_init_lock().await.unwrap();
         info!(
             "New coin initialization took {:?}s",
             start.elapsed().as_secs()
