@@ -206,7 +206,11 @@ impl Storage for RedisStorage {
         Ok(())
     }
 
-    async fn add_new_coins(&self, new_coins: Vec<GasCoin>) -> anyhow::Result<()> {
+    async fn add_new_coins(
+        &self,
+        new_coins: Vec<GasCoin>,
+        runs_in_maintenance_mode: bool,
+    ) -> anyhow::Result<()> {
         self.metrics.num_add_new_coins_requests.inc();
         // The way we turn coins into strings must be consistent with the way we parse them in
         // reserve_gas_coins_script (via decode_gas_coin).
@@ -215,12 +219,19 @@ impl Storage for RedisStorage {
             .map(encode_gas_coin)
             .collect::<Vec<String>>();
 
+        let current_time = Utc::now().timestamp() as u64;
         let mut conn = self.conn_manager.clone();
         let (new_total_balance, new_coin_count): (i64, i64) = ScriptManager::add_new_coins_script()
             .arg(self.namespace.clone())
             .arg(serde_json::to_string(&formatted_coins)?)
+            .arg(runs_in_maintenance_mode as u8)
+            .arg(current_time)
             .invoke_async(&mut conn)
             .await?;
+
+        if (new_total_balance, new_coin_count) == (-1, -1) {
+            anyhow::bail!(MAINTENANCE_MODE_ERROR_MESSAGE);
+        }
 
         debug!(
             "After add_new_coins. New total balance: {}, new coin count: {}",
@@ -451,16 +462,19 @@ mod tests {
     async fn test_init_coin_stats_at_startup() {
         let storage = setup_storage().await;
         storage
-            .add_new_coins(vec![
-                GasCoin {
-                    balance: 100,
-                    object_ref: random_object_ref(),
-                },
-                GasCoin {
-                    balance: 200,
-                    object_ref: random_object_ref(),
-                },
-            ])
+            .add_new_coins(
+                vec![
+                    GasCoin {
+                        balance: 100,
+                        object_ref: random_object_ref(),
+                    },
+                    GasCoin {
+                        balance: 200,
+                        object_ref: random_object_ref(),
+                    },
+                ],
+                false,
+            )
             .await
             .unwrap();
         let (coin_count, total_balance) = storage.init_coin_stats_at_startup().await.unwrap();
@@ -472,16 +486,19 @@ mod tests {
     async fn test_add_new_coins() {
         let storage = setup_storage().await;
         storage
-            .add_new_coins(vec![
-                GasCoin {
-                    balance: 100,
-                    object_ref: random_object_ref(),
-                },
-                GasCoin {
-                    balance: 200,
-                    object_ref: random_object_ref(),
-                },
-            ])
+            .add_new_coins(
+                vec![
+                    GasCoin {
+                        balance: 100,
+                        object_ref: random_object_ref(),
+                    },
+                    GasCoin {
+                        balance: 200,
+                        object_ref: random_object_ref(),
+                    },
+                ],
+                false,
+            )
             .await
             .unwrap();
         let coin_count = storage.get_available_coin_count().await.unwrap();
@@ -489,16 +506,19 @@ mod tests {
         let total_balance = storage.get_available_coin_total_balance().await;
         assert_eq!(total_balance, 300);
         storage
-            .add_new_coins(vec![
-                GasCoin {
-                    balance: 300,
-                    object_ref: random_object_ref(),
-                },
-                GasCoin {
-                    balance: 400,
-                    object_ref: random_object_ref(),
-                },
-            ])
+            .add_new_coins(
+                vec![
+                    GasCoin {
+                        balance: 300,
+                        object_ref: random_object_ref(),
+                    },
+                    GasCoin {
+                        balance: 400,
+                        object_ref: random_object_ref(),
+                    },
+                ],
+                false,
+            )
             .await
             .unwrap();
         let coin_count = storage.get_available_coin_count().await.unwrap();
@@ -513,16 +533,19 @@ mod tests {
 
         // Add some coins
         storage
-            .add_new_coins(vec![
-                GasCoin {
-                    balance: 100,
-                    object_ref: random_object_ref(),
-                },
-                GasCoin {
-                    balance: 200,
-                    object_ref: random_object_ref(),
-                },
-            ])
+            .add_new_coins(
+                vec![
+                    GasCoin {
+                        balance: 100,
+                        object_ref: random_object_ref(),
+                    },
+                    GasCoin {
+                        balance: 200,
+                        object_ref: random_object_ref(),
+                    },
+                ],
+                false,
+            )
             .await
             .unwrap();
 
@@ -560,16 +583,19 @@ mod tests {
 
         // Add some coins and data
         storage
-            .add_new_coins(vec![
-                GasCoin {
-                    balance: 100,
-                    object_ref: random_object_ref(),
-                },
-                GasCoin {
-                    balance: 200,
-                    object_ref: random_object_ref(),
-                },
-            ])
+            .add_new_coins(
+                vec![
+                    GasCoin {
+                        balance: 100,
+                        object_ref: random_object_ref(),
+                    },
+                    GasCoin {
+                        balance: 200,
+                        object_ref: random_object_ref(),
+                    },
+                ],
+                false,
+            )
             .await
             .unwrap();
         let test_key = format!("{}:test_key", storage.namespace);
@@ -654,16 +680,19 @@ mod tests {
 
         // Add some coins
         storage
-            .add_new_coins(vec![
-                GasCoin {
-                    balance: 100,
-                    object_ref: random_object_ref(),
-                },
-                GasCoin {
-                    balance: 200,
-                    object_ref: random_object_ref(),
-                },
-            ])
+            .add_new_coins(
+                vec![
+                    GasCoin {
+                        balance: 100,
+                        object_ref: random_object_ref(),
+                    },
+                    GasCoin {
+                        balance: 200,
+                        object_ref: random_object_ref(),
+                    },
+                ],
+                false,
+            )
             .await
             .unwrap();
 

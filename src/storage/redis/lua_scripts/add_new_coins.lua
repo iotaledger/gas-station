@@ -5,14 +5,29 @@
 -- This script is used to add new coins to the available gas coins queue.
 -- The first argument is the sponsor's address.
 -- The second argument is a JSON array of new coins.
+-- The third argument is '0' or '1' depending on whether this script is run in maintenance mode
+-- (allowing it to skip the maintenance lock check).
+-- The fourth argument is the current timestamp, used to check if maintenance mode is still active
 -- Each coin is just a string, using "," to separate these fields:
 --   balance, object id, object version, object digest.
 -- In this script we don't care about the format, just push each to the queue.
 -- We also set the initialized flag to 1 if we added any coins.
 -- Returns a table with the new total balance and new coin count.
+-- In case no coins were added due to maintenance mode, {-1, -1} is returned.
 
 local namespace = ARGV[1]
 local new_coins = ARGV[2]
+local runs_in_maintenance_mode = ARGV[3]
+local current_time = tonumber(ARGV[4])
+
+-- If maintenance mode is active, we require the script to be run in maintenance mode
+if runs_in_maintenance_mode == '0' then
+    local t_maintenance_lock = namespace .. ':maintenance_lock'
+    local locked_timestamp = redis.call('GET', t_maintenance_lock)
+    if locked_timestamp ~= false and tonumber(locked_timestamp) >= current_time then
+        return {-1, -1}
+    end
+end
 
 local t_available_gas_coins = namespace .. ':available_gas_coins'
 
