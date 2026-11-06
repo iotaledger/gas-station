@@ -26,7 +26,24 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tracing::{debug, trace};
 
-use crate::{access_controller::reports::AccessReport, tracker::StatsTracker};
+use crate::access_controller::{reports::AccessReport, rule::RequestId};
+
+/// Represents a single `execute_tx` request, containing the transaction under
+/// evaluation and the unique identifier used to track its gas-usage charges
+/// in the confirmation ledger.
+pub struct RequestContext {
+    pub transaction: TransactionContext,
+    pub request_id: RequestId,
+}
+
+impl RequestContext {
+    pub fn new(transaction: TransactionContext) -> Self {
+        Self {
+            transaction,
+            request_id: RequestId::new(),
+        }
+    }
+}
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
@@ -36,7 +53,9 @@ pub struct AccessController {
     pub rules: Vec<AccessRule>,
 
     #[serde(skip)]
-    confirmation_requests: Arc<Mutex<HashMap<TransactionDigest, Vec<GasUsageConfirmationRequest>>>>,
+    /// What each request charged, keyed by `RequestContext::request_id`, so
+    /// that `confirm_transaction` settles its own request with its own result.
+    confirmation_requests: Arc<Mutex<HashMap<RequestId, Vec<GasUsageConfirmationRequest>>>>,
 }
 
 impl std::fmt::Debug for AccessController {
@@ -70,14 +89,14 @@ impl AccessController {
     /// Checks if the transaction can be executed based on the access controller's rules.
     // If a rule matches, the corresponding action is applied. If no rule matches, the next rule is checked.
     // If none match, the default policy is applied.
-    pub async fn check_access(&self, ctx: &TransactionContext) -> Result<Decision> {
+    pub async fn check_access(&self, request: &RequestContext) -> Result<Decision> {
         if self.is_disabled() {
             return Ok(Decision::Allow);
         }
+        let ctx = &request.transaction;
 
         let mut access_report = AccessReport::new();
         access_report.set_transaction_data(ctx.transaction_data.clone());
-
         for rule in self.rules.iter() {
             let mut maybe_decision: Option<Decision> = None;
             let mut rule_report = rule.matches(ctx).await?;
@@ -90,7 +109,9 @@ impl AccessController {
                     self.confirmation_requests
                         .lock()
                         .await
-                        .insert(ctx.transaction_digest, matching_result.1);
+                        .entry(request.request_id)
+                        .or_default()
+                        .extend(matching_result.1);
                 }
                 // add the the predicate reports from global limits to get the "full" report for the rule
                 rule_report.add_predicate_reports(matching_result.0.predicate_reports);
@@ -142,12 +163,13 @@ impl AccessController {
 
     pub async fn confirm_transaction(
         &self,
+        request: &RequestContext,
         result: TransactionExecutionResult,
-        stats_tracker: &StatsTracker,
     ) -> Result<()> {
-        let mut confirmation_requests = self.confirmation_requests.lock().await;
+        let ctx = &request.transaction;
+        let request_id = request.request_id;
         let transaction_digest = result.transaction_digest;
-        let maybe_requests = confirmation_requests.remove(&transaction_digest);
+        let maybe_requests = self.confirmation_requests.lock().await.remove(&request_id);
         if let Some(requests) = maybe_requests {
             for req in requests {
                 let diff = if let Some(real_gas_usage) = result.gas_usage {
@@ -156,13 +178,13 @@ impl AccessController {
                         i64::try_from(real_gas_usage)
                             .context("real gas usage does not fit in i64")?,
                     );
-                    debug!("Transaction with id: {transaction_digest} confirmed, reserved gas usage: {reserved_gas_usage}, real gas usage: {real_gas_usage}, diff: {diff}");
+                    debug!("Transaction with id: {transaction_digest} (request {request_id:?}) confirmed, reserved gas usage: {reserved_gas_usage}, real gas usage: {real_gas_usage}, diff: {diff}");
                     diff
                 } else {
-                    debug!("Transaction with id: {transaction_digest} confirmed, but no gas usage was provided");
+                    debug!("Transaction with id: {transaction_digest} (request {request_id:?}) confirmed, but no gas usage was provided");
                     req.gas_usage
                 };
-                stats_tracker
+                ctx.stats_tracker
                     .update_aggr(req.rule_meta, &req.aggregate, diff.saturating_neg())
                     .await
                     .context("Failed to update aggregate while when confirming transactions")?;
@@ -226,12 +248,14 @@ mod test {
             AccessController, TransactionExecutionResult,
         },
         test_env::{new_stats_tracker_for_testing, random_address},
+        tracker::StatsTracker,
     };
 
     use super::{
         policy::AccessPolicy,
         predicates::ValueNumber,
         rule::{AccessRuleBuilder, TransactionContext},
+        RequestContext,
     };
 
     #[tokio::test]
@@ -242,14 +266,14 @@ mod test {
             .sender_address(sender_address)
             .allow()
             .build();
-        let to_allow_tx = TransactionContext {
+        let to_allow_tx = RequestContext::new(TransactionContext {
             sender_address,
             ..Default::default()
-        };
-        let denied_tx = TransactionContext {
+        });
+        let denied_tx = RequestContext::new(TransactionContext {
             sender_address: blocked_address,
             ..Default::default()
-        };
+        });
 
         let mut ac = AccessController::new(AccessPolicy::DenyAll, []);
 
@@ -284,14 +308,14 @@ mod test {
             .deny()
             .build();
 
-        let to_deny_tx = TransactionContext {
+        let to_deny_tx = RequestContext::new(TransactionContext {
             sender_address: blocked_address,
             ..Default::default()
-        };
-        let allowed_tx = TransactionContext {
+        });
+        let allowed_tx = RequestContext::new(TransactionContext {
             sender_address,
             ..Default::default()
-        };
+        });
         let mut ac = AccessController::new(AccessPolicy::AllowAll, []);
 
         assert!(matches!(
@@ -324,12 +348,16 @@ mod test {
             .gas_budget(ValueNumber::LessThan(gas_budget))
             .allow()
             .build();
-        let allowed_tx = TransactionContext::default()
-            .with_sender_address(sender_address)
-            .with_gas_budget(gas_budget - 1);
-        let denied_tx = TransactionContext::default()
-            .with_sender_address(sender_address)
-            .with_gas_budget(gas_budget);
+        let allowed_tx = RequestContext::new(
+            TransactionContext::default()
+                .with_sender_address(sender_address)
+                .with_gas_budget(gas_budget - 1),
+        );
+        let denied_tx = RequestContext::new(
+            TransactionContext::default()
+                .with_sender_address(sender_address)
+                .with_gas_budget(gas_budget),
+        );
 
         let ac = AccessController::new(AccessPolicy::DenyAll, [allow_rule]);
 
@@ -352,12 +380,16 @@ mod test {
             .gas_budget(ValueNumber::GreaterThanOrEqual(gas_budget))
             .deny()
             .build();
-        let allowed_tx = TransactionContext::default()
-            .with_sender_address(sender_address)
-            .with_gas_budget(gas_budget - 1);
-        let denied_tx = TransactionContext::default()
-            .with_sender_address(sender_address)
-            .with_gas_budget(gas_budget);
+        let allowed_tx = RequestContext::new(
+            TransactionContext::default()
+                .with_sender_address(sender_address)
+                .with_gas_budget(gas_budget - 1),
+        );
+        let denied_tx = RequestContext::new(
+            TransactionContext::default()
+                .with_sender_address(sender_address)
+                .with_gas_budget(gas_budget),
+        );
 
         let ac = AccessController::new(AccessPolicy::AllowAll, [deny_rule]);
         assert!(matches!(
@@ -379,12 +411,16 @@ mod test {
             .move_call_package_address(package_address)
             .deny()
             .build();
-        let denied_tx = TransactionContext::default()
-            .with_sender_address(sender_address)
-            .with_move_call_package_addresses(vec![package_address]);
-        let allowed_tx = TransactionContext::default()
-            .with_sender_address(sender_address)
-            .with_move_call_package_addresses(vec![Address::from_bytes([3; 32]).unwrap()]);
+        let denied_tx = RequestContext::new(
+            TransactionContext::default()
+                .with_sender_address(sender_address)
+                .with_move_call_package_addresses(vec![package_address]),
+        );
+        let allowed_tx = RequestContext::new(
+            TransactionContext::default()
+                .with_sender_address(sender_address)
+                .with_move_call_package_addresses(vec![Address::from_bytes([3; 32]).unwrap()]),
+        );
 
         let ac = AccessController::new(AccessPolicy::AllowAll, [deny_rule]);
         assert!(matches!(
@@ -406,12 +442,16 @@ mod test {
             .move_call_package_address(package_address)
             .allow()
             .build();
-        let allowed_tx = TransactionContext::default()
-            .with_sender_address(sender_address)
-            .with_move_call_package_addresses(vec![package_address]);
-        let denied_tx = TransactionContext::default()
-            .with_sender_address(sender_address)
-            .with_move_call_package_addresses(vec![Address::from_bytes([3; 32]).unwrap()]);
+        let allowed_tx = RequestContext::new(
+            TransactionContext::default()
+                .with_sender_address(sender_address)
+                .with_move_call_package_addresses(vec![package_address]),
+        );
+        let denied_tx = RequestContext::new(
+            TransactionContext::default()
+                .with_sender_address(sender_address)
+                .with_move_call_package_addresses(vec![Address::from_bytes([3; 32]).unwrap()]),
+        );
 
         let ac = AccessController::new(AccessPolicy::DenyAll, [allow_rule]);
         assert!(matches!(
@@ -432,12 +472,16 @@ mod test {
             .ptb_command_count(ValueNumber::GreaterThan(1))
             .deny()
             .build();
-        let denied_tx = TransactionContext::default()
-            .with_sender_address(sender_address)
-            .with_ptb_command_count(5);
-        let allowed_tx = TransactionContext::default()
-            .with_sender_address(sender_address)
-            .with_ptb_command_count(1);
+        let denied_tx = RequestContext::new(
+            TransactionContext::default()
+                .with_sender_address(sender_address)
+                .with_ptb_command_count(5),
+        );
+        let allowed_tx = RequestContext::new(
+            TransactionContext::default()
+                .with_sender_address(sender_address)
+                .with_ptb_command_count(1),
+        );
 
         let ac = AccessController::new(AccessPolicy::AllowAll, [deny_rule]);
         assert!(matches!(
@@ -458,12 +502,16 @@ mod test {
             .ptb_command_count(ValueNumber::LessThanOrEqual(1))
             .allow()
             .build();
-        let allowed_tx = TransactionContext::default()
-            .with_sender_address(sender_address)
-            .with_ptb_command_count(1);
-        let blocked_tx = TransactionContext::default()
-            .with_sender_address(sender_address)
-            .with_ptb_command_count(5);
+        let allowed_tx = RequestContext::new(
+            TransactionContext::default()
+                .with_sender_address(sender_address)
+                .with_ptb_command_count(1),
+        );
+        let blocked_tx = RequestContext::new(
+            TransactionContext::default()
+                .with_sender_address(sender_address)
+                .with_ptb_command_count(5),
+        );
 
         let ac = AccessController::new(AccessPolicy::DenyAll, [allow_rule]);
         assert!(matches!(
@@ -662,7 +710,8 @@ mod test {
             .allow()
             .build();
 
-        let tx = TransactionContext::default().with_sender_address(sender_address);
+        let tx =
+            RequestContext::new(TransactionContext::default().with_sender_address(sender_address));
         let ac = AccessController::new(AccessPolicy::DenyAll, [deny_rule, allow_rule]);
 
         // Even if the second rule allows the transaction, the first rule should deny it.
@@ -683,7 +732,8 @@ mod test {
             .allow()
             .build();
 
-        let tx = TransactionContext::default().with_sender_address(sender_address);
+        let tx =
+            RequestContext::new(TransactionContext::default().with_sender_address(sender_address));
         let ac = AccessController::new(AccessPolicy::AllowAll, [allow_rule, deny_rule]);
 
         // Even if the second rule denied the transaction, the first rule should allow it.
@@ -707,11 +757,15 @@ mod test {
             .deny()
             .build();
 
-        let tx_sender_1_accepted = TransactionContext::default()
-            .with_sender_address(sender_1)
-            .with_move_call_package_addresses(vec![package_id]);
-        let tx_sender_1_rejected = TransactionContext::default().with_sender_address(sender_1);
-        let tx_sender_2_accepted = TransactionContext::default().with_sender_address(sender_2);
+        let tx_sender_1_accepted = RequestContext::new(
+            TransactionContext::default()
+                .with_sender_address(sender_1)
+                .with_move_call_package_addresses(vec![package_id]),
+        );
+        let tx_sender_1_rejected =
+            RequestContext::new(TransactionContext::default().with_sender_address(sender_1));
+        let tx_sender_2_accepted =
+            RequestContext::new(TransactionContext::default().with_sender_address(sender_2));
 
         let ac = AccessController::new(
             AccessPolicy::AllowAll,
@@ -751,11 +805,13 @@ mod test {
             .build();
         let ac = AccessController::new(AccessPolicy::DenyAll, [rule]);
 
-        let mut huge_budget_tx = TransactionContext::default()
-            .with_sender_address(sender_address)
-            .with_gas_budget(budget)
-            .with_stats_tracker(stats_tracker.clone());
-        huge_budget_tx.transaction_digest = TransactionDigest::new([1; 32]);
+        let mut huge_budget_tx = RequestContext::new(
+            TransactionContext::default()
+                .with_sender_address(sender_address)
+                .with_gas_budget(budget)
+                .with_stats_tracker(stats_tracker.clone()),
+        );
+        huge_budget_tx.transaction.transaction_digest = TransactionDigest::new([1; 32]);
         // The budget is far above the limit, so the request is not allowed.
         assert!(!matches!(
             ac.check_access(&huge_budget_tx).await,
@@ -764,24 +820,28 @@ mod test {
         // Confirming without gas usage refunds the whole charged budget.
         let _ = ac
             .confirm_transaction(
-                TransactionExecutionResult::new(huge_budget_tx.transaction_digest),
-                &stats_tracker,
+                &huge_budget_tx,
+                TransactionExecutionResult::new(huge_budget_tx.transaction.transaction_digest),
             )
             .await;
 
-        let tx_500 = TransactionContext::default()
-            .with_sender_address(sender_address)
-            .with_gas_budget(500)
-            .with_stats_tracker(stats_tracker.clone());
+        let tx_500 = RequestContext::new(
+            TransactionContext::default()
+                .with_sender_address(sender_address)
+                .with_gas_budget(500)
+                .with_stats_tracker(stats_tracker.clone()),
+        );
         let decision = ac.check_access(&tx_500).await;
         assert!(
             matches!(decision, Ok(Decision::Allow)),
             "a budget of 500 should fit if the counter was left at 0, got {decision:?}"
         );
-        let tx_600 = TransactionContext::default()
-            .with_sender_address(sender_address)
-            .with_gas_budget(600)
-            .with_stats_tracker(stats_tracker);
+        let tx_600 = RequestContext::new(
+            TransactionContext::default()
+                .with_sender_address(sender_address)
+                .with_gas_budget(600)
+                .with_stats_tracker(stats_tracker),
+        );
         let decision = ac.check_access(&tx_600).await;
         assert!(
             matches!(decision, Ok(Decision::Deny)),
@@ -799,6 +859,100 @@ mod test {
     #[tokio::test]
     async fn test_gas_usage_counter_unaffected_by_budget_above_i64_max() {
         assert_gas_usage_counter_unaffected_by_budget(i64::MAX as u64 + 1).await;
+    }
+
+    fn gas_limit_rule(sender: Address, limit: u64) -> AccessRuleBuilder {
+        AccessRuleBuilder::new().sender_address(sender).gas_limit(
+            ValueAggregate::new(Duration::from_secs(60), ValueNumber::LessThanOrEqual(limit))
+                .with_count_by(vec![CountBy::SenderAddress]),
+        )
+    }
+
+    fn tx(sender: Address, budget: u64, stats_tracker: &StatsTracker) -> RequestContext {
+        let mut tx = RequestContext::new(
+            TransactionContext::default()
+                .with_sender_address(sender)
+                .with_gas_budget(budget)
+                .with_stats_tracker(stats_tracker.clone()),
+        );
+        tx.transaction.transaction_digest = TransactionDigest::new([budget as u8; 32]);
+        tx
+    }
+
+    // A copy that fails before execution, for example because the other copy
+    // already consumed the reservation, must release only its own charge.
+    #[tokio::test]
+    async fn test_gas_usage_counter_keeps_executed_copy_when_duplicate_fails_first() {
+        let sender = random_address();
+        let stats_tracker = new_stats_tracker_for_testing(random_address()).await;
+        let ac = AccessController::new(
+            AccessPolicy::DenyAll,
+            [gas_limit_rule(sender, 1000).allow().build()],
+        );
+
+        let executed = tx(sender, 400, &stats_tracker);
+        let failed = tx(sender, 400, &stats_tracker);
+        for copy in [&executed, &failed] {
+            assert!(matches!(ac.check_access(copy).await, Ok(Decision::Allow)));
+        }
+
+        // The failed copy is confirmed first, without gas usage.
+        let result = TransactionExecutionResult::new(failed.transaction.transaction_digest);
+        ac.confirm_transaction(&failed, result).await.unwrap();
+        // The executed copy is confirmed with its real gas usage.
+        let result = TransactionExecutionResult::new(executed.transaction.transaction_digest)
+            .with_gas_usage(100);
+        ac.confirm_transaction(&executed, result).await.unwrap();
+
+        // Read the counter back through the limit of 1000. A budget of 900 is
+        // allowed only if the counter is at most 100. It is never confirmed, so
+        // counter = 100 + 900 = 1000, and the next budget of 1 must be denied.
+        // Together the two checks pin the counter to exactly the 100 really used.
+        let decision = ac.check_access(&tx(sender, 900, &stats_tracker)).await;
+        assert!(matches!(decision, Ok(Decision::Allow)), "got {decision:?}");
+        let decision = ac.check_access(&tx(sender, 1, &stats_tracker)).await;
+        assert!(matches!(decision, Ok(Decision::Deny)), "got {decision:?}");
+    }
+
+    // Two throttles on one sender, both charge every request. After execution
+    // both counters must be corrected to the real usage, not only the last one.
+    #[tokio::test]
+    async fn test_gas_usage_counter_refunds_every_throttle() {
+        let sender = random_address();
+        let stats_tracker = new_stats_tracker_for_testing(random_address()).await;
+        let throttle = |limit, window| {
+            AccessRuleBuilder::new()
+                .sender_address(sender)
+                .gas_limit(
+                    ValueAggregate::new(window, ValueNumber::GreaterThan(limit))
+                        .with_count_by(vec![CountBy::SenderAddress]),
+                )
+                .deny()
+                .build()
+        };
+        let ac = AccessController::new(
+            AccessPolicy::AllowAll,
+            [
+                throttle(100, Duration::from_secs(60)),
+                throttle(1000, Duration::from_secs(3600)),
+            ],
+        );
+
+        // A budget of 50 charges both counters, trips neither, and is allowed.
+        let first = tx(sender, 50, &stats_tracker);
+        assert!(matches!(ac.check_access(&first).await, Ok(Decision::Allow)));
+        // It really used 10, so both counters must drop from 50 to 10.
+        let result = TransactionExecutionResult::new(first.transaction.transaction_digest)
+            .with_gas_usage(10);
+        ac.confirm_transaction(&first, result).await.unwrap();
+
+        // Read the 60s counter back through its limit of 100. A budget of 90 is
+        // allowed only if the counter is at most 10. It is never confirmed, so
+        // counter = 10 + 90 = 100, and the next budget of 1 must be denied.
+        let decision = ac.check_access(&tx(sender, 90, &stats_tracker)).await;
+        assert!(matches!(decision, Ok(Decision::Allow)), "got {decision:?}");
+        let decision = ac.check_access(&tx(sender, 1, &stats_tracker)).await;
+        assert!(matches!(decision, Ok(Decision::Deny)), "got {decision:?}");
     }
 
     mod hook {
@@ -847,7 +1001,7 @@ mod test {
             let decision = SkippableDecision::Allow;
             let (mock_server, url) = get_mock_server_ok(&decision).await;
             let hook_rule = AccessRuleBuilder::new().hook(url, None).unwrap().build();
-            let ctx = TransactionContext::default();
+            let ctx = RequestContext::new(TransactionContext::default());
 
             let ac_allow_all = AccessController::new(AccessPolicy::AllowAll, [hook_rule.clone()]);
             let ac_deny_all = AccessController::new(AccessPolicy::DenyAll, [hook_rule.clone()]);
@@ -869,7 +1023,7 @@ mod test {
             let decision = SkippableDecision::Deny;
             let (mock_server, url) = get_mock_server_ok(&decision).await;
             let hook_rule = AccessRuleBuilder::new().hook(url, None).unwrap().build();
-            let ctx = TransactionContext::default();
+            let ctx = RequestContext::new(TransactionContext::default());
 
             let ac_allow_all = AccessController::new(AccessPolicy::AllowAll, [hook_rule.clone()]);
             let ac_deny_all = AccessController::new(AccessPolicy::DenyAll, [hook_rule.clone()]);
@@ -892,7 +1046,7 @@ mod test {
             let hook_rule = AccessRuleBuilder::new().hook(url, None).unwrap().build();
             let allow_rule = AccessRuleBuilder::new().allow().build();
             let deny_rule = AccessRuleBuilder::new().deny().build();
-            let ctx = TransactionContext::default();
+            let ctx = RequestContext::new(TransactionContext::default());
 
             let ac_allow_by_second_rule =
                 AccessController::new(AccessPolicy::DenyAll, [hook_rule.clone(), allow_rule]);
@@ -915,7 +1069,7 @@ mod test {
         async fn test_hook_can_forward_own_error_messages() {
             let (mock_server, url, error) = get_mock_server_bad_request().await;
             let hook_rule = AccessRuleBuilder::new().hook(url, None).unwrap().build();
-            let ctx = TransactionContext::default();
+            let ctx = RequestContext::new(TransactionContext::default());
 
             let ac_error = AccessController::new(AccessPolicy::DenyAll, [hook_rule.clone()]);
             let result = ac_error.check_access(&ctx).await;
@@ -934,7 +1088,7 @@ mod test {
             let hook_rule = AccessRuleBuilder::new().hook(url, None).unwrap().build();
             let allow_rule = AccessRuleBuilder::new().allow().build();
             let deny_rule = AccessRuleBuilder::new().deny().build();
-            let ctx = TransactionContext::default();
+            let ctx = RequestContext::new(TransactionContext::default());
 
             let ac_allow_by_first_rule =
                 AccessController::new(AccessPolicy::DenyAll, [allow_rule, hook_rule.clone()]);
@@ -962,7 +1116,9 @@ mod test {
                 .hook(url, None)
                 .unwrap()
                 .build();
-            let ctx = TransactionContext::default().with_sender_address(sender_address);
+            let ctx = RequestContext::new(
+                TransactionContext::default().with_sender_address(sender_address),
+            );
 
             let ac_blocked_for_sender =
                 AccessController::new(AccessPolicy::DenyAll, [hook_rule.clone()]);
@@ -986,7 +1142,9 @@ mod test {
                 .hook(url, None)
                 .unwrap()
                 .build();
-            let ctx = TransactionContext::default().with_sender_address(blocked_address);
+            let ctx = RequestContext::new(
+                TransactionContext::default().with_sender_address(blocked_address),
+            );
 
             let ac_blocked_for_sender =
                 AccessController::new(AccessPolicy::DenyAll, [hook_rule.clone()]);

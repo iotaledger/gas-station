@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::access_controller::decision::Decision;
-use crate::access_controller::rule::TransactionContext;
+use crate::access_controller::{rule::TransactionContext, RequestContext};
 use crate::access_controller::{AccessController, TransactionExecutionResult};
 use crate::base64::Base64;
 use crate::config::{Config, GasStationConfig};
@@ -295,7 +295,7 @@ async fn execute_tx(
     }
 
     // collect information about request and transaction
-    let ctx = TransactionContext::new(
+    let ctx = RequestContext::new(TransactionContext::new(
         &user_sig,
         &tx,
         server.stats_tracker.clone(),
@@ -304,7 +304,7 @@ async fn execute_tx(
         user_sig_raw,
         request_type,
         headers,
-    );
+    ));
 
     // Spawn a thread to process the request so that it will finish even when client drops the connection.
     tokio::task::spawn(execute_tx_impl(
@@ -333,7 +333,7 @@ async fn execute_tx_impl(
     tx: Transaction,
     user_sig: UserSignature,
     access_controller: Arc<ArcSwap<AccessController>>,
-    ctx: TransactionContext,
+    ctx: RequestContext,
 ) -> (StatusCode, Json<ExecuteTxResponse>) {
     let transaction_digest = tx.digest();
 
@@ -373,10 +373,7 @@ async fn execute_tx_impl(
     if let Some((status_code, error)) = is_rejected {
         let confirmation_result = access_controller
             .load()
-            .confirm_transaction(
-                TransactionExecutionResult::new(transaction_digest),
-                &ctx.stats_tracker,
-            )
+            .confirm_transaction(&ctx, TransactionExecutionResult::new(transaction_digest))
             .await;
         if let Err(err) = confirmation_result {
             error!("Error while canceling transaction in AC: {:?}", err);
@@ -385,12 +382,17 @@ async fn execute_tx_impl(
     }
 
     match gas_station
-        .execute_transaction(ctx.reservation_id, tx, user_sig, ctx.request_type)
+        .execute_transaction(
+            ctx.transaction.reservation_id,
+            tx,
+            user_sig,
+            ctx.transaction.request_type.clone(),
+        )
         .await
     {
         Ok(effects) => {
             info!(
-                ?ctx.reservation_id,
+                ?ctx.transaction.reservation_id,
                 "Successfully executed transaction {:?} with status: {:?}",
                 transaction_digest,
                 effects.as_v1().status
@@ -401,8 +403,8 @@ async fn execute_tx_impl(
             let confirmation_result = access_controller
                 .load()
                 .confirm_transaction(
+                    &ctx,
                     TransactionExecutionResult::new(transaction_digest).with_gas_usage(gas_used),
-                    &ctx.stats_tracker.clone(),
                 )
                 .await;
             // When then confirmation fails, the error shouldn't prevent the user from
@@ -423,10 +425,7 @@ async fn execute_tx_impl(
 
             let confirmation_result = access_controller
                 .load()
-                .confirm_transaction(
-                    TransactionExecutionResult::new(transaction_digest),
-                    &ctx.stats_tracker,
-                )
+                .confirm_transaction(&ctx, TransactionExecutionResult::new(transaction_digest))
                 .await;
             if let Err(err) = confirmation_result {
                 error!("Error while canceling transaction in AC: {:?}", err);

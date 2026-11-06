@@ -12,6 +12,7 @@ use serde_json::{Map, Value};
 use serde_with::skip_serializing_none;
 use tracing::trace;
 use url::Url;
+use uuid::Uuid;
 
 use crate::{
     access_controller::{
@@ -465,6 +466,23 @@ impl RegoInputPayload {
             transaction_data: ctx.transaction_data.clone(),
             http_headers: header_map_to_btree_map(&ctx.headers),
         }
+    }
+}
+
+/// A unique identifier for a request, wrapping a version 4 UUID.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct RequestId(Uuid);
+
+impl RequestId {
+    /// Generates a new, randomly created request identifier (UUID v4).
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+
+impl Default for RequestId {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
