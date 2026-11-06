@@ -5,7 +5,7 @@
 use crate::gas_station::effects_util::gas_object_reference;
 use crate::gas_station::rescan_trigger::RescanGasObjectsTrigger;
 use crate::gas_station_initializer::NEW_COIN_BALANCE_FACTOR_THRESHOLD;
-use crate::iota_client::{IotaClient, GAS_COIN_RESOLVE_ATTEMPTS};
+use crate::iota_client::{ExecutionOutcome, IotaClient, GAS_COIN_RESOLVE_ATTEMPTS};
 use crate::metrics::GasStationCoreMetrics;
 use crate::rpc::rpc_types::{ExecuteTransactionRequestType, ReserveGasRequest};
 use crate::storage::{Storage, MAX_GAS_PER_QUERY};
@@ -85,18 +85,48 @@ impl GasStation {
         Arc::new(pool)
     }
 
+    /// Reserves the maximum spendable amount associated with the requested `gas_budget`.
+    ///
+    /// To guard the daily cap we first book `max_gas_budget` which is the maximum amount
+    /// that a transaction can spend, and then reserve actual coins.
+    ///
+    /// The reserved amount is then updated as the `min(<sum_of_gas_coins>, max_gas_budget)`
+    /// for more accurate book-keeping of the running reservations.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the booking exceeds the daily cap, or if storage cannot reserve the coins.
     pub async fn reserve_gas(
         &self,
         gas_budget: u64,
         duration: Duration,
     ) -> anyhow::Result<(Address, ReservationID, Vec<ObjectReference>)> {
         let cur_time = std::time::Instant::now();
-        self.gas_usage_cap.check_usage().await?;
         let sponsor = self.signer.get_address();
-        let (reservation_id, gas_coins) = self
+        let booking = self
+            .gas_usage_cap
+            .book_reservation(self.max_gas_budget)
+            .await?;
+        let response = self
             .gas_station_store
             .reserve_gas_coins(gas_budget, duration.as_millis() as u64)
-            .await?;
+            .await;
+        let Ok((reservation_id, gas_coins)) = response else {
+            self.gas_usage_cap.cancel_booking(booking).await;
+            return Err(response.expect_err("we should be on the Err branch"));
+        };
+        let spendable_amount = min(
+            gas_coins.iter().map(|coin| coin.balance).sum(),
+            self.max_gas_budget,
+        );
+        self.gas_usage_cap
+            .insert_reservation(
+                reservation_id,
+                booking,
+                spendable_amount,
+                cur_time + duration,
+            )
+            .await;
         let elapsed = cur_time.elapsed().as_millis();
         self.metrics.reserve_gas_latency_ms.observe(elapsed as f64);
         self.metrics
@@ -133,11 +163,22 @@ impl GasStation {
             ?reservation_id,
             "Payment coins in transaction: {:?}", payment
         );
+
+        self.gas_usage_cap
+            .add_execution_request(reservation_id)
+            .await;
         // Consuming the reservation is also what binds it to these coins. Before
         // the read and the dispatch, so a mismatch costs nothing.
-        self.gas_station_store
+        if let Err(e) = self
+            .gas_station_store
             .ready_for_execution(reservation_id, &payment)
-            .await?;
+            .await
+        {
+            self.gas_usage_cap
+                .remove_execution_request(reservation_id)
+                .await;
+            return Err(e);
+        }
         debug!(?reservation_id, "Reservation is ready for execution");
 
         // To avoid read-after-write inconsistency, we apply a trick here to calculate the
@@ -315,7 +356,7 @@ impl GasStation {
     ) -> anyhow::Result<TransactionEffects> {
         let sponsor = tx.as_v1().gas_payment.owner;
         let cur_time = std::time::Instant::now();
-        let sponsor_sig = retry_with_max_attempts!(
+        let sponsor_sig = match retry_with_max_attempts!(
             async {
                 self.signer
                     .sign_transaction(&tx)
@@ -323,7 +364,14 @@ impl GasStation {
                     .tap_err(|err| error!("Failed to sign transaction: {:?}", err))
             },
             3
-        )?;
+        ) {
+            Ok(sponsor_sig) => sponsor_sig,
+            Err(err) => {
+                // Not signed, so not sent: nothing can be charged.
+                self.gas_usage_cap.remove_reservation(reservation_id).await;
+                return Err(err);
+            }
+        };
         let elapsed = cur_time.elapsed().as_millis();
         self.metrics
             .transaction_signing_latency_ms
@@ -335,7 +383,7 @@ impl GasStation {
             signatures: vec![sponsor_sig, user_sig],
         };
         let cur_time = std::time::Instant::now();
-        let effects = self
+        let effects = match self
             .iota_client
             .execute_transaction(
                 signed_tx,
@@ -343,14 +391,46 @@ impl GasStation {
                 request_type,
                 self.checkpoint_inclusion_timeout_ms,
             )
-            .await?;
+            .await
+        {
+            Ok(effects) => effects,
+            Err(err) => {
+                // Without effects the charge is unknown.
+                match err.outcome {
+                    ExecutionOutcome::Executed | ExecutionOutcome::MaybeExecuted => {
+                        let mut usage = self.gas_usage_cap.usage_lock().await;
+                        // We charge the reserved amount which is the maximum that could have been spent.
+                        let reserved_amount =
+                            usage.remove_reservation(reservation_id).unwrap_or_default();
+                        let new_daily_usage =
+                            usage.add(i64::try_from(reserved_amount).unwrap_or(i64::MAX));
+                        drop(usage);
+
+                        self.metrics
+                            .daily_gas_usage
+                            .with_label_values(&[&sponsor.to_string()])
+                            .set(new_daily_usage);
+                    }
+                    ExecutionOutcome::NotExecuted => {
+                        // We charge nothing.
+                        self.gas_usage_cap.remove_reservation(reservation_id).await;
+                    }
+                }
+                return Err(err.error);
+            }
+        };
         debug!(?reservation_id, "Transaction executed");
         let elapsed = cur_time.elapsed().as_millis();
         self.metrics
             .transaction_execution_latency_ms
             .observe(elapsed as f64);
         let net_gas_usage = effects.as_v1().gas_cost_summary.net_gas_usage();
-        let new_daily_usage = self.gas_usage_cap.update_usage(net_gas_usage).await;
+
+        let mut usage = self.gas_usage_cap.usage_lock().await;
+        usage.remove_reservation(reservation_id);
+        let new_daily_usage = usage.add(net_gas_usage);
+        drop(usage);
+
         self.metrics
             .daily_gas_usage
             .with_label_values(&[&sponsor.to_string()])
