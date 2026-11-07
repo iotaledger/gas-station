@@ -43,9 +43,24 @@ once_cell = "1.19.0"
 parking_lot = "0.12.1"
 prometheus = "0.14.0"
 rand = { version = "0.8.5", features = ["small_rng"] }
-redis = { version = "0.24.0", features = [
+# Two separate reasons this line looks the way it does, both about surviving a lost
+# Redis connection (issue #172):
+#
+#   * `tokio-comp`, not `async-std-comp`. `redis::aio::Runtime::locate()` resolves
+#     the runtime at compile time, so with only `async-std-comp` enabled it picks
+#     async-std unconditionally. `ConnectionManager` then spawns its reconnect task
+#     there, where the `tokio-retry` timer it uses finds no Tokio reactor and panics.
+#
+#   * 0.27, not 0.24. In 0.24 a connection that dies while `MultiplexedConnection`
+#     is still setting itself up makes the setup future lose a race against the
+#     connection driver, and the losing arm is `unreachable!()`. That is reachable
+#     on the reconnect path -- measured at roughly one in nine Redis restarts. 0.27
+#     returns an `IoError` there instead, which the manager retries.
+#
+# With `panic = "abort"` either panic is a SIGABRT, so neither is survivable.
+redis = { version = "0.27.6", features = [
   "default",
-  "async-std-comp",
+  "tokio-comp",
   "connection-manager",
 ] }
 reqwest = { version = "0.11.22", features = ["json"] }
