@@ -17,6 +17,7 @@ use iota_sdk_types::{
     TypeTag, Version,
 };
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tracing::{debug, info, warn};
 
@@ -80,6 +81,25 @@ fn rewrite_legacy_fullnode_url(fullnode_url: &str) -> Option<&'static str> {
         .iter()
         .find(|(legacy_host, _)| *legacy_host == host)
         .map(|(_, grpc_url)| *grpc_url)
+}
+
+/// Whether the network can have executed a transaction whose effects
+/// [`IotaClient::execute_transaction`] did not return.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecutionOutcome {
+    /// The fullnode executed the transaction, but its effects cannot be read.
+    Executed,
+    /// An attempt failed in a way that does not exclude execution.
+    MaybeExecuted,
+    /// No attempt reached the network.
+    NotExecuted,
+}
+
+/// An error from [`IotaClient::execute_transaction`].
+#[derive(Debug)]
+pub struct ExecuteTransactionError {
+    pub outcome: ExecutionOutcome,
+    pub error: anyhow::Error,
 }
 
 impl IotaClient {
@@ -387,6 +407,11 @@ impl IotaClient {
     /// `WaitForLocalExecution`; it maps to the gRPC call's
     /// `checkpoint_inclusion_timeout_ms`, which asks the server to wait up to
     /// that long for checkpoint inclusion before responding.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the fullnode does not return the effects. The error tells
+    /// whether the network can have executed the transaction.
     #[allow(clippy::result_large_err)]
     pub async fn execute_transaction(
         &self,
@@ -394,7 +419,7 @@ impl IotaClient {
         max_attempts: usize,
         request_type: Option<ExecuteTransactionRequestType>,
         checkpoint_inclusion_timeout_ms: u64,
-    ) -> anyhow::Result<TransactionEffects> {
+    ) -> Result<TransactionEffects, ExecuteTransactionError> {
         let digest = tx.transaction().digest();
         debug!(?digest, "Executing transaction: {:?}", tx);
         let checkpoint_inclusion_timeout_ms =
@@ -410,6 +435,9 @@ impl IotaClient {
             TransactionField::TRANSACTION_DIGEST,
             TransactionField::EFFECTS,
         ]);
+        // A transient attempt can reach the validators, so it does not
+        // exclude execution.
+        let transient_attempt = AtomicBool::new(false);
         let outcome = retry_with_max_attempts!(
             async {
                 attempt(async {
@@ -422,6 +450,7 @@ impl IotaClient {
                         .await
                 })
                 .await
+                .inspect_err(|_| transient_attempt.store(true, Ordering::Relaxed))
             },
             max_attempts
         );
@@ -431,15 +460,21 @@ impl IotaClient {
                 executed
                     .effects()
                     .and_then(|effects| effects.effects())
-                    .map_err(|err| {
-                        anyhow::anyhow!(
+                    .map_err(|err| ExecuteTransactionError {
+                        outcome: ExecutionOutcome::Executed,
+                        error: anyhow::anyhow!(
                             "missing effects in execute_transaction response for {digest}: {err}"
-                        )
+                        ),
                     })
             }
-            Err(err) => Err(anyhow::anyhow!(
-                "execute_transaction error for {digest}: {err}"
-            )),
+            Err(err) => Err(ExecuteTransactionError {
+                outcome: if transient_attempt.load(Ordering::Relaxed) {
+                    ExecutionOutcome::MaybeExecuted
+                } else {
+                    ExecutionOutcome::NotExecuted
+                },
+                error: anyhow::anyhow!("execute_transaction error for {digest}: {err}"),
+            }),
         };
         debug!(?digest, "Transaction execution response: {:?}", effects);
         effects

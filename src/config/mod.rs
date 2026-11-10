@@ -71,6 +71,7 @@ pub struct GasStationConfig {
     pub fullnode_basic_auth: Option<(String, String)>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub coin_init_config: Option<CoinInitConfig>,
+    /// The maximum net gas, in nanos, that the station can sponsor in a day.
     pub daily_gas_usage_cap: u64,
     #[serde(default = "default_max_gas_budget")]
     pub max_gas_budget: u64,
