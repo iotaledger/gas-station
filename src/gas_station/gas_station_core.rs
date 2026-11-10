@@ -499,7 +499,7 @@ impl GasStation {
         debug!("Trying to release gas coins: {:?}", gas_coins);
         retry_forever!(async {
             self.gas_station_store
-                .add_new_coins(gas_coins.clone())
+                .add_new_coins(gas_coins.clone(), false)
                 .await
                 .tap_err(|err| error!("Failed to call update_gas_coins on storage: {:?}", err))
         })

@@ -51,7 +51,11 @@ pub trait Storage: SetGetStorage + Sync + Send {
         payment: &[ObjectId],
     ) -> anyhow::Result<()>;
 
-    async fn add_new_coins(&self, new_coins: Vec<GasCoin>) -> anyhow::Result<()>;
+    async fn add_new_coins(
+        &self,
+        new_coins: Vec<GasCoin>,
+        runs_in_maintenance_mode: bool,
+    ) -> anyhow::Result<()>;
 
     async fn expire_coins(&self) -> anyhow::Result<Vec<ObjectId>>;
 
@@ -193,7 +197,9 @@ pub async fn connect_storage_for_testing(sponsor_address: Address) -> Arc<dyn St
 
 #[cfg(test)]
 mod tests {
-    use crate::storage::{connect_storage_for_testing, Storage, MAX_GAS_PER_QUERY};
+    use crate::storage::{
+        connect_storage_for_testing, Storage, MAINTENANCE_MODE_ERROR_MESSAGE, MAX_GAS_PER_QUERY,
+    };
     use crate::types::{random_object_ref, GasCoin};
     use iota_sdk_types::{Address, ObjectDigest, ObjectId, ObjectReference, Version};
     use rand::random;
@@ -226,7 +232,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
         for chunk in gas_coins.chunks(5000) {
-            storage.add_new_coins(chunk.to_vec()).await.unwrap();
+            storage.add_new_coins(chunk.to_vec(), false).await.unwrap();
         }
         storage
     }
@@ -236,14 +242,17 @@ mod tests {
         let sponsor = Address::random();
         let storage = connect_storage_for_testing(sponsor).await;
         assert!(!storage.is_initialized().await.unwrap());
-        storage.add_new_coins(vec![]).await.unwrap();
+        storage.add_new_coins(vec![], false).await.unwrap();
         // Still not initialized because we are not adding any coins.
         assert!(!storage.is_initialized().await.unwrap());
         storage
-            .add_new_coins(vec![GasCoin {
-                object_ref: random_object_ref(),
-                balance: 1,
-            }])
+            .add_new_coins(
+                vec![GasCoin {
+                    object_ref: random_object_ref(),
+                    balance: 1,
+                }],
+                false,
+            )
             .await
             .unwrap();
         assert!(storage.is_initialized().await.unwrap());
@@ -316,7 +325,10 @@ mod tests {
                 .ready_for_execution(res_id, &payment_of(&reserved_gas_coins))
                 .await
                 .unwrap();
-            storage.add_new_coins(reserved_gas_coins).await.unwrap();
+            storage
+                .add_new_coins(reserved_gas_coins, false)
+                .await
+                .unwrap();
             assert_coin_count(&storage, 100, 0).await;
         }
     }
@@ -341,7 +353,10 @@ mod tests {
                 .ready_for_execution(res_id, &payment_of(&reserved_gas_coins))
                 .await
                 .unwrap();
-            storage.add_new_coins(reserved_gas_coins).await.unwrap();
+            storage
+                .add_new_coins(reserved_gas_coins, false)
+                .await
+                .unwrap();
         }
         assert_coin_count(&storage, 100, 0).await;
         assert_eq!(storage.get_available_coin_total_balance().await, 0);
@@ -361,7 +376,10 @@ mod tests {
             .unwrap();
 
         reserved_gas_coins.drain(0..50);
-        storage.add_new_coins(reserved_gas_coins).await.unwrap();
+        storage
+            .add_new_coins(reserved_gas_coins, false)
+            .await
+            .unwrap();
         assert_coin_count(&storage, 50, 0).await;
     }
 
@@ -607,5 +625,33 @@ mod tests {
         let (coin_count, total_balance) = storage.init_coin_stats_at_startup().await.unwrap();
         assert_eq!(coin_count, 100);
         assert_eq!(total_balance, 100);
+    }
+
+    // While the maintenance lock is held, only the rescan may write to the
+    // registry. A coin added through add_new_coins is rejected and leaves the
+    // registry unchanged.
+    #[tokio::test]
+    async fn test_add_new_coins_rejected_during_maintenance() {
+        let sponsor = Address::random();
+        let storage = setup(sponsor, vec![1; 10]).await;
+        let coin = GasCoin {
+            object_ref: random_object_ref(),
+            balance: 5,
+        };
+
+        assert!(storage.acquire_maintenance_lock(300).await.unwrap());
+        let result = storage.add_new_coins(vec![coin.clone()], false).await;
+
+        let err = result.expect_err("add_new_coins should fail during maintenance");
+        assert!(
+            err.to_string().contains(MAINTENANCE_MODE_ERROR_MESSAGE),
+            "unexpected error: {err}"
+        );
+        assert_coin_count(&storage, 10, 0).await;
+        assert_eq!(storage.get_available_coin_total_balance().await, 10);
+
+        storage.release_maintenance_lock().await.unwrap();
+        storage.add_new_coins(vec![coin], false).await.unwrap();
+        assert_coin_count(&storage, 11, 0).await;
     }
 }
